@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
+import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
+import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
@@ -52,7 +56,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Main wallet'), findsWidgets);
-    expect(find.text('Ready'), findsOneWidget);
+    expect(find.text('Unavailable'), findsOneWidget);
+    expect(find.text('Ready'), findsNothing);
     expect(find.text('Peercoin testnet'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Add sub-wallet'));
@@ -75,6 +80,36 @@ void main() {
     expect(find.text('Wallet 2'), findsWidgets);
     expect(find.text('Account index'), findsOneWidget);
     expect(find.text('Peercoin mainnet'), findsOneWidget);
+  });
+
+  testWidgets('does not show Ready while ElectrumX is synchronizing', (
+    tester,
+  ) async {
+    final electrumx = _PendingElectrumxService();
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pump();
+
+    expect(find.text('Synchronizing'), findsOneWidget);
+    expect(find.text('Ready'), findsNothing);
+
+    electrumx.emitEmpty(controller.accounts.single.address!);
+    await tester.pump();
+
+    expect(find.text('Ready'), findsOneWidget);
+    expect(find.text('Synchronizing'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await electrumx.close();
   });
 
   testWidgets('uses the desktop sidebar at wide breakpoints', (tester) async {
@@ -142,4 +177,32 @@ class _FakeWalletKeyService implements WalletKeyService {
         '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex',
     privateKeyHex: 'private-key-$accountIndex',
   );
+}
+
+class _PendingElectrumxService implements ElectrumxService {
+  final StreamController<PeercoinElectrumxUtxoSnapshot> _snapshots =
+      StreamController<PeercoinElectrumxUtxoSnapshot>.broadcast();
+
+  @override
+  Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
+    Iterable<String> addresses,
+  ) => _snapshots.stream;
+
+  void emitEmpty(String address) {
+    _snapshots.add(
+      PeercoinElectrumxUtxoSnapshot(address: address, utxos: const []),
+    );
+  }
+
+  @override
+  Future<List<ElectrumxUtxo>> fetchUtxos(String address) async => const [];
+
+  @override
+  Future<String> broadcastTransaction(String rawTransactionHex) async =>
+      'transaction-id';
+
+  @override
+  Future<void> close() async {
+    if (!_snapshots.isClosed) await _snapshots.close();
+  }
 }

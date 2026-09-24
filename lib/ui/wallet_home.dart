@@ -230,7 +230,10 @@ class _WalletDashboard extends StatelessWidget {
                   _MobileWalletPicker(controller: controller),
                   const SizedBox(height: 26),
                 ],
-                _DashboardHeader(account: account),
+                _DashboardHeader(
+                  account: account,
+                  syncStatus: controller.syncStatusFor(account),
+                ),
                 const SizedBox(height: 24),
                 _BalanceCard(account: account, controller: controller),
                 const SizedBox(height: 18),
@@ -323,12 +326,20 @@ class _MobileWalletPicker extends StatelessWidget {
 }
 
 class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader({required this.account});
+  const _DashboardHeader({required this.account, required this.syncStatus});
   final WalletAccount account;
+  final AccountSyncStatus syncStatus;
 
   @override
   Widget build(BuildContext context) {
-    final ready = account.address != null;
+    final ready = syncStatus == AccountSyncStatus.synced;
+    final statusLabel = switch (syncStatus) {
+      AccountSyncStatus.synced => 'Ready',
+      AccountSyncStatus.syncing => 'Synchronizing',
+      AccountSyncStatus.error => 'Sync failed',
+      AccountSyncStatus.unavailable => 'Unavailable',
+    };
+    final statusColor = ready ? AppColors.greenDark : const Color(0xff795400);
     return Wrap(
       spacing: 16,
       runSpacing: 12,
@@ -363,13 +374,13 @@ class _DashboardHeader extends StatelessWidget {
               Icon(
                 ready ? Icons.check_circle_rounded : Icons.schedule_rounded,
                 size: 15,
-                color: ready ? AppColors.greenDark : const Color(0xff9a6b00),
+                color: statusColor,
               ),
               const SizedBox(width: 7),
               Text(
-                ready ? 'Ready' : 'Setup incomplete',
+                statusLabel,
                 style: TextStyle(
-                  color: ready ? AppColors.greenDark : const Color(0xff795400),
+                  color: statusColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),

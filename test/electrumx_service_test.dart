@@ -120,6 +120,36 @@ void main() {
       hasLength(1),
     );
   });
+
+  test(
+    'subscription cancellation completes after the initial snapshot',
+    () async {
+      final connection = _FakeConnection();
+      final service = PeercoinElectrumxService(
+        electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+        connector: (_) async => connection,
+        reconnectDelay: Duration.zero,
+      );
+      addTearDown(service.close);
+      final firstSnapshot = Completer<PeercoinElectrumxUtxoSnapshot>();
+
+      final subscription = service
+          .watchUtxosForAddresses([_mainnetAddress])
+          .listen((snapshot) {
+            if (!firstSnapshot.isCompleted) firstSnapshot.complete(snapshot);
+          }, onError: firstSnapshot.completeError);
+      await firstSnapshot.future;
+      await Future<void>.delayed(Duration.zero);
+
+      await subscription.cancel().timeout(const Duration(seconds: 1));
+      final restartedSnapshot = await service
+          .watchUtxosForAddresses([_mainnetAddress])
+          .first
+          .timeout(const Duration(seconds: 1));
+
+      expect(restartedSnapshot.address, _mainnetAddress);
+    },
+  );
 }
 
 class _FakeConnection implements ElectrumxConnection {

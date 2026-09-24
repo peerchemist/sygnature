@@ -266,54 +266,81 @@ class PeercoinElectrumxService implements ElectrumxService {
     }
 
     while (!_closed) {
-      final updateController = StreamController<_ScriptHashStatus>();
-      final statusSubscriptions = <StreamSubscription<String?>>[];
-      try {
-        final client = await _getPersistentClient();
-        for (final address in uniqueAddresses) {
-          final scriptHash = scriptHashForAddress(
-            address,
-            electrumNetwork.network,
-          );
-          final statusStream = await client.subscribeScriptHash(scriptHash);
-          statusSubscriptions.add(
-            statusStream.listen(
-              (status) => updateController.add(
-                _ScriptHashStatus(address: address, status: status),
-              ),
-              onError: updateController.addError,
-            ),
-          );
-        }
-
-        await for (final update in updateController.stream) {
-          yield PeercoinElectrumxUtxoSnapshot(
-            address: update.address,
-            utxos: update.status == null
-                ? const []
-                : await client.fetchUtxos(update.address),
-          );
-        }
-      } catch (error, stackTrace) {
-        if (_closed) return;
-        AppLogger.warn(
-          'watchUtxosForAddresses stream failed for '
-          '${uniqueAddresses.length} address(es): $error. Reconnecting...',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        yield* Stream<PeercoinElectrumxUtxoSnapshot>.error(error, stackTrace);
-        if (reconnectDelay > Duration.zero) {
-          await Future<void>.delayed(reconnectDelay);
-        }
-      } finally {
-        for (final subscription in statusSubscriptions) {
-          await subscription.cancel();
-        }
-        await updateController.close();
+      yield* _watchUtxosUntilFailure(uniqueAddresses);
+      if (_closed) return;
+      if (reconnectDelay > Duration.zero) {
+        await Future<void>.delayed(reconnectDelay);
       }
     }
   }
+
+  Stream<PeercoinElectrumxUtxoSnapshot> _watchUtxosUntilFailure(
+    List<String> addresses,
+  ) => Stream.multi((output) {
+    final subscriptions = <StreamSubscription<PeercoinElectrumxUtxoSnapshot>>[];
+    Future<void>? stopping;
+
+    Future<void> stop({Object? error, StackTrace? stackTrace}) =>
+        stopping ??= Future<void>(() async {
+          if (error != null) output.addError(error, stackTrace);
+          await Future.wait(subscriptions.map((item) => item.cancel()));
+          await output.close();
+        });
+
+    void fail(Object error, StackTrace stackTrace) {
+      if (stopping != null) return;
+      AppLogger.warn(
+        'watchUtxosForAddresses stream failed for '
+        '${addresses.length} address(es): $error. Reconnecting...',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      unawaited(stop(error: error, stackTrace: stackTrace));
+    }
+
+    Future<void> start() async {
+      try {
+        final client = await _getPersistentClient();
+        for (final address in addresses) {
+          if (stopping != null) return;
+          final statusStream = await client.subscribeScriptHash(
+            scriptHashForAddress(address, electrumNetwork.network),
+          );
+          if (stopping != null) {
+            await statusStream.listen(null).cancel();
+            return;
+          }
+          final subscription = statusStream
+              .asyncMap(
+                (status) async => PeercoinElectrumxUtxoSnapshot(
+                  address: address,
+                  utxos: status == null
+                      ? const []
+                      : await client.fetchUtxos(address),
+                ),
+              )
+              .listen(
+                output.add,
+                onError: fail,
+                onDone: () => _closed
+                    ? unawaited(stop())
+                    : fail(
+                        const ElectrumxException(
+                          'ElectrumX status subscription closed.',
+                        ),
+                        StackTrace.current,
+                      ),
+              );
+          subscriptions.add(subscription);
+        }
+      } catch (error, stackTrace) {
+        fail(error, stackTrace);
+      }
+    }
+
+    output.onCancel = () => stop();
+    unawaited(start());
+  });
 
   @override
   Future<String> broadcastTransaction(String rawTransactionHex) {
@@ -444,13 +471,6 @@ class PeercoinElectrumxService implements ElectrumxService {
       if (server != preferredServer) yield server;
     }
   }
-}
-
-class _ScriptHashStatus {
-  const _ScriptHashStatus({required this.address, required this.status});
-
-  final String address;
-  final String? status;
 }
 
 class _ElectrumxClient {
