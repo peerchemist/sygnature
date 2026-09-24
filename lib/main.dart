@@ -1,14 +1,20 @@
+import 'dart:async';
+
+import 'package:coinlib/coinlib.dart';
 import 'package:flutter/material.dart';
 
 import 'controllers/wallet_controller.dart';
+import 'services/electrumx_service.dart';
+import 'services/peercoin_network_service.dart';
 import 'storage/wallet_repository.dart';
 import 'ui/app_theme.dart';
 import 'ui/onboarding_screen.dart';
 import 'ui/wallet_home.dart';
 import 'ui/widgets/brand_mark.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadCoinlib();
   runApp(const SygnatureApp());
 }
 
@@ -29,9 +35,21 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   static Future<WalletController> _createController() async {
     final repository = await HiveWalletRepository.open();
-    final controller = WalletController(repository);
+    final electrumx = await PeercoinElectrumxService.createForPreset(
+      PeercoinNetworks.mainnet,
+    );
+    final controller = WalletController(
+      repository,
+      electrumxService: electrumx,
+    );
     await controller.load();
     return controller;
+  }
+
+  @override
+  void dispose() {
+    unawaited(_controller.then((controller) => controller.dispose()));
+    super.dispose();
   }
 
   @override

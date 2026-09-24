@@ -16,10 +16,13 @@ Cross-platform Peercoin light-wallet foundation built with Flutter.
 - application identifier `com.github.peerchemist.sygnature` across Linux,
   Android, iOS and macOS;
 - nullable address, derivation path and private-key fields ready for coinlib;
-- one `attachDerivedMaterial` integration seam for persisting coinlib output.
+- one `attachDerivedMaterial` integration seam for persisting coinlib output;
+- ElectrumX 1.4 WebSocket handshake with Peercoin genesis verification;
+- mainnet/testnet backend failover, live UTXO subscriptions and balance display;
+- raw-transaction broadcast support behind the wallet controller.
 
-No addresses or private keys are fabricated. BIP-39/BIP-32 and Peercoin key
-derivation are intentionally deferred to the coinlib integration.
+No addresses or private keys are fabricated. BIP-39/BIP-32 key derivation and
+transaction construction/signing remain separate from the ElectrumX transport.
 
 The wallet will support Taproot BIP-86 accounts only. See [roadmap.md](roadmap.md)
 for the planned integration sequence.
@@ -35,8 +38,9 @@ for the planned integration sequence.
 
 ```text
 lib/
-  controllers/   presentation state and coinlib integration seam
+  controllers/   wallet state, ElectrumX synchronization and coinlib seam
   models/        serializable vault and sub-wallet records
+  services/      ElectrumX transport, Peercoin networks and UI sounds
   storage/       encrypted Hive CE repository
   ui/            onboarding, responsive wallet shell, theme
 ```

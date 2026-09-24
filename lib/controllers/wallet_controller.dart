@@ -1,18 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../models/electrumx_utxo.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_vault.dart';
+import '../services/electrumx_service.dart';
 import '../storage/wallet_repository.dart';
 
-/// Presentation controller only. Coin-specific derivation belongs behind the
-/// future coinlib adapter, not in this class.
+enum AccountSyncStatus { unavailable, syncing, synced, error }
+
 class WalletController extends ChangeNotifier {
-  WalletController(this._repository);
+  WalletController(this._repository, {this.electrumxService});
 
   final WalletRepository _repository;
+  final ElectrumxService? electrumxService;
   WalletVault? _vault;
   int _selectedAccount = 0;
   bool _busy = false;
+  bool _disposed = false;
+  int _syncGeneration = 0;
+  StreamSubscription<PeercoinElectrumxUtxoSnapshot>? _syncSubscription;
+  final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
+  final Map<String, Object> _syncErrorsByAddress = {};
+  final Set<String> _syncingAddresses = {};
 
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
@@ -23,10 +34,40 @@ class WalletController extends ChangeNotifier {
       ? null
       : accounts[_selectedAccount.clamp(0, accounts.length - 1)];
 
+  List<ElectrumxUtxo> utxosFor(WalletAccount account) {
+    final address = account.address;
+    return address == null ? const [] : _utxosByAddress[address] ?? const [];
+  }
+
+  int balanceSatsFor(WalletAccount account) {
+    return utxosFor(account).fold(0, (total, utxo) => total + utxo.value);
+  }
+
+  AccountSyncStatus syncStatusFor(WalletAccount account) {
+    final address = account.address;
+    if (address == null || electrumxService == null) {
+      return AccountSyncStatus.unavailable;
+    }
+    if (_syncErrorsByAddress.containsKey(address)) {
+      return AccountSyncStatus.error;
+    }
+    if (_syncingAddresses.contains(address)) {
+      return AccountSyncStatus.syncing;
+    }
+    return _utxosByAddress.containsKey(address)
+        ? AccountSyncStatus.synced
+        : AccountSyncStatus.syncing;
+  }
+
+  Object? syncErrorFor(WalletAccount account) {
+    final address = account.address;
+    return address == null ? null : _syncErrorsByAddress[address];
+  }
+
   Future<void> load() async {
     _vault = await _repository.load();
     _selectedAccount = 0;
-    notifyListeners();
+    await _restartElectrumxSync();
   }
 
   /// Creates the persistent multi-wallet shell. The first account intentionally
@@ -46,6 +87,7 @@ class WalletController extends ChangeNotifier {
       await _repository.save(vault);
       _vault = vault;
       _selectedAccount = 0;
+      await _restartElectrumxSync();
     });
   }
 
@@ -102,7 +144,18 @@ class WalletController extends ChangeNotifier {
       final next = current.copyWith(accounts: updated);
       await _repository.save(next);
       _vault = next;
+      await _restartElectrumxSync();
     });
+  }
+
+  Future<void> refreshBalances() => _restartElectrumxSync();
+
+  Future<String> broadcastTransaction(String rawTransactionHex) {
+    final service = electrumxService;
+    if (service == null) {
+      throw StateError('ElectrumX is not configured.');
+    }
+    return service.broadcastTransaction(rawTransactionHex);
   }
 
   void selectAccount(int index) {
@@ -116,6 +169,7 @@ class WalletController extends ChangeNotifier {
       await _repository.delete();
       _vault = null;
       _selectedAccount = 0;
+      await _restartElectrumxSync();
     });
   }
 
@@ -136,5 +190,68 @@ class WalletController extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _restartElectrumxSync() async {
+    final generation = ++_syncGeneration;
+    final previousSubscription = _syncSubscription;
+    _syncSubscription = null;
+    await previousSubscription?.cancel();
+    if (_disposed || generation != _syncGeneration) return;
+
+    final addresses = accounts
+        .map((account) => account.address?.trim())
+        .whereType<String>()
+        .where((address) => address.isNotEmpty)
+        .toSet();
+    _utxosByAddress.removeWhere((address, _) => !addresses.contains(address));
+    _syncErrorsByAddress.removeWhere(
+      (address, _) => !addresses.contains(address),
+    );
+    _syncingAddresses
+      ..clear()
+      ..addAll(addresses);
+
+    final service = electrumxService;
+    if (service == null || addresses.isEmpty) {
+      _syncingAddresses.clear();
+      notifyListeners();
+      return;
+    }
+
+    for (final address in addresses) {
+      _syncErrorsByAddress.remove(address);
+    }
+    notifyListeners();
+    _syncSubscription = service
+        .watchUtxosForAddresses(addresses)
+        .listen(
+          (snapshot) {
+            if (_disposed || generation != _syncGeneration) return;
+            _utxosByAddress[snapshot.address] = List.unmodifiable(
+              snapshot.utxos,
+            );
+            _syncingAddresses.remove(snapshot.address);
+            _syncErrorsByAddress.remove(snapshot.address);
+            notifyListeners();
+          },
+          onError: (Object error) {
+            if (_disposed || generation != _syncGeneration) return;
+            for (final address in addresses) {
+              _syncErrorsByAddress[address] = error;
+              _syncingAddresses.remove(address);
+            }
+            notifyListeners();
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _syncGeneration++;
+    unawaited(_syncSubscription?.cancel());
+    unawaited(electrumxService?.close());
+    super.dispose();
   }
 }

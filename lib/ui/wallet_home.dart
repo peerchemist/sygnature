@@ -98,6 +98,8 @@ class _WalletSidebar extends StatelessWidget {
                     final selected = index == controller.selectedAccountIndex;
                     return _WalletListTile(
                       account: account,
+                      balanceSats: controller.balanceSatsFor(account),
+                      syncStatus: controller.syncStatusFor(account),
                       selected: selected,
                       onTap: () => controller.selectAccount(index),
                     );
@@ -124,10 +126,14 @@ class _WalletSidebar extends StatelessWidget {
 class _WalletListTile extends StatelessWidget {
   const _WalletListTile({
     required this.account,
+    required this.balanceSats,
+    required this.syncStatus,
     required this.selected,
     required this.onTap,
   });
   final WalletAccount account;
+  final int balanceSats;
+  final AccountSyncStatus syncStatus;
   final bool selected;
   final VoidCallback onTap;
 
@@ -179,7 +185,9 @@ class _WalletListTile extends StatelessWidget {
                     Text(
                       account.address == null
                           ? 'Pending derivation'
-                          : '0.00 PPC',
+                          : syncStatus == AccountSyncStatus.syncing
+                          ? 'Synchronizing…'
+                          : '${_formatPpc(balanceSats)} PPC',
                       style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
                     ),
                   ],
@@ -223,7 +231,7 @@ class _WalletDashboard extends StatelessWidget {
                 ],
                 _DashboardHeader(account: account),
                 const SizedBox(height: 24),
-                _BalanceCard(account: account),
+                _BalanceCard(account: account, controller: controller),
                 const SizedBox(height: 18),
                 LayoutBuilder(
                   builder: (context, constraints) {
@@ -366,12 +374,16 @@ class _DashboardHeader extends StatelessWidget {
 }
 
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.account});
+  const _BalanceCard({required this.account, required this.controller});
   final WalletAccount account;
+  final WalletController controller;
 
   @override
   Widget build(BuildContext context) {
     final active = account.address != null;
+    final syncStatus = controller.syncStatusFor(account);
+    final balance = controller.balanceSatsFor(account);
+    final utxoCount = controller.utxosFor(account).length;
     return Card(
       child: SizedBox(
         width: double.infinity,
@@ -390,9 +402,9 @@ class _BalanceCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                '0.00 PPC',
-                style: TextStyle(
+              Text(
+                '${_formatPpc(balance)} PPC',
+                style: const TextStyle(
                   color: AppColors.ink,
                   fontSize: 34,
                   fontWeight: FontWeight.w700,
@@ -400,9 +412,42 @@ class _BalanceCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Value unavailable until synchronization',
-                style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+              Row(
+                children: [
+                  if (syncStatus == AccountSyncStatus.syncing) ...[
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 1.8),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      switch (syncStatus) {
+                        AccountSyncStatus.unavailable =>
+                          'Value unavailable until synchronization',
+                        AccountSyncStatus.syncing =>
+                          'Synchronizing with ElectrumX…',
+                        AccountSyncStatus.synced =>
+                          '$utxoCount spendable ${utxoCount == 1 ? 'output' : 'outputs'}',
+                        AccountSyncStatus.error =>
+                          'ElectrumX synchronization failed',
+                      },
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  if (active && syncStatus != AccountSyncStatus.syncing)
+                    IconButton(
+                      tooltip: 'Refresh balance',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: controller.refreshBalances,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                    ),
+                ],
               ),
               const SizedBox(height: 20),
               Wrap(
@@ -432,6 +477,15 @@ class _BalanceCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatPpc(int satoshis) {
+  final whole = satoshis ~/ 1000000;
+  var fraction = (satoshis % 1000000).toString().padLeft(6, '0');
+  while (fraction.length > 2 && fraction.endsWith('0')) {
+    fraction = fraction.substring(0, fraction.length - 1);
+  }
+  return '$whole.$fraction';
 }
 
 class _BalanceAction extends StatelessWidget {
