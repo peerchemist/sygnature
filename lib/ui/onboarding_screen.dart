@@ -681,11 +681,8 @@ class _RecoveryPhrase extends StatelessWidget {
 }
 
 class _SetupRow extends StatelessWidget {
-  const _SetupRow({
-    required this.label,
-    required this.value,
-    this.monospace = false,
-  });
+  const _SetupRow({required this.label, required this.value})
+    : monospace = false;
 
   final String label;
   final String value;
