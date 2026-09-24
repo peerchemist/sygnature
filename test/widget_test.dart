@@ -53,7 +53,6 @@ void main() {
 
     expect(find.text('Main wallet'), findsWidgets);
     expect(find.text('Ready'), findsOneWidget);
-    expect(find.text('Encrypted'), findsOneWidget);
     expect(find.text('Peercoin testnet'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Add sub-wallet'));

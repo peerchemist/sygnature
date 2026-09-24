@@ -628,12 +628,6 @@ class _AccountDetails extends StatelessWidget {
               label: 'Derivation path',
               value: account.derivationPath ?? 'Not available',
             ),
-            const SizedBox(height: 13),
-            _DetailRow(
-              label: 'Private key',
-              value: account.privateKeyHex == null ? 'Not stored' : 'Encrypted',
-              accent: account.privateKeyHex != null,
-            ),
           ],
         ),
       ),
@@ -642,14 +636,9 @@ class _AccountDetails extends StatelessWidget {
 }
 
 class _DetailRow extends StatelessWidget {
-  const _DetailRow({
-    required this.label,
-    required this.value,
-    this.accent = false,
-  });
+  const _DetailRow({required this.label, required this.value});
   final String label;
   final String value;
-  final bool accent;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -663,7 +652,7 @@ class _DetailRow extends StatelessWidget {
           textAlign: TextAlign.end,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: accent ? AppColors.greenDark : AppColors.ink,
+            color: AppColors.ink,
             fontSize: 13,
             fontWeight: FontWeight.w700,
           ),
