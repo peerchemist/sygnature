@@ -119,6 +119,8 @@ void main() {
 
     expect(mainnet.address, startsWith('pc1p'));
     expect(testnet.address, startsWith('tpc1p'));
-    expect(testnet.privateKeyHex, mainnet.privateKeyHex);
+    expect(mainnet.derivationPath, "m/86'/6'/0'/0/0");
+    expect(testnet.derivationPath, "m/86'/1'/0'/0/0");
+    expect(testnet.privateKeyHex, isNot(mainnet.privateKeyHex));
   });
 }

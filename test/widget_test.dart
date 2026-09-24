@@ -44,7 +44,7 @@ void main() {
     expect(find.text('Back up your wallet'), findsOneWidget);
     expect(find.text('Peercoin testnet'), findsOneWidget);
     expect(find.text('1. abandon'), findsOneWidget);
-    expect(find.text("m/86'/6'/0'/0/0"), findsOneWidget);
+    expect(find.text("m/86'/1'/0'/0/0"), findsOneWidget);
 
     await tester.ensureVisible(
       find.text('I wrote down these recovery words in order.'),

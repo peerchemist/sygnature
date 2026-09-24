@@ -6,12 +6,12 @@ class PeercoinNetworkPreset extends WalletNetwork {
   const PeercoinNetworkPreset({
     required super.networkId,
     required super.networkLabel,
+    required super.derivationPathTemplate,
     required this.network,
   }) : super(
          blockchainId: 'peercoin',
          blockchainLabel: 'Peercoin',
          accountTypeLabel: 'Taproot BIP-86',
-         derivationPathTemplate: "m/86'/6'/{account}'/0/0",
        );
 
   final Network network;
@@ -24,12 +24,14 @@ abstract final class PeercoinNetworks {
     networkId: 'mainnet',
     networkLabel: 'mainnet',
     network: Network.mainnet,
+    derivationPathTemplate: "m/86'/6'/{account}'/0/0",
   );
 
   static final testnet = PeercoinNetworkPreset(
     networkId: 'testnet',
     networkLabel: 'testnet',
     network: Network.testnet,
+    derivationPathTemplate: "m/86'/1'/{account}'/0/0",
   );
 
   static final values = List<PeercoinNetworkPreset>.unmodifiable([

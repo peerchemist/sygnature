@@ -31,7 +31,7 @@ void main() {
     expect(restored.accounts[1].name, 'Savings');
     expect(restored.accounts[1].address, 'tpc1paccount1');
     expect(restored.accounts[1].privateKeyHex, 'private-key-1');
-    expect(restored.accounts[1].derivationPath, "m/86'/6'/1'/0/0");
+    expect(restored.accounts[1].derivationPath, "m/86'/1'/1'/0/0");
     expect(restored.vault?.mnemonic, _mnemonic.phrase);
     expect(restored.vault?.languageId, 'english');
     expect(restored.vault?.mnemonicWordCount, 12);
