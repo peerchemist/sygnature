@@ -11,6 +11,8 @@ import 'widgets/brand_mark.dart';
 
 enum _SetupStep { mnemonic, backup }
 
+enum _MnemonicSource { generate, import }
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key, required this.controller});
 
@@ -22,13 +24,16 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   _SetupStep _step = _SetupStep.mnemonic;
+  _MnemonicSource _source = _MnemonicSource.generate;
   late WalletNetwork _network;
+  final TextEditingController _importController = TextEditingController();
   MnemonicLanguage? _language = MnemonicLanguage.byId('english');
   int _wordCount = 12;
   List<String>? _wordlist;
   MnemonicSession? _mnemonic;
   bool _backupConfirmed = false;
   String? _wordlistError;
+  String? _importError;
   String? _creationError;
   bool _loadingWordlist = false;
 
@@ -41,6 +46,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _importController.dispose();
+    super.dispose();
+  }
+
   Future<void> _selectLanguage(MnemonicLanguage? language) async {
     if (language == null) return;
     setState(() {
@@ -49,6 +60,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _mnemonic = null;
       _backupConfirmed = false;
       _wordlistError = null;
+      _importError = null;
       _loadingWordlist = true;
     });
     try {
@@ -95,6 +107,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       });
     } catch (_) {
       setState(() => _wordlistError = 'Unable to generate recovery words.');
+    }
+  }
+
+  void _importMnemonic() {
+    final language = _language;
+    final wordlist = _wordlist;
+    if (language == null || wordlist == null || wordlist.length != 2048) {
+      return;
+    }
+    try {
+      final result = widget.controller.validateMnemonic(
+        mnemonic: _importController.text,
+        language: language,
+        wordlist: wordlist,
+      );
+      if (!result.isValid) {
+        setState(() => _importError = result.error);
+        return;
+      }
+      setState(() {
+        _mnemonic = MnemonicSession(
+          words: result.words,
+          language: language,
+          createdInApp: false,
+        );
+        _backupConfirmed = false;
+        _creationError = null;
+        _importError = null;
+        _step = _SetupStep.backup;
+      });
+    } catch (_) {
+      setState(() {
+        _importError = 'Unable to validate the recovery phrase.';
+      });
     }
   }
 
@@ -155,6 +201,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         child: switch (_step) {
                           _SetupStep.mnemonic => _MnemonicStep(
                             key: const ValueKey('mnemonic'),
+                            source: _source,
                             networks: widget.controller.supportedNetworks,
                             network: _network,
                             language: _language,
@@ -162,6 +209,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             loadedWordCount: _wordlist?.length,
                             loadingWordlist: _loadingWordlist,
                             wordlistError: _wordlistError,
+                            importController: _importController,
+                            importError: _importError,
+                            onSourceChanged: (selection) => setState(() {
+                              _source = selection.first;
+                              _mnemonic = null;
+                              _backupConfirmed = false;
+                              _creationError = null;
+                              _importError = null;
+                            }),
                             onNetworkChanged: (value) {
                               if (value == null) return;
                               setState(() {
@@ -174,8 +230,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               _wordCount = value;
                               _mnemonic = null;
                             }),
+                            onImportChanged: (_) => setState(() {
+                              _importError = null;
+                            }),
                             onContinue: _wordlist?.length == 2048
-                                ? _generateMnemonic
+                                ? _source == _MnemonicSource.generate
+                                      ? _generateMnemonic
+                                      : _importMnemonic
                                 : null,
                           ),
                           _SetupStep.backup => _BackupStep(
@@ -192,6 +253,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               _mnemonic = null;
                               _backupConfirmed = false;
                               _creationError = null;
+                              _importError = null;
                               _step = _SetupStep.mnemonic;
                             }),
                             onCreateWallet: _createWallet,
@@ -213,6 +275,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 class _MnemonicStep extends StatelessWidget {
   const _MnemonicStep({
     super.key,
+    required this.source,
     required this.networks,
     required this.network,
     required this.language,
@@ -220,12 +283,17 @@ class _MnemonicStep extends StatelessWidget {
     required this.loadedWordCount,
     required this.loadingWordlist,
     required this.wordlistError,
+    required this.importController,
+    required this.importError,
+    required this.onSourceChanged,
     required this.onNetworkChanged,
     required this.onLanguageChanged,
     required this.onWordCountChanged,
+    required this.onImportChanged,
     required this.onContinue,
   });
 
+  final _MnemonicSource source;
   final List<WalletNetwork> networks;
   final WalletNetwork network;
   final MnemonicLanguage? language;
@@ -233,9 +301,13 @@ class _MnemonicStep extends StatelessWidget {
   final int? loadedWordCount;
   final bool loadingWordlist;
   final String? wordlistError;
+  final TextEditingController importController;
+  final String? importError;
+  final ValueChanged<Set<_MnemonicSource>> onSourceChanged;
   final ValueChanged<WalletNetwork?> onNetworkChanged;
   final ValueChanged<MnemonicLanguage?> onLanguageChanged;
   final ValueChanged<int> onWordCountChanged;
+  final ValueChanged<String> onImportChanged;
   final VoidCallback? onContinue;
 
   @override
@@ -248,6 +320,22 @@ class _MnemonicStep extends StatelessWidget {
         const Text(
           'Choose a blockchain network and recovery phrase source.',
           style: TextStyle(color: AppColors.inkMuted),
+        ),
+        const SizedBox(height: 20),
+        SegmentedButton<_MnemonicSource>(
+          segments: const [
+            ButtonSegment(
+              value: _MnemonicSource.generate,
+              label: Text('Create new'),
+            ),
+            ButtonSegment(
+              value: _MnemonicSource.import,
+              label: Text('Import existing'),
+            ),
+          ],
+          selected: {source},
+          showSelectedIcon: false,
+          onSelectionChanged: onSourceChanged,
         ),
         const SizedBox(height: 20),
         DropdownButtonFormField<WalletNetwork>(
@@ -280,26 +368,56 @@ class _MnemonicStep extends StatelessWidget {
                   .toList(growable: false),
               onChanged: onLanguageChanged,
             );
-            final wordCountField = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Phrase length',
-                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
-                ),
-                const SizedBox(height: 5),
-                SegmentedButton<int>(
-                  segments: const [
-                    ButtonSegment(value: 12, label: Text('12 words')),
-                    ButtonSegment(value: 24, label: Text('24 words')),
-                  ],
-                  selected: {wordCount},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (selection) =>
-                      onWordCountChanged(selection.first),
-                ),
-              ],
-            );
+            final phraseInput = source == _MnemonicSource.generate
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Phrase length',
+                        style: TextStyle(
+                          color: AppColors.inkMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      SegmentedButton<int>(
+                        segments: const [
+                          ButtonSegment(value: 12, label: Text('12 words')),
+                          ButtonSegment(value: 24, label: Text('24 words')),
+                        ],
+                        selected: {wordCount},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (selection) =>
+                            onWordCountChanged(selection.first),
+                      ),
+                    ],
+                  )
+                : TextField(
+                    key: const Key('recovery-phrase-field'),
+                    controller: importController,
+                    minLines: 3,
+                    maxLines: 5,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    keyboardType: TextInputType.visiblePassword,
+                    decoration: InputDecoration(
+                      labelText: 'Recovery phrase',
+                      alignLabelWithHint: true,
+                      errorText: importError,
+                    ),
+                    onChanged: onImportChanged,
+                  );
+            if (source == _MnemonicSource.import) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  languageField,
+                  const SizedBox(height: 16),
+                  phraseInput,
+                ],
+              );
+            }
+            final wordCountField = phraseInput;
             if (!wide) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,23 +441,33 @@ class _MnemonicStep extends StatelessWidget {
         const SizedBox(height: 16),
         _StatusRow(icon: _statusIcon, label: _statusLabel, color: _statusColor),
         const SizedBox(height: 8),
-        const _StatusRow(
+        _StatusRow(
           icon: Icons.shield_outlined,
-          label: 'Recovery words: generated securely on this device',
+          label: source == _MnemonicSource.generate
+              ? 'Recovery words: generated securely on this device'
+              : 'Recovery phrase: validated locally on this device',
           color: AppColors.greenDark,
         ),
         const SizedBox(height: 12),
-        const Text(
-          'Your phrase will be shown once. Keep it private and store it '
-          'offline.',
-          style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        Text(
+          source == _MnemonicSource.generate
+              ? 'Your phrase will be shown once. Keep it private and store it '
+                    'offline.'
+              : 'The phrase is never sent over the network. Select its '
+                    'wordlist language before continuing.',
+          style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
         ),
         const SizedBox(height: 24),
         Align(
           alignment: Alignment.centerRight,
           child: FilledButton(
+            key: const Key('mnemonic-continue-button'),
             onPressed: onContinue,
-            child: const Text('Generate recovery phrase'),
+            child: Text(
+              source == _MnemonicSource.generate
+                  ? 'Generate recovery phrase'
+                  : 'Review import',
+            ),
           ),
         ),
       ],
@@ -425,21 +553,27 @@ class _BackupStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final generated = mnemonic.createdInApp;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Back up your wallet',
+          generated ? 'Back up your wallet' : 'Review imported wallet',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 6),
-        const Text(
-          'Write these recovery words down in order. Anyone with this phrase '
-          'can spend your funds.',
-          style: TextStyle(color: AppColors.inkMuted),
+        Text(
+          generated
+              ? 'Write these recovery words down in order. Anyone with this '
+                    'phrase can spend your funds.'
+              : 'Confirm the network and derivation settings before importing '
+                    'this recovery phrase.',
+          style: const TextStyle(color: AppColors.inkMuted),
         ),
-        const SizedBox(height: 20),
-        _RecoveryPhrase(words: mnemonic.words),
+        if (generated) ...[
+          const SizedBox(height: 20),
+          _RecoveryPhrase(words: mnemonic.words),
+        ],
         const SizedBox(height: 18),
         Container(
           padding: const EdgeInsets.all(16),
@@ -474,7 +608,11 @@ class _BackupStep extends StatelessWidget {
           onChanged: busy ? null : onBackupConfirmed,
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
-          title: const Text('I wrote down these recovery words in order.'),
+          title: Text(
+            generated
+                ? 'I wrote down these recovery words in order.'
+                : 'I have a secure backup of this recovery phrase.',
+          ),
           subtitle: const Text(
             'The mnemonic and derived spend key will be stored only in the '
             'encrypted local vault.',
@@ -490,13 +628,14 @@ class _BackupStep extends StatelessWidget {
             OutlinedButton(onPressed: onBack, child: const Text('Back')),
             const Spacer(),
             FilledButton(
+              key: const Key('wallet-create-button'),
               onPressed: busy || !backupConfirmed ? null : onCreateWallet,
               child: busy
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Create wallet'),
+                  : Text(generated ? 'Create wallet' : 'Import wallet'),
             ),
           ],
         ),

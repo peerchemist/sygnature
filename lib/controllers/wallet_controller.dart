@@ -121,6 +121,16 @@ class WalletController extends ChangeNotifier {
     wordlist: wordlist,
   );
 
+  MnemonicValidationResult validateMnemonic({
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required List<String> wordlist,
+  }) => _keyService.validateMnemonic(
+    mnemonic: mnemonic,
+    language: language,
+    wordlist: wordlist,
+  );
+
   /// Derives the first account and persists the complete wallet in one
   /// encrypted repository write.
   Future<void> createWallet(

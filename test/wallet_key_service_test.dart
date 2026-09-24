@@ -44,7 +44,47 @@ void main() {
     expect(mnemonic.words, hasLength(24));
     expect(mnemonic.words.take(23), everyElement('abandon'));
     expect(mnemonic.words.last, 'art');
+    expect(
+      service
+          .validateMnemonic(
+            mnemonic: mnemonic.phrase,
+            language: MnemonicLanguage.byId('english'),
+            wordlist: words,
+          )
+          .isValid,
+      isTrue,
+    );
   });
+
+  test('validates an imported BIP-39 recovery phrase', () async {
+    final words = await File('assets/wordlists/english.txt').readAsLines();
+    final result = CoinlibWalletKeyService().validateMnemonic(
+      mnemonic:
+          '  abandon abandon abandon abandon abandon abandon\n'
+          'abandon abandon abandon abandon abandon about  ',
+      language: MnemonicLanguage.byId('english'),
+      wordlist: words,
+    );
+
+    expect(result.isValid, isTrue);
+    expect(result.words, hasLength(12));
+    expect(result.words.last, 'about');
+  });
+
+  test(
+    'rejects an imported recovery phrase with an invalid checksum',
+    () async {
+      final words = await File('assets/wordlists/english.txt').readAsLines();
+      final result = CoinlibWalletKeyService().validateMnemonic(
+        mnemonic: List.filled(12, 'abandon').join(' '),
+        language: MnemonicLanguage.byId('english'),
+        wordlist: words,
+      );
+
+      expect(result.isValid, isFalse);
+      expect(result.error, 'Recovery phrase checksum is invalid.');
+    },
+  );
 
   test('derives the official BIP-39 seed', () {
     final seed = CoinlibWalletKeyService.mnemonicToSeed(

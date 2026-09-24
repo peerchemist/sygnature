@@ -180,6 +180,13 @@ class _FakeWalletKeyService implements WalletKeyService {
   }) => _mnemonic;
 
   @override
+  MnemonicValidationResult validateMnemonic({
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required List<String> wordlist,
+  }) => MnemonicValidationResult.valid(_mnemonic.words);
+
+  @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required String mnemonic,

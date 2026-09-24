@@ -265,6 +265,15 @@ class _FakeWalletKeyService implements WalletKeyService {
   }) => _mnemonic;
 
   @override
+  MnemonicValidationResult validateMnemonic({
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required List<String> wordlist,
+  }) => mnemonic.trim() == _mnemonic.phrase
+      ? MnemonicValidationResult.valid(_mnemonic.words)
+      : const MnemonicValidationResult.invalid('Invalid recovery phrase.');
+
+  @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required String mnemonic,

@@ -31,6 +31,12 @@ abstract interface class WalletKeyService {
     required List<String> wordlist,
   });
 
+  MnemonicValidationResult validateMnemonic({
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required List<String> wordlist,
+  });
+
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required String mnemonic,
@@ -60,18 +66,7 @@ class CoinlibWalletKeyService implements WalletKeyService {
       );
     }
 
-    final normalizedWordlist = wordlist
-        .map((word) => word.trim())
-        .toList(growable: false);
-    if (normalizedWordlist.length != 2048 ||
-        normalizedWordlist.any((word) => word.isEmpty) ||
-        normalizedWordlist.toSet().length != 2048) {
-      throw ArgumentError.value(
-        wordlist,
-        'wordlist',
-        'A BIP-39 wordlist must contain 2,048 unique words.',
-      );
-    }
+    final normalizedWordlist = _normalizeWordlist(wordlist);
 
     final entropy = _entropyGenerator(wordCount == 12 ? 16 : 32);
     final expectedLength = wordCount == 12 ? 16 : 32;
@@ -106,6 +101,67 @@ class CoinlibWalletKeyService implements WalletKeyService {
       words: List.unmodifiable(words),
       language: language,
       createdInApp: true,
+    );
+  }
+
+  @override
+  MnemonicValidationResult validateMnemonic({
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required List<String> wordlist,
+  }) {
+    final normalizedWordlist = _normalizeWordlist(wordlist);
+    final normalizedMnemonic = unicode.nfkd(
+      mnemonic.replaceAll('\u3000', ' ').trim(),
+    );
+    final inputWords = normalizedMnemonic.isEmpty
+        ? const <String>[]
+        : normalizedMnemonic.split(RegExp(r'\s+'));
+    if (inputWords.length != 12 && inputWords.length != 24) {
+      return const MnemonicValidationResult.invalid(
+        'Recovery phrase must contain 12 or 24 words.',
+      );
+    }
+
+    final wordIndexes = <int>[];
+    for (final word in inputWords) {
+      final index = normalizedWordlist.indexOf(word);
+      if (index == -1) {
+        return const MnemonicValidationResult.invalid(
+          'Recovery phrase contains a word outside the selected wordlist.',
+        );
+      }
+      wordIndexes.add(index);
+    }
+
+    final checksumBitCount = inputWords.length ~/ 3;
+    final entropyBitCount = inputWords.length * 11 - checksumBitCount;
+    final entropy = Uint8List(entropyBitCount ~/ 8);
+    var suppliedChecksum = 0;
+    var position = 0;
+    for (final wordIndex in wordIndexes) {
+      for (var bit = 10; bit >= 0; bit--) {
+        final value = (wordIndex >> bit) & 1;
+        if (position < entropyBitCount) {
+          entropy[position ~/ 8] |= value << (7 - position % 8);
+        } else {
+          suppliedChecksum = (suppliedChecksum << 1) | value;
+        }
+        position++;
+      }
+    }
+    final expectedChecksum =
+        sha256Hash(entropy).first >> (8 - checksumBitCount);
+    if (suppliedChecksum != expectedChecksum) {
+      return const MnemonicValidationResult.invalid(
+        'Recovery phrase checksum is invalid.',
+      );
+    }
+
+    return MnemonicValidationResult.valid(
+      wordIndexes
+          .map((index) => normalizedWordlist[index])
+          .toList(growable: false),
     );
   }
 
@@ -154,5 +210,21 @@ class CoinlibWalletKeyService implements WalletKeyService {
       }
     }
     return result;
+  }
+
+  static List<String> _normalizeWordlist(List<String> wordlist) {
+    final normalized = wordlist
+        .map((word) => unicode.nfkd(word.trim()))
+        .toList(growable: false);
+    if (normalized.length != 2048 ||
+        normalized.any((word) => word.isEmpty) ||
+        normalized.toSet().length != 2048) {
+      throw ArgumentError.value(
+        wordlist,
+        'wordlist',
+        'A BIP-39 wordlist must contain 2,048 unique words.',
+      );
+    }
+    return normalized;
   }
 }
