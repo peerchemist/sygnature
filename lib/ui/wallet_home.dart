@@ -210,7 +210,18 @@ class _WalletDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final account = controller.selectedAccount;
-    if (account == null) return const SizedBox.shrink();
+    if (account == null) {
+      return SafeArea(
+        top: !mobile,
+        child: Center(
+          child: FilledButton.icon(
+            onPressed: () => _showAddWallet(context, controller),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add wallet'),
+          ),
+        ),
+      );
+    }
     return SafeArea(
       top: !mobile,
       child: SingleChildScrollView(
@@ -233,6 +244,8 @@ class _WalletDashboard extends StatelessWidget {
                 _DashboardHeader(
                   account: account,
                   syncStatus: controller.syncStatusFor(account),
+                  onDelete: () =>
+                      _confirmDeleteWallet(context, controller, account),
                 ),
                 const SizedBox(height: 24),
                 _BalanceCard(account: account, controller: controller),
@@ -326,9 +339,14 @@ class _MobileWalletPicker extends StatelessWidget {
 }
 
 class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader({required this.account, required this.syncStatus});
+  const _DashboardHeader({
+    required this.account,
+    required this.syncStatus,
+    required this.onDelete,
+  });
   final WalletAccount account;
   final AccountSyncStatus syncStatus;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -360,33 +378,61 @@ class _DashboardHeader extends StatelessWidget {
             ),
           ],
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: ready
-                ? AppColors.green.withValues(alpha: 0.13)
-                : AppColors.warning.withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                ready ? Icons.check_circle_rounded : Icons.schedule_rounded,
-                size: 15,
-                color: statusColor,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: ready
+                    ? AppColors.green.withValues(alpha: 0.13)
+                    : AppColors.warning.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(4),
               ),
-              const SizedBox(width: 7),
-              Text(
-                statusLabel,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    ready ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                    size: 15,
+                    color: statusColor,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              key: const Key('wallet-settings-button'),
+              tooltip: 'Wallet settings',
+              icon: const Icon(
+                Icons.settings_outlined,
+                size: 20,
+                color: AppColors.inkMuted,
+              ),
+              onSelected: (_) => onDelete(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline_rounded, color: Colors.red),
+                      SizedBox(width: 10),
+                      Text('Delete wallet'),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
       ],
     );
@@ -821,6 +867,35 @@ class _AddWalletDialogState extends State<_AddWalletDialog> {
       ],
     );
   }
+}
+
+Future<void> _confirmDeleteWallet(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Delete ${account.name}?'),
+      content: const Text(
+        'This wallet will be removed from this device. Its account index will '
+        'not be reused.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Delete wallet'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) await controller.deleteAccount(account.id);
 }
 
 Future<void> _showSettings(

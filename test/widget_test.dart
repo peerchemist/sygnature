@@ -80,6 +80,19 @@ void main() {
     expect(find.text('Wallet 2'), findsWidgets);
     expect(find.text('Account index'), findsOneWidget);
     expect(find.text('Peercoin mainnet'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Wallet settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete wallet'), findsOneWidget);
+
+    await tester.tap(find.text('Delete wallet'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete Wallet 2?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete wallet'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Wallet 2'), findsNothing);
+    expect(find.text('Main wallet'), findsWidgets);
   });
 
   testWidgets('does not show Ready while ElectrumX is synchronizing', (

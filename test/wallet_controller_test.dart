@@ -149,6 +149,62 @@ void main() {
 
     controller.dispose();
   });
+
+  test('deletes an account without reusing its derivation index', () async {
+    final repository = MemoryWalletRepository();
+    final services = <String, _FakeElectrumxService>{};
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (network) async =>
+          services.putIfAbsent(network.storageId, _FakeElectrumxService.new),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
+
+    await controller.deleteAccount(controller.accounts.last.id);
+
+    expect(controller.accounts.map((account) => account.name), ['Main wallet']);
+    expect(controller.selectedAccount?.name, 'Main wallet');
+    expect(controller.vault?.nextAccountIndex, 2);
+    expect(repository.value?.accounts, hasLength(1));
+    expect(services['peercoin:testnet']!.closed, isTrue);
+    expect(services['peercoin:mainnet']!.watchedAddresses.last, {
+      'pc1paccount0',
+    });
+
+    controller.dispose();
+  });
+
+  test(
+    'deleting the last account keeps the vault and recovery phrase',
+    () async {
+      final repository = MemoryWalletRepository();
+      final controller = WalletController(
+        repository,
+        keyService: _FakeWalletKeyService(),
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+
+      await controller.deleteAccount(controller.accounts.single.id);
+
+      expect(controller.hasWallet, isTrue);
+      expect(controller.accounts, isEmpty);
+      expect(repository.value?.mnemonic, _mnemonic.phrase);
+      expect(repository.value?.nextAccountIndex, 1);
+
+      await controller.addAccount(
+        'Replacement',
+        network: PeercoinNetworks.mainnet,
+      );
+      expect(controller.accounts.single.accountIndex, 1);
+    },
+  );
 }
 
 const _mnemonic = MnemonicSession(

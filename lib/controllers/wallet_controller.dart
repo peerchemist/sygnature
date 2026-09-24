@@ -195,6 +195,38 @@ class WalletController extends ChangeNotifier {
     });
   }
 
+  Future<void> deleteAccount(String accountId) async {
+    final current = _vault;
+    if (current == null) throw StateError('Wallet is not initialized.');
+    final accountIndex = current.accounts.indexWhere(
+      (account) => account.id == accountId,
+    );
+    if (accountIndex == -1) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
+    }
+    final selectedId = selectedAccount?.id;
+    await _guard(() async {
+      final remainingAccounts = [...current.accounts]..removeAt(accountIndex);
+      final next = current.copyWith(accounts: remainingAccounts);
+      await _repository.save(next);
+      _vault = next;
+
+      final previousSelection = remainingAccounts.indexWhere(
+        (account) => account.id == selectedId,
+      );
+      _selectedAccount = remainingAccounts.isEmpty
+          ? 0
+          : previousSelection >= 0
+          ? previousSelection
+          : accountIndex < remainingAccounts.length
+          ? accountIndex
+          : remainingAccounts.length - 1;
+
+      await _restartElectrumxSync();
+      await _closeUnusedNetworkServices();
+    });
+  }
+
   Future<void> refreshBalances() => _restartElectrumxSync();
 
   Future<String> broadcastTransaction(String rawTransactionHex) {
@@ -346,6 +378,18 @@ class WalletController extends ChangeNotifier {
     _networkServices.clear();
     for (final service in services) {
       await service.close();
+    }
+  }
+
+  Future<void> _closeUnusedNetworkServices() async {
+    final activeNetworkIds = accounts
+        .map((account) => networkForAccount(account).storageId)
+        .toSet();
+    final unusedNetworkIds = _networkServices.keys
+        .where((networkId) => !activeNetworkIds.contains(networkId))
+        .toList(growable: false);
+    for (final networkId in unusedNetworkIds) {
+      await _networkServices.remove(networkId)?.close();
     }
   }
 
