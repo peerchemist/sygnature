@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'controllers/wallet_controller.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
+import 'services/ui_sounds.dart';
 import 'storage/wallet_repository.dart';
 import 'ui/app_theme.dart';
 import 'ui/onboarding_screen.dart';
@@ -30,10 +31,11 @@ class SygnatureApp extends StatefulWidget {
 }
 
 class _SygnatureAppState extends State<SygnatureApp> {
+  final UiSounds _sounds = UiSounds();
   late final Future<WalletController> _controller =
       (widget.controllerFactory ?? _createController)();
 
-  static Future<WalletController> _createController() async {
+  Future<WalletController> _createController() async {
     final repository = await HiveWalletRepository.open();
     final controller = WalletController(
       repository,
@@ -41,6 +43,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
           PeercoinElectrumxService.createForPreset(
             PeercoinNetworks.fromWalletNetwork(network),
           ),
+      onCoinsReceived: _sounds.message,
     );
     await controller.load();
     return controller;
@@ -49,6 +52,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void dispose() {
     unawaited(_controller.then((controller) => controller.dispose()));
+    unawaited(_sounds.dispose());
     super.dispose();
   }
 

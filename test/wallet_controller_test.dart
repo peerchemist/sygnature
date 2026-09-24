@@ -41,10 +41,12 @@ void main() {
 
   test('streams ElectrumX UTXOs into account balance state', () async {
     final electrumx = _FakeElectrumxService();
+    var receivedSoundCount = 0;
     final controller = WalletController(
       MemoryWalletRepository(),
       keyService: _FakeWalletKeyService(),
       networkServiceFactory: (_) async => electrumx,
+      onCoinsReceived: () => receivedSoundCount++,
     );
     await controller.load();
     await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
@@ -79,6 +81,30 @@ void main() {
     expect(controller.balanceSatsFor(account), 1750000);
     expect(controller.utxosFor(account), hasLength(2));
     expect(controller.syncStatusFor(account), AccountSyncStatus.synced);
+    expect(receivedSoundCount, 0);
+
+    final receivedSnapshot = PeercoinElectrumxUtxoSnapshot(
+      address: 'pc1paccount0',
+      utxos: [
+        ...controller.utxosFor(account),
+        const ElectrumxUtxo(
+          address: 'pc1paccount0',
+          txHash: 'received',
+          txPos: 0,
+          height: 0,
+          value: 250000,
+        ),
+      ],
+    );
+    electrumx.snapshots.add(receivedSnapshot);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.balanceSatsFor(account), 2000000);
+    expect(receivedSoundCount, 1);
+
+    electrumx.snapshots.add(receivedSnapshot);
+    await Future<void>.delayed(Duration.zero);
+    expect(receivedSoundCount, 1);
 
     electrumx.snapshots.addError(StateError('offline'));
     await Future<void>.delayed(Duration.zero);

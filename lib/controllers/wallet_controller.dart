@@ -22,6 +22,7 @@ class WalletController extends ChangeNotifier {
   WalletController(
     this._repository, {
     this.networkServiceFactory,
+    this.onCoinsReceived,
     WalletKeyService? keyService,
     List<WalletNetwork>? supportedNetworks,
   }) : _keyService = keyService ?? CoinlibWalletKeyService(),
@@ -39,6 +40,7 @@ class WalletController extends ChangeNotifier {
 
   final WalletRepository _repository;
   final WalletNetworkServiceFactory? networkServiceFactory;
+  final VoidCallback? onCoinsReceived;
   final WalletKeyService _keyService;
   final List<WalletNetwork> supportedNetworks;
   final Map<String, ElectrumxService> _networkServices = {};
@@ -343,11 +345,16 @@ class WalletController extends ChangeNotifier {
           .listen(
             (snapshot) {
               if (_disposed || generation != _syncGeneration) return;
+              final previousUtxos = _utxosByAddress[snapshot.address];
+              final balanceIncreased =
+                  previousUtxos != null &&
+                  _balanceOf(snapshot.utxos) > _balanceOf(previousUtxos);
               _utxosByAddress[snapshot.address] = List.unmodifiable(
                 snapshot.utxos,
               );
               _syncingAddresses.remove(snapshot.address);
               _syncErrorsByAddress.remove(snapshot.address);
+              if (balanceIncreased) onCoinsReceived?.call();
               notifyListeners();
             },
             onError: (Object error) {
@@ -398,6 +405,9 @@ class WalletController extends ChangeNotifier {
     _syncErrorsByAddress.clear();
     _syncingAddresses.clear();
   }
+
+  int _balanceOf(Iterable<ElectrumxUtxo> utxos) =>
+      utxos.fold(0, (total, utxo) => total + utxo.value);
 
   @override
   void dispose() {
