@@ -3,18 +3,25 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/electrumx_utxo.dart';
+import '../models/mnemonic_seed.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_vault.dart';
 import '../services/electrumx_service.dart';
+import '../services/wallet_key_service.dart';
 import '../storage/wallet_repository.dart';
 
 enum AccountSyncStatus { unavailable, syncing, synced, error }
 
 class WalletController extends ChangeNotifier {
-  WalletController(this._repository, {this.electrumxService});
+  WalletController(
+    this._repository, {
+    this.electrumxService,
+    WalletKeyService? keyService,
+  }) : _keyService = keyService ?? CoinlibWalletKeyService();
 
   final WalletRepository _repository;
   final ElectrumxService? electrumxService;
+  final WalletKeyService _keyService;
   WalletVault? _vault;
   int _selectedAccount = 0;
   bool _busy = false;
@@ -70,17 +77,29 @@ class WalletController extends ChangeNotifier {
     await _restartElectrumxSync();
   }
 
-  /// Creates the persistent multi-wallet shell. The first account intentionally
-  /// has no address/key until coinlib supplies derived material.
-  Future<void> createWalletShell({
-    String? languageId,
-    int? mnemonicWordCount,
-  }) async {
+  MnemonicSession generateMnemonic({
+    required MnemonicLanguage language,
+    required int wordCount,
+    required List<String> wordlist,
+  }) => _keyService.generateMnemonic(
+    language: language,
+    wordCount: wordCount,
+    wordlist: wordlist,
+  );
+
+  /// Derives the first Taproot account and persists the complete wallet in one
+  /// encrypted repository write.
+  Future<void> createWallet(MnemonicSession mnemonic) async {
     await _guard(() async {
-      final first = _emptyAccount(0, 'Main wallet');
+      final material = _keyService.deriveAccount(
+        mnemonic: mnemonic.phrase,
+        accountIndex: 0,
+      );
+      final first = _derivedAccount(0, 'Main wallet', material);
       final vault = WalletVault(
-        languageId: languageId,
-        mnemonicWordCount: mnemonicWordCount,
+        mnemonic: mnemonic.phrase,
+        languageId: mnemonic.language.id,
+        mnemonicWordCount: mnemonic.words.length,
         accounts: [first],
         nextAccountIndex: 1,
       );
@@ -99,7 +118,18 @@ class WalletController extends ChangeNotifier {
       throw ArgumentError('Wallet name cannot be empty.');
     }
     await _guard(() async {
-      final account = _emptyAccount(current.nextAccountIndex, trimmedName);
+      final index = current.nextAccountIndex;
+      final mnemonic = current.mnemonic;
+      final account = mnemonic == null
+          ? _emptyAccount(index, trimmedName)
+          : _derivedAccount(
+              index,
+              trimmedName,
+              _keyService.deriveAccount(
+                mnemonic: mnemonic,
+                accountIndex: index,
+              ),
+            );
       final next = current.copyWith(
         accounts: [...current.accounts, account],
         nextAccountIndex: current.nextAccountIndex + 1,
@@ -110,11 +140,8 @@ class WalletController extends ChangeNotifier {
     });
   }
 
-  /// Integration seam for coinlib: atomically stores derived public and secret
-  /// material in the already encrypted vault.
-  ///
-  /// TODO(coinlib): accept only Taproot BIP-86 material. Legacy P2PKH, nested
-  /// SegWit and native SegWit accounts are intentionally out of scope.
+  /// Atomically updates key material for migrated wallets that were created
+  /// before automatic BIP-86 derivation was available.
   Future<void> attachDerivedMaterial({
     required int accountIndex,
     required String address,
@@ -177,6 +204,20 @@ class WalletController extends ChangeNotifier {
     id: 'ppc-$index',
     name: name,
     accountIndex: index,
+    createdAt: DateTime.now().toUtc(),
+  );
+
+  WalletAccount _derivedAccount(
+    int index,
+    String name,
+    DerivedWalletMaterial material,
+  ) => WalletAccount(
+    id: 'ppc-$index',
+    name: name,
+    accountIndex: index,
+    derivationPath: material.derivationPath,
+    address: material.address,
+    privateKeyHex: material.privateKeyHex,
     createdAt: DateTime.now().toUtc(),
   );
 

@@ -13,11 +13,12 @@ class WalletAccount {
   final String name;
   final int accountIndex;
 
-  /// Populated by coinlib once key derivation is introduced.
+  /// BIP-86 account metadata derived from the wallet mnemonic.
   final String? derivationPath;
   final String? address;
 
-  /// Kept only inside the encrypted Hive box. Never show this in the UI.
+  /// Taproot-tweaked spend key. Kept only inside the encrypted Hive box and
+  /// never shown in the UI.
   final String? privateKeyHex;
   final DateTime createdAt;
 

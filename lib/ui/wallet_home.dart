@@ -358,7 +358,7 @@ class _DashboardHeader extends StatelessWidget {
               ),
               const SizedBox(width: 7),
               Text(
-                ready ? 'Ready' : 'Pending coinlib',
+                ready ? 'Ready' : 'Setup incomplete',
                 style: TextStyle(
                   color: ready ? AppColors.greenDark : const Color(0xff795400),
                   fontSize: 12,
@@ -613,7 +613,7 @@ class _AccountDetails extends StatelessWidget {
             const SizedBox(height: 13),
             _DetailRow(
               label: 'Derivation path',
-              value: account.derivationPath ?? 'Assigned by coinlib',
+              value: account.derivationPath ?? 'Not available',
             ),
             const SizedBox(height: 13),
             _DetailRow(

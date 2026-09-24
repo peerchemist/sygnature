@@ -11,7 +11,7 @@ class WalletVault {
 
   static const schemaVersion = 1;
 
-  /// Reserved for coinlib-backed setup. Sensitive fields live in encrypted Hive.
+  /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;
   final String? languageId;
   final int? mnemonicWordCount;

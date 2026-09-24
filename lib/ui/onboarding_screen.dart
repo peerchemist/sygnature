@@ -8,7 +8,7 @@ import '../models/mnemonic_seed.dart';
 import 'app_theme.dart';
 import 'widgets/brand_mark.dart';
 
-enum _SetupStep { mnemonic, derivation }
+enum _SetupStep { mnemonic, backup }
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key, required this.controller});
@@ -23,8 +23,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   _SetupStep _step = _SetupStep.mnemonic;
   MnemonicLanguage? _language = MnemonicLanguage.byId('english');
   int _wordCount = 12;
-  int? _loadedWordCount;
+  List<String>? _wordlist;
+  MnemonicSession? _mnemonic;
+  bool _backupConfirmed = false;
   String? _wordlistError;
+  String? _creationError;
   bool _loadingWordlist = false;
 
   @override
@@ -39,22 +42,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (language == null) return;
     setState(() {
       _language = language;
-      _loadedWordCount = null;
+      _wordlist = null;
+      _mnemonic = null;
+      _backupConfirmed = false;
       _wordlistError = null;
       _loadingWordlist = true;
     });
     try {
       final source = await rootBundle.loadString(language.assetPath);
-      final count = const LineSplitter()
+      final words = const LineSplitter()
           .convert(source)
           .where((word) => word.trim().isNotEmpty)
-          .length;
+          .map((word) => word.trim())
+          .toList(growable: false);
       if (!mounted || _language?.id != language.id) return;
       setState(() {
-        _loadedWordCount = count;
+        _wordlist = words;
         _loadingWordlist = false;
-        if (count != 2048) {
-          _wordlistError = 'Expected 2,048 words, found $count.';
+        if (words.length != 2048) {
+          _wordlistError = 'Expected 2,048 words, found ${words.length}.';
         }
       });
     } catch (_) {
@@ -62,6 +68,43 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       setState(() {
         _wordlistError = 'Unable to load the selected wordlist.';
         _loadingWordlist = false;
+      });
+    }
+  }
+
+  void _generateMnemonic() {
+    final language = _language;
+    final wordlist = _wordlist;
+    if (language == null || wordlist == null || wordlist.length != 2048) {
+      return;
+    }
+    try {
+      final mnemonic = widget.controller.generateMnemonic(
+        language: language,
+        wordCount: _wordCount,
+        wordlist: wordlist,
+      );
+      setState(() {
+        _mnemonic = mnemonic;
+        _backupConfirmed = false;
+        _creationError = null;
+        _step = _SetupStep.backup;
+      });
+    } catch (_) {
+      setState(() => _wordlistError = 'Unable to generate recovery words.');
+    }
+  }
+
+  Future<void> _createWallet() async {
+    final mnemonic = _mnemonic;
+    if (mnemonic == null || !_backupConfirmed) return;
+    setState(() => _creationError = null);
+    try {
+      await widget.controller.createWallet(mnemonic);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _creationError = 'Unable to create the wallet. Please try again.';
       });
     }
   }
@@ -111,30 +154,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             key: const ValueKey('mnemonic'),
                             language: _language,
                             wordCount: _wordCount,
-                            loadedWordCount: _loadedWordCount,
+                            loadedWordCount: _wordlist?.length,
                             loadingWordlist: _loadingWordlist,
                             wordlistError: _wordlistError,
                             onLanguageChanged: _selectLanguage,
-                            onWordCountChanged: (value) =>
-                                setState(() => _wordCount = value),
-                            onContinue: _loadedWordCount == 2048
-                                ? () => setState(
-                                    () => _step = _SetupStep.derivation,
-                                  )
+                            onWordCountChanged: (value) => setState(() {
+                              _wordCount = value;
+                              _mnemonic = null;
+                            }),
+                            onContinue: _wordlist?.length == 2048
+                                ? _generateMnemonic
                                 : null,
                           ),
-                          _SetupStep.derivation => _DerivationStep(
-                            key: const ValueKey('derivation'),
-                            language: _language!,
-                            wordCount: _wordCount,
+                          _SetupStep.backup => _BackupStep(
+                            key: const ValueKey('backup'),
+                            mnemonic: _mnemonic!,
                             busy: widget.controller.busy,
-                            onBack: () =>
-                                setState(() => _step = _SetupStep.mnemonic),
-                            onOpenWallet: () =>
-                                widget.controller.createWalletShell(
-                                  languageId: _language!.id,
-                                  mnemonicWordCount: _wordCount,
-                                ),
+                            backupConfirmed: _backupConfirmed,
+                            creationError: _creationError,
+                            onBackupConfirmed: (value) => setState(
+                              () => _backupConfirmed = value ?? false,
+                            ),
+                            onBack: () => setState(() {
+                              _mnemonic = null;
+                              _backupConfirmed = false;
+                              _creationError = null;
+                              _step = _SetupStep.mnemonic;
+                            }),
+                            onCreateWallet: _createWallet,
                           ),
                         },
                       ),
@@ -244,13 +291,14 @@ class _MnemonicStep extends StatelessWidget {
         _StatusRow(icon: _statusIcon, label: _statusLabel, color: _statusColor),
         const SizedBox(height: 8),
         const _StatusRow(
-          icon: Icons.pending_outlined,
-          label: 'Recovery words: pending coinlib integration',
-          color: AppColors.inkMuted,
+          icon: Icons.shield_outlined,
+          label: 'Recovery words: generated securely on this device',
+          color: AppColors.greenDark,
         ),
         const SizedBox(height: 12),
         const Text(
-          'No mnemonic is generated, accepted, or stored in this build.',
+          'Your phrase will be shown once. Keep it private and store it '
+          'offline.',
           style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
         ),
         const SizedBox(height: 24),
@@ -258,7 +306,7 @@ class _MnemonicStep extends StatelessWidget {
           alignment: Alignment.centerRight,
           child: FilledButton(
             onPressed: onContinue,
-            child: const Text('Review derivation'),
+            child: const Text('Generate recovery phrase'),
           ),
         ),
       ],
@@ -320,21 +368,25 @@ class _StatusRow extends StatelessWidget {
   }
 }
 
-class _DerivationStep extends StatelessWidget {
-  const _DerivationStep({
+class _BackupStep extends StatelessWidget {
+  const _BackupStep({
     super.key,
-    required this.language,
-    required this.wordCount,
+    required this.mnemonic,
     required this.busy,
+    required this.backupConfirmed,
+    required this.creationError,
+    required this.onBackupConfirmed,
     required this.onBack,
-    required this.onOpenWallet,
+    required this.onCreateWallet,
   });
 
-  final MnemonicLanguage language;
-  final int wordCount;
+  final MnemonicSession mnemonic;
   final bool busy;
+  final bool backupConfirmed;
+  final String? creationError;
+  final ValueChanged<bool?> onBackupConfirmed;
   final VoidCallback onBack;
-  final VoidCallback onOpenWallet;
+  final Future<void> Function() onCreateWallet;
 
   @override
   Widget build(BuildContext context) {
@@ -342,15 +394,18 @@ class _DerivationStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Taproot account',
+          'Back up your wallet',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 6),
         const Text(
-          'Review the planned BIP-86 configuration.',
+          'Write these recovery words down in order. Anyone with this phrase '
+          'can spend your funds.',
           style: TextStyle(color: AppColors.inkMuted),
         ),
         const SizedBox(height: 20),
+        _RecoveryPhrase(words: mnemonic.words),
+        const SizedBox(height: 18),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -359,9 +414,12 @@ class _DerivationStep extends StatelessWidget {
           ),
           child: Column(
             children: [
-              _SetupRow(label: 'Wordlist', value: language.label),
+              _SetupRow(label: 'Wordlist', value: mnemonic.language.label),
               const Divider(height: 20),
-              _SetupRow(label: 'Phrase', value: '$wordCount words'),
+              _SetupRow(
+                label: 'Phrase',
+                value: '${mnemonic.words.length} words',
+              ),
               const Divider(height: 20),
               const _SetupRow(label: 'Type', value: 'Taproot BIP-86'),
               const Divider(height: 20),
@@ -370,34 +428,88 @@ class _DerivationStep extends StatelessWidget {
                 value: "m/86'/6'/0'/0/0",
                 monospace: true,
               ),
-              const Divider(height: 20),
-              const _SetupRow(
-                label: 'Seed and address',
-                value: 'Pending coinlib',
-              ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        const Text(
-          'This creates only the local account structure. No cryptographic '
-          'material is produced.',
-          style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        CheckboxListTile(
+          value: backupConfirmed,
+          onChanged: busy ? null : onBackupConfirmed,
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('I wrote down these recovery words in order.'),
+          subtitle: const Text(
+            'The mnemonic and derived spend key will be stored only in the '
+            'encrypted local vault.',
+          ),
         ),
+        if (creationError != null) ...[
+          const SizedBox(height: 8),
+          Text(creationError!, style: const TextStyle(color: Colors.red)),
+        ],
         const SizedBox(height: 24),
         Row(
           children: [
             OutlinedButton(onPressed: onBack, child: const Text('Back')),
             const Spacer(),
             FilledButton(
-              onPressed: busy ? null : onOpenWallet,
-              child: const Text('Open wallet shell'),
+              onPressed: busy || !backupConfirmed ? null : onCreateWallet,
+              child: busy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Create wallet'),
             ),
           ],
         ),
       ],
     );
   }
+}
+
+class _RecoveryPhrase extends StatelessWidget {
+  const _RecoveryPhrase({required this.words});
+
+  final List<String> words;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: 'Recovery phrase with ${words.length} words',
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        border: Border.all(color: AppColors.line),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final (index, word) in words.indexed)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: AppColors.line),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text(
+                '${index + 1}. $word',
+                style: const TextStyle(
+                  color: AppColors.ink,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _SetupRow extends StatelessWidget {
