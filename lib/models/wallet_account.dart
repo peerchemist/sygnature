@@ -3,6 +3,8 @@ class WalletAccount {
     required this.id,
     required this.name,
     required this.accountIndex,
+    required this.blockchainId,
+    required this.networkId,
     required this.createdAt,
     this.derivationPath,
     this.address,
@@ -12,6 +14,8 @@ class WalletAccount {
   final String id;
   final String name;
   final int accountIndex;
+  final String blockchainId;
+  final String networkId;
 
   /// BIP-86 account metadata derived from the wallet mnemonic.
   final String? derivationPath;
@@ -26,6 +30,8 @@ class WalletAccount {
     'id': id,
     'name': name,
     'accountIndex': accountIndex,
+    'blockchainId': blockchainId,
+    'networkId': networkId,
     'derivationPath': derivationPath,
     'address': address,
     'privateKeyHex': privateKeyHex,
@@ -36,6 +42,8 @@ class WalletAccount {
     id: json['id']! as String,
     name: json['name']! as String,
     accountIndex: json['accountIndex']! as int,
+    blockchainId: json['blockchainId']! as String,
+    networkId: json['networkId']! as String,
     derivationPath: json['derivationPath'] as String?,
     address: json['address'] as String?,
     privateKeyHex: json['privateKeyHex'] as String?,

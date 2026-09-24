@@ -1,27 +1,34 @@
 import 'package:coinlib/coinlib.dart';
 
-class PeercoinNetworkPreset {
-  const PeercoinNetworkPreset({
-    required this.id,
-    required this.label,
-    required this.network,
-  });
+import '../models/wallet_network.dart';
 
-  final String id;
-  final String label;
+class PeercoinNetworkPreset extends WalletNetwork {
+  const PeercoinNetworkPreset({
+    required super.networkId,
+    required super.networkLabel,
+    required this.network,
+  }) : super(
+         blockchainId: 'peercoin',
+         blockchainLabel: 'Peercoin',
+         accountTypeLabel: 'Taproot BIP-86',
+         derivationPathTemplate: "m/86'/6'/{account}'/0/0",
+       );
+
   final Network network;
+
+  String get id => networkId;
 }
 
 abstract final class PeercoinNetworks {
   static final mainnet = PeercoinNetworkPreset(
-    id: 'mainnet',
-    label: 'Peercoin mainnet',
+    networkId: 'mainnet',
+    networkLabel: 'mainnet',
     network: Network.mainnet,
   );
 
   static final testnet = PeercoinNetworkPreset(
-    id: 'testnet',
-    label: 'Peercoin testnet',
+    networkId: 'testnet',
+    networkLabel: 'testnet',
     network: Network.testnet,
   );
 
@@ -29,4 +36,22 @@ abstract final class PeercoinNetworks {
     mainnet,
     testnet,
   ]);
+
+  static PeercoinNetworkPreset byId(String networkId) => values.firstWhere(
+    (network) => network.networkId == networkId,
+    orElse: () => throw ArgumentError.value(
+      networkId,
+      'networkId',
+      'Unknown Peercoin network.',
+    ),
+  );
+
+  static PeercoinNetworkPreset fromWalletNetwork(WalletNetwork network) {
+    if (network.blockchainId != mainnet.blockchainId) {
+      throw UnsupportedError(
+        'Unsupported blockchain: ${network.blockchainId}.',
+      );
+    }
+    return byId(network.networkId);
+  }
 }

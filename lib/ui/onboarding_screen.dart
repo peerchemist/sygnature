@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/mnemonic_seed.dart';
+import '../models/wallet_network.dart';
 import 'app_theme.dart';
 import 'widgets/brand_mark.dart';
 
@@ -21,6 +22,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   _SetupStep _step = _SetupStep.mnemonic;
+  late WalletNetwork _network;
   MnemonicLanguage? _language = MnemonicLanguage.byId('english');
   int _wordCount = 12;
   List<String>? _wordlist;
@@ -33,6 +35,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    _network = widget.controller.supportedNetworks.first;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _selectLanguage(_language);
     });
@@ -100,7 +103,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (mnemonic == null || !_backupConfirmed) return;
     setState(() => _creationError = null);
     try {
-      await widget.controller.createWallet(mnemonic);
+      await widget.controller.createWallet(mnemonic, network: _network);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -152,11 +155,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         child: switch (_step) {
                           _SetupStep.mnemonic => _MnemonicStep(
                             key: const ValueKey('mnemonic'),
+                            networks: widget.controller.supportedNetworks,
+                            network: _network,
                             language: _language,
                             wordCount: _wordCount,
                             loadedWordCount: _wordlist?.length,
                             loadingWordlist: _loadingWordlist,
                             wordlistError: _wordlistError,
+                            onNetworkChanged: (value) {
+                              if (value == null) return;
+                              setState(() {
+                                _network = value;
+                                _mnemonic = null;
+                              });
+                            },
                             onLanguageChanged: _selectLanguage,
                             onWordCountChanged: (value) => setState(() {
                               _wordCount = value;
@@ -168,6 +180,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                           _SetupStep.backup => _BackupStep(
                             key: const ValueKey('backup'),
+                            network: _network,
                             mnemonic: _mnemonic!,
                             busy: widget.controller.busy,
                             backupConfirmed: _backupConfirmed,
@@ -200,21 +213,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 class _MnemonicStep extends StatelessWidget {
   const _MnemonicStep({
     super.key,
+    required this.networks,
+    required this.network,
     required this.language,
     required this.wordCount,
     required this.loadedWordCount,
     required this.loadingWordlist,
     required this.wordlistError,
+    required this.onNetworkChanged,
     required this.onLanguageChanged,
     required this.onWordCountChanged,
     required this.onContinue,
   });
 
+  final List<WalletNetwork> networks;
+  final WalletNetwork network;
   final MnemonicLanguage? language;
   final int wordCount;
   final int? loadedWordCount;
   final bool loadingWordlist;
   final String? wordlistError;
+  final ValueChanged<WalletNetwork?> onNetworkChanged;
   final ValueChanged<MnemonicLanguage?> onLanguageChanged;
   final ValueChanged<int> onWordCountChanged;
   final VoidCallback? onContinue;
@@ -227,10 +246,24 @@ class _MnemonicStep extends StatelessWidget {
         Text('Mnemonic', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 6),
         const Text(
-          'Configure the recovery phrase source.',
+          'Choose a blockchain network and recovery phrase source.',
           style: TextStyle(color: AppColors.inkMuted),
         ),
         const SizedBox(height: 20),
+        DropdownButtonFormField<WalletNetwork>(
+          key: const Key('wallet-network-field'),
+          initialValue: network,
+          decoration: const InputDecoration(labelText: 'Blockchain network'),
+          isExpanded: true,
+          items: networks
+              .map(
+                (item) =>
+                    DropdownMenuItem(value: item, child: Text(item.label)),
+              )
+              .toList(growable: false),
+          onChanged: onNetworkChanged,
+        ),
+        const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 540;
@@ -371,6 +404,7 @@ class _StatusRow extends StatelessWidget {
 class _BackupStep extends StatelessWidget {
   const _BackupStep({
     super.key,
+    required this.network,
     required this.mnemonic,
     required this.busy,
     required this.backupConfirmed,
@@ -380,6 +414,7 @@ class _BackupStep extends StatelessWidget {
     required this.onCreateWallet,
   });
 
+  final WalletNetwork network;
   final MnemonicSession mnemonic;
   final bool busy;
   final bool backupConfirmed;
@@ -414,6 +449,8 @@ class _BackupStep extends StatelessWidget {
           ),
           child: Column(
             children: [
+              _SetupRow(label: 'Network', value: network.label),
+              const Divider(height: 20),
               _SetupRow(label: 'Wordlist', value: mnemonic.language.label),
               const Divider(height: 20),
               _SetupRow(
@@ -421,11 +458,11 @@ class _BackupStep extends StatelessWidget {
                 value: '${mnemonic.words.length} words',
               ),
               const Divider(height: 20),
-              const _SetupRow(label: 'Type', value: 'Taproot BIP-86'),
+              _SetupRow(label: 'Type', value: network.accountTypeLabel),
               const Divider(height: 20),
-              const _SetupRow(
+              _SetupRow(
                 label: 'Path',
-                value: "m/86'/6'/0'/0/0",
+                value: network.derivationPathForAccount(0),
                 monospace: true,
               ),
             ],

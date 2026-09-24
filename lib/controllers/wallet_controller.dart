@@ -5,29 +5,50 @@ import 'package:flutter/foundation.dart';
 import '../models/electrumx_utxo.dart';
 import '../models/mnemonic_seed.dart';
 import '../models/wallet_account.dart';
+import '../models/wallet_network.dart';
 import '../models/wallet_vault.dart';
 import '../services/electrumx_service.dart';
+import '../services/peercoin_network_service.dart';
 import '../services/wallet_key_service.dart';
 import '../storage/wallet_repository.dart';
 
 enum AccountSyncStatus { unavailable, syncing, synced, error }
 
+typedef WalletNetworkServiceFactory = Future<ElectrumxService?> Function(
+  WalletNetwork network,
+);
+
 class WalletController extends ChangeNotifier {
   WalletController(
     this._repository, {
-    this.electrumxService,
+    this.networkServiceFactory,
     WalletKeyService? keyService,
-  }) : _keyService = keyService ?? CoinlibWalletKeyService();
+    List<WalletNetwork>? supportedNetworks,
+  }) : _keyService = keyService ?? CoinlibWalletKeyService(),
+       supportedNetworks = List.unmodifiable(
+         supportedNetworks ?? PeercoinNetworks.values,
+       ) {
+    if (this.supportedNetworks.isEmpty) {
+      throw ArgumentError.value(
+        supportedNetworks,
+        'supportedNetworks',
+        'At least one blockchain network must be configured.',
+      );
+    }
+  }
 
   final WalletRepository _repository;
-  final ElectrumxService? electrumxService;
+  final WalletNetworkServiceFactory? networkServiceFactory;
   final WalletKeyService _keyService;
+  final List<WalletNetwork> supportedNetworks;
+  final Map<String, ElectrumxService> _networkServices = {};
   WalletVault? _vault;
   int _selectedAccount = 0;
   bool _busy = false;
   bool _disposed = false;
   int _syncGeneration = 0;
-  StreamSubscription<PeercoinElectrumxUtxoSnapshot>? _syncSubscription;
+  final Map<String, StreamSubscription<PeercoinElectrumxUtxoSnapshot>>
+  _syncSubscriptions = {};
   final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
   final Map<String, Object> _syncErrorsByAddress = {};
   final Set<String> _syncingAddresses = {};
@@ -40,6 +61,13 @@ class WalletController extends ChangeNotifier {
   WalletAccount? get selectedAccount => accounts.isEmpty
       ? null
       : accounts[_selectedAccount.clamp(0, accounts.length - 1)];
+  WalletNetwork? get walletNetwork {
+    final account = selectedAccount;
+    return account == null ? null : networkForAccount(account);
+  }
+
+  WalletNetwork networkForAccount(WalletAccount account) =>
+      _networkById(account.blockchainId, account.networkId);
 
   List<ElectrumxUtxo> utxosFor(WalletAccount account) {
     final address = account.address;
@@ -52,7 +80,8 @@ class WalletController extends ChangeNotifier {
 
   AccountSyncStatus syncStatusFor(WalletAccount account) {
     final address = account.address;
-    if (address == null || electrumxService == null) {
+    if (address == null ||
+        !_networkServices.containsKey(networkForAccount(account).storageId)) {
       return AccountSyncStatus.unavailable;
     }
     if (_syncErrorsByAddress.containsKey(address)) {
@@ -74,6 +103,9 @@ class WalletController extends ChangeNotifier {
   Future<void> load() async {
     _vault = await _repository.load();
     _selectedAccount = 0;
+    for (final network in accounts.map(networkForAccount).toSet()) {
+      await _ensureNetworkService(network);
+    }
     await _restartElectrumxSync();
   }
 
@@ -87,15 +119,29 @@ class WalletController extends ChangeNotifier {
     wordlist: wordlist,
   );
 
-  /// Derives the first Taproot account and persists the complete wallet in one
+  /// Derives the first account and persists the complete wallet in one
   /// encrypted repository write.
-  Future<void> createWallet(MnemonicSession mnemonic) async {
+  Future<void> createWallet(
+    MnemonicSession mnemonic, {
+    required WalletNetwork network,
+  }) async {
+    final selectedNetwork = _networkById(
+      network.blockchainId,
+      network.networkId,
+    );
     await _guard(() async {
+      await _ensureNetworkService(selectedNetwork);
       final material = _keyService.deriveAccount(
+        network: selectedNetwork,
         mnemonic: mnemonic.phrase,
         accountIndex: 0,
       );
-      final first = _derivedAccount(0, 'Main wallet', material);
+      final first = _derivedAccount(
+        0,
+        'Main wallet',
+        selectedNetwork,
+        material,
+      );
       final vault = WalletVault(
         mnemonic: mnemonic.phrase,
         languageId: mnemonic.language.id,
@@ -110,26 +156,34 @@ class WalletController extends ChangeNotifier {
     });
   }
 
-  Future<void> addAccount(String name) async {
+  Future<void> addAccount(String name, {required WalletNetwork network}) async {
     final current = _vault;
     if (current == null) throw StateError('Wallet is not initialized.');
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
       throw ArgumentError('Wallet name cannot be empty.');
     }
+    final selectedNetwork = _networkById(
+      network.blockchainId,
+      network.networkId,
+    );
     await _guard(() async {
+      await _ensureNetworkService(selectedNetwork);
       final index = current.nextAccountIndex;
       final mnemonic = current.mnemonic;
-      final account = mnemonic == null
-          ? _emptyAccount(index, trimmedName)
-          : _derivedAccount(
-              index,
-              trimmedName,
-              _keyService.deriveAccount(
-                mnemonic: mnemonic,
-                accountIndex: index,
-              ),
-            );
+      if (mnemonic == null) {
+        throw StateError('Wallet mnemonic is missing.');
+      }
+      final account = _derivedAccount(
+        index,
+        trimmedName,
+        selectedNetwork,
+        _keyService.deriveAccount(
+          network: selectedNetwork,
+          mnemonic: mnemonic,
+          accountIndex: index,
+        ),
+      );
       final next = current.copyWith(
         accounts: [...current.accounts, account],
         nextAccountIndex: current.nextAccountIndex + 1,
@@ -137,40 +191,6 @@ class WalletController extends ChangeNotifier {
       await _repository.save(next);
       _vault = next;
       _selectedAccount = next.accounts.length - 1;
-    });
-  }
-
-  /// Atomically updates key material for migrated wallets that were created
-  /// before automatic BIP-86 derivation was available.
-  Future<void> attachDerivedMaterial({
-    required int accountIndex,
-    required String address,
-    required String privateKeyHex,
-    required String derivationPath,
-  }) async {
-    final current = _vault;
-    if (current == null) throw StateError('Wallet is not initialized.');
-    await _guard(() async {
-      var found = false;
-      final updated = current.accounts
-          .map((account) {
-            if (account.accountIndex != accountIndex) return account;
-            found = true;
-            return WalletAccount(
-              id: account.id,
-              name: account.name,
-              accountIndex: account.accountIndex,
-              derivationPath: derivationPath,
-              address: address,
-              privateKeyHex: privateKeyHex,
-              createdAt: account.createdAt,
-            );
-          })
-          .toList(growable: false);
-      if (!found) throw ArgumentError('Unknown account index: $accountIndex');
-      final next = current.copyWith(accounts: updated);
-      await _repository.save(next);
-      _vault = next;
       await _restartElectrumxSync();
     });
   }
@@ -178,7 +198,10 @@ class WalletController extends ChangeNotifier {
   Future<void> refreshBalances() => _restartElectrumxSync();
 
   Future<String> broadcastTransaction(String rawTransactionHex) {
-    final service = electrumxService;
+    final account = selectedAccount;
+    final service = account == null
+        ? null
+        : _networkServices[networkForAccount(account).storageId];
     if (service == null) {
       throw StateError('ElectrumX is not configured.');
     }
@@ -196,30 +219,46 @@ class WalletController extends ChangeNotifier {
       await _repository.delete();
       _vault = null;
       _selectedAccount = 0;
-      await _restartElectrumxSync();
+      await _closeNetworkServices();
+      _clearSyncState();
     });
   }
-
-  WalletAccount _emptyAccount(int index, String name) => WalletAccount(
-    id: 'ppc-$index',
-    name: name,
-    accountIndex: index,
-    createdAt: DateTime.now().toUtc(),
-  );
 
   WalletAccount _derivedAccount(
     int index,
     String name,
+    WalletNetwork network,
     DerivedWalletMaterial material,
   ) => WalletAccount(
-    id: 'ppc-$index',
+    id: '${network.blockchainId}-${network.networkId}-$index',
     name: name,
     accountIndex: index,
+    blockchainId: network.blockchainId,
+    networkId: network.networkId,
     derivationPath: material.derivationPath,
     address: material.address,
     privateKeyHex: material.privateKeyHex,
     createdAt: DateTime.now().toUtc(),
   );
+
+  WalletNetwork _networkById(String blockchainId, String networkId) {
+    return supportedNetworks.firstWhere(
+      (network) =>
+          network.matches(blockchainId: blockchainId, networkId: networkId),
+      orElse: () => throw StateError(
+        'Unsupported wallet network: $blockchainId:$networkId.',
+      ),
+    );
+  }
+
+  Future<void> _ensureNetworkService(WalletNetwork network) async {
+    final factory = networkServiceFactory;
+    if (factory == null || _networkServices.containsKey(network.storageId)) {
+      return;
+    }
+    final service = await factory(network);
+    if (service != null) _networkServices[network.storageId] = service;
+  }
 
   Future<void> _guard(Future<void> Function() operation) async {
     if (_busy) return;
@@ -235,64 +274,99 @@ class WalletController extends ChangeNotifier {
 
   Future<void> _restartElectrumxSync() async {
     final generation = ++_syncGeneration;
-    final previousSubscription = _syncSubscription;
-    _syncSubscription = null;
-    await previousSubscription?.cancel();
+    await _cancelSyncSubscriptions();
     if (_disposed || generation != _syncGeneration) return;
 
-    final addresses = accounts
-        .map((account) => account.address?.trim())
-        .whereType<String>()
-        .where((address) => address.isNotEmpty)
+    final addressesByNetwork = <String, Set<String>>{};
+    for (final account in accounts) {
+      final address = account.address?.trim();
+      if (address == null || address.isEmpty) continue;
+      final networkId = networkForAccount(account).storageId;
+      addressesByNetwork.putIfAbsent(networkId, () => {}).add(address);
+    }
+    final addresses = addressesByNetwork.values
+        .expand((items) => items)
         .toSet();
     _utxosByAddress.removeWhere((address, _) => !addresses.contains(address));
     _syncErrorsByAddress.removeWhere(
       (address, _) => !addresses.contains(address),
     );
-    _syncingAddresses
-      ..clear()
-      ..addAll(addresses);
+    _syncingAddresses.clear();
 
-    final service = electrumxService;
-    if (service == null || addresses.isEmpty) {
-      _syncingAddresses.clear();
+    if (addresses.isEmpty) {
       notifyListeners();
       return;
     }
 
-    for (final address in addresses) {
-      _syncErrorsByAddress.remove(address);
+    for (final entry in addressesByNetwork.entries) {
+      final service = _networkServices[entry.key];
+      if (service == null) continue;
+      final networkAddresses = entry.value;
+      for (final address in networkAddresses) {
+        _syncErrorsByAddress.remove(address);
+        _syncingAddresses.add(address);
+      }
+      _syncSubscriptions[entry.key] = service
+          .watchUtxosForAddresses(networkAddresses)
+          .listen(
+            (snapshot) {
+              if (_disposed || generation != _syncGeneration) return;
+              _utxosByAddress[snapshot.address] = List.unmodifiable(
+                snapshot.utxos,
+              );
+              _syncingAddresses.remove(snapshot.address);
+              _syncErrorsByAddress.remove(snapshot.address);
+              notifyListeners();
+            },
+            onError: (Object error) {
+              if (_disposed || generation != _syncGeneration) return;
+              for (final address in networkAddresses) {
+                _syncErrorsByAddress[address] = error;
+                _syncingAddresses.remove(address);
+              }
+              notifyListeners();
+            },
+          );
     }
     notifyListeners();
-    _syncSubscription = service
-        .watchUtxosForAddresses(addresses)
-        .listen(
-          (snapshot) {
-            if (_disposed || generation != _syncGeneration) return;
-            _utxosByAddress[snapshot.address] = List.unmodifiable(
-              snapshot.utxos,
-            );
-            _syncingAddresses.remove(snapshot.address);
-            _syncErrorsByAddress.remove(snapshot.address);
-            notifyListeners();
-          },
-          onError: (Object error) {
-            if (_disposed || generation != _syncGeneration) return;
-            for (final address in addresses) {
-              _syncErrorsByAddress[address] = error;
-              _syncingAddresses.remove(address);
-            }
-            notifyListeners();
-          },
-        );
+  }
+
+  Future<void> _cancelSyncSubscriptions() async {
+    final subscriptions = _syncSubscriptions.values.toList(growable: false);
+    _syncSubscriptions.clear();
+    for (final subscription in subscriptions) {
+      await subscription.cancel();
+    }
+  }
+
+  Future<void> _closeNetworkServices() async {
+    _syncGeneration++;
+    await _cancelSyncSubscriptions();
+    final services = _networkServices.values.toList(growable: false);
+    _networkServices.clear();
+    for (final service in services) {
+      await service.close();
+    }
+  }
+
+  void _clearSyncState() {
+    _utxosByAddress.clear();
+    _syncErrorsByAddress.clear();
+    _syncingAddresses.clear();
   }
 
   @override
   void dispose() {
     _disposed = true;
     _syncGeneration++;
-    unawaited(_syncSubscription?.cancel());
-    unawaited(electrumxService?.close());
+    for (final subscription in _syncSubscriptions.values) {
+      unawaited(subscription.cancel());
+    }
+    _syncSubscriptions.clear();
+    for (final service in _networkServices.values) {
+      unawaited(service.close());
+    }
+    _networkServices.clear();
     super.dispose();
   }
 }

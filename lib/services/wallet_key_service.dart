@@ -5,6 +5,8 @@ import 'package:coinlib/coinlib.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unicode;
 
 import '../models/mnemonic_seed.dart';
+import '../models/wallet_network.dart';
+import 'peercoin_network_service.dart';
 
 typedef EntropyGenerator = Uint8List Function(int length);
 
@@ -30,23 +32,18 @@ abstract interface class WalletKeyService {
   });
 
   DerivedWalletMaterial deriveAccount({
+    required WalletNetwork network,
     required String mnemonic,
     required int accountIndex,
   });
 }
 
 class CoinlibWalletKeyService implements WalletKeyService {
-  CoinlibWalletKeyService({
-    Network? network,
-    EntropyGenerator? entropyGenerator,
-  }) : _network = network ?? Network.mainnet,
-       _entropyGenerator = entropyGenerator ?? generateRandomBytes;
+  CoinlibWalletKeyService({EntropyGenerator? entropyGenerator})
+    : _entropyGenerator = entropyGenerator ?? generateRandomBytes;
 
-  static const purpose = 86;
-  static const peercoinCoinType = 6;
   static const _pbkdf2Rounds = 2048;
 
-  final Network _network;
   final EntropyGenerator _entropyGenerator;
 
   @override
@@ -114,20 +111,22 @@ class CoinlibWalletKeyService implements WalletKeyService {
 
   @override
   DerivedWalletMaterial deriveAccount({
+    required WalletNetwork network,
     required String mnemonic,
     required int accountIndex,
   }) {
     if (accountIndex < 0 || accountIndex >= HDKey.hardenBit) {
       throw ArgumentError.value(accountIndex, 'accountIndex');
     }
-    final path = derivationPath(accountIndex);
+    final peercoinNetwork = PeercoinNetworks.fromWalletNetwork(network);
+    final path = network.derivationPathForAccount(accountIndex);
     final seed = mnemonicToSeed(mnemonic);
     final child = HDPrivateKey.fromSeed(seed).derivePath(path);
     final taproot = Taproot(internalKey: child.publicKey);
     final spendKey = taproot.tweakPrivateKey(child.privateKey);
     final address = P2TRAddress.fromTaproot(
       taproot,
-      hrp: _network.bech32Hrp,
+      hrp: peercoinNetwork.network.bech32Hrp,
     ).toString();
 
     return DerivedWalletMaterial(
@@ -136,9 +135,6 @@ class CoinlibWalletKeyService implements WalletKeyService {
       privateKeyHex: bytesToHex(spendKey.data),
     );
   }
-
-  static String derivationPath(int accountIndex) =>
-      "m/$purpose'/$peercoinCoinType'/$accountIndex'/0/0";
 
   /// BIP-39 seed derivation using NFKD normalization and PBKDF2-HMAC-SHA512.
   static Uint8List mnemonicToSeed(String mnemonic, {String passphrase = ''}) {

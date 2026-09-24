@@ -35,12 +35,12 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   static Future<WalletController> _createController() async {
     final repository = await HiveWalletRepository.open();
-    final electrumx = await PeercoinElectrumxService.createForPreset(
-      PeercoinNetworks.mainnet,
-    );
     final controller = WalletController(
       repository,
-      electrumxService: electrumx,
+      networkServiceFactory: (network) =>
+          PeercoinElectrumxService.createForPreset(
+            PeercoinNetworks.fromWalletNetwork(network),
+          ),
     );
     await controller.load();
     return controller;

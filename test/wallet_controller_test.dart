@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
+import 'package:sygnature_ng/models/wallet_network.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
+import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
@@ -17,8 +19,8 @@ void main() {
     );
     await controller.load();
 
-    await controller.createWallet(_mnemonic);
-    await controller.addAccount('Savings');
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
 
     final restored = WalletController(
       repository,
@@ -27,23 +29,25 @@ void main() {
     await restored.load();
     expect(restored.accounts, hasLength(2));
     expect(restored.accounts[1].name, 'Savings');
-    expect(restored.accounts[1].address, 'pc1paccount1');
+    expect(restored.accounts[1].address, 'tpc1paccount1');
     expect(restored.accounts[1].privateKeyHex, 'private-key-1');
     expect(restored.accounts[1].derivationPath, "m/86'/6'/1'/0/0");
     expect(restored.vault?.mnemonic, _mnemonic.phrase);
     expect(restored.vault?.languageId, 'english');
     expect(restored.vault?.mnemonicWordCount, 12);
+    expect(restored.accounts[0].networkId, 'mainnet');
+    expect(restored.accounts[1].networkId, 'testnet');
   });
 
   test('streams ElectrumX UTXOs into account balance state', () async {
     final electrumx = _FakeElectrumxService();
     final controller = WalletController(
       MemoryWalletRepository(),
-      electrumxService: electrumx,
       keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic);
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
 
     final account = controller.accounts.single;
     expect(controller.syncStatusFor(account), AccountSyncStatus.syncing);
@@ -88,6 +92,63 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(electrumx.closed, isTrue);
   });
+
+  test('configures services for the selected blockchain network', () async {
+    final requestedNetworks = <WalletNetwork>[];
+    final repository = MemoryWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (network) async {
+        requestedNetworks.add(network);
+        return null;
+      },
+    );
+    await controller.load();
+
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.testnet);
+
+    expect(requestedNetworks.single.storageId, 'peercoin:testnet');
+    expect(controller.accounts.single.networkId, 'testnet');
+    expect(controller.accounts.single.address, 'tpc1paccount0');
+
+    requestedNetworks.clear();
+    final restored = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (network) async {
+        requestedNetworks.add(network);
+        return null;
+      },
+    );
+    await restored.load();
+    expect(requestedNetworks.single.storageId, 'peercoin:testnet');
+  });
+
+  test('synchronizes accounts on different networks independently', () async {
+    final services = <String, _FakeElectrumxService>{};
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (network) async =>
+          services.putIfAbsent(network.storageId, _FakeElectrumxService.new),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Test wallet',
+      network: PeercoinNetworks.testnet,
+    );
+
+    expect(services['peercoin:mainnet']!.watchedAddresses.last, {
+      'pc1paccount0',
+    });
+    expect(services['peercoin:testnet']!.watchedAddresses.single, {
+      'tpc1paccount1',
+    });
+
+    controller.dispose();
+  });
 }
 
 const _mnemonic = MnemonicSession(
@@ -123,11 +184,13 @@ class _FakeWalletKeyService implements WalletKeyService {
 
   @override
   DerivedWalletMaterial deriveAccount({
+    required WalletNetwork network,
     required String mnemonic,
     required int accountIndex,
   }) => DerivedWalletMaterial(
-    derivationPath: "m/86'/6'/$accountIndex'/0/0",
-    address: 'pc1paccount$accountIndex',
+    derivationPath: network.derivationPathForAccount(accountIndex),
+    address:
+        '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex',
     privateKeyHex: 'private-key-$accountIndex',
   );
 }

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
+import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 
 void main() {
@@ -82,7 +83,11 @@ void main() {
         'abandon abandon abandon abandon abandon abandon abandon abandon '
         'abandon abandon abandon about';
 
-    final material = service.deriveAccount(mnemonic: mnemonic, accountIndex: 0);
+    final material = service.deriveAccount(
+      network: PeercoinNetworks.mainnet,
+      mnemonic: mnemonic,
+      accountIndex: 0,
+    );
     final spendKey = ECPrivateKey.fromHex(material.privateKeyHex);
     final addressFromStoredKey = P2TRAddress.fromTweakedKey(
       spendKey.pubkey,
@@ -93,5 +98,27 @@ void main() {
     expect(material.address, startsWith('pc1p'));
     expect(material.privateKeyHex, hasLength(64));
     expect(addressFromStoredKey, material.address);
+  });
+
+  test('uses the selected Peercoin network address prefix', () {
+    final service = CoinlibWalletKeyService();
+    const mnemonic =
+        'abandon abandon abandon abandon abandon abandon abandon abandon '
+        'abandon abandon abandon about';
+
+    final mainnet = service.deriveAccount(
+      network: PeercoinNetworks.mainnet,
+      mnemonic: mnemonic,
+      accountIndex: 0,
+    );
+    final testnet = service.deriveAccount(
+      network: PeercoinNetworks.testnet,
+      mnemonic: mnemonic,
+      accountIndex: 0,
+    );
+
+    expect(mainnet.address, startsWith('pc1p'));
+    expect(testnet.address, startsWith('tpc1p'));
+    expect(testnet.privateKeyHex, mainnet.privateKeyHex);
   });
 }

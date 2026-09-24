@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_account.dart';
+import '../models/wallet_network.dart';
 import 'app_theme.dart';
 import 'widgets/brand_mark.dart';
 
@@ -242,7 +243,12 @@ class _WalletDashboard extends StatelessWidget {
                         children: [
                           Expanded(child: _AddressCard(account: account)),
                           const SizedBox(width: 18),
-                          Expanded(child: _AccountDetails(account: account)),
+                          Expanded(
+                            child: _AccountDetails(
+                              account: account,
+                              controller: controller,
+                            ),
+                          ),
                         ],
                       );
                     }
@@ -250,7 +256,10 @@ class _WalletDashboard extends StatelessWidget {
                       children: [
                         _AddressCard(account: account),
                         const SizedBox(height: 18),
-                        _AccountDetails(account: account),
+                        _AccountDetails(
+                          account: account,
+                          controller: controller,
+                        ),
                       ],
                     );
                   },
@@ -588,8 +597,9 @@ class _AddressCard extends StatelessWidget {
 }
 
 class _AccountDetails extends StatelessWidget {
-  const _AccountDetails({required this.account});
+  const _AccountDetails({required this.account, required this.controller});
   final WalletAccount account;
+  final WalletController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -604,7 +614,10 @@ class _AccountDetails extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 18),
-            _DetailRow(label: 'Network', value: 'Peercoin mainnet'),
+            _DetailRow(
+              label: 'Network',
+              value: controller.networkForAccount(account).label,
+            ),
             const SizedBox(height: 13),
             _DetailRow(
               label: 'Account index',
@@ -712,19 +725,21 @@ Future<void> _showAddWallet(
   BuildContext context,
   WalletController controller,
 ) async {
-  final name = await showDialog<String>(
+  final result = await showDialog<({String name, WalletNetwork network})>(
     context: context,
     builder: (context) => _AddWalletDialog(
       initialName: 'Wallet ${controller.accounts.length + 1}',
+      networks: controller.supportedNetworks,
     ),
   );
-  if (name == null || name.trim().isEmpty) return;
-  await controller.addAccount(name);
+  if (result == null || result.name.trim().isEmpty) return;
+  await controller.addAccount(result.name, network: result.network);
 }
 
 class _AddWalletDialog extends StatefulWidget {
-  const _AddWalletDialog({required this.initialName});
+  const _AddWalletDialog({required this.initialName, required this.networks});
   final String initialName;
+  final List<WalletNetwork> networks;
 
   @override
   State<_AddWalletDialog> createState() => _AddWalletDialogState();
@@ -734,6 +749,18 @@ class _AddWalletDialogState extends State<_AddWalletDialog> {
   late final TextEditingController _controller = TextEditingController(
     text: widget.initialName,
   );
+  late WalletNetwork _network;
+
+  @override
+  void initState() {
+    super.initState();
+    _network = widget.networks.first;
+  }
+
+  void _submit() {
+    if (_controller.text.trim().isEmpty) return;
+    Navigator.pop(context, (name: _controller.text, network: _network));
+  }
 
   @override
   void dispose() {
@@ -751,15 +778,36 @@ class _AddWalletDialogState extends State<_AddWalletDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'A new account index will be allocated from the same root seed.',
+              'A new account index will be allocated from the same root seed. '
+              'Choose the blockchain network for this account.',
             ),
             const SizedBox(height: 18),
+            DropdownButtonFormField<WalletNetwork>(
+              key: const Key('sub-wallet-network-field'),
+              initialValue: _network,
+              decoration: const InputDecoration(
+                labelText: 'Blockchain network',
+              ),
+              isExpanded: true,
+              items: widget.networks
+                  .map(
+                    (network) => DropdownMenuItem(
+                      value: network,
+                      child: Text(network.label),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (network) {
+                if (network != null) setState(() => _network = network);
+              },
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _controller,
               autofocus: true,
               maxLength: 32,
               decoration: const InputDecoration(labelText: 'Name'),
-              onSubmitted: (value) => Navigator.pop(context, value),
+              onSubmitted: (_) => _submit(),
             ),
           ],
         ),
@@ -769,10 +817,7 @@ class _AddWalletDialogState extends State<_AddWalletDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text),
-          child: const Text('Add'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Add')),
       ],
     );
   }
