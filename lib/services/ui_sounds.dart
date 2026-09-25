@@ -57,13 +57,13 @@ class UiSounds {
         _low!,
         now,
         duration: const Duration(milliseconds: 90),
-        volume: 0.08,
+        volume: 0.18,
       );
       _audio.playScheduled(
         _high!,
         now + const Duration(milliseconds: 65),
         duration: const Duration(milliseconds: 140),
-        volume: 0.07,
+        volume: 0.1575,
       );
     } catch (error, stackTrace) {
       debugPrint('Unable to play UI sound: $error\n$stackTrace');
