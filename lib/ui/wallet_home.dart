@@ -837,7 +837,7 @@ class _SendDialogState extends State<_SendDialog> {
   final _formKey = GlobalKey<FormState>();
   final _destinationController = TextEditingController();
   final _amountController = TextEditingController();
-  late final TextEditingController _feeRateController;
+  late final int _feeRateSatsPerKb;
   WalletTransactionPreview? _preview;
   String? _error;
   bool _submitting = false;
@@ -849,17 +849,42 @@ class _SendDialogState extends State<_SendDialog> {
     final network = PeercoinNetworks.fromWalletNetwork(
       widget.controller.networkForAccount(widget.account),
     );
-    _feeRateController = TextEditingController(
-      text: network.network.feePerKb.toString(),
-    );
+    _feeRateSatsPerKb = network.network.feePerKb.toInt();
+    widget.controller.addListener(_refreshMaximumAvailable);
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_refreshMaximumAvailable);
     _destinationController.dispose();
     _amountController.dispose();
-    _feeRateController.dispose();
     super.dispose();
+  }
+
+  void _refreshMaximumAvailable() {
+    if (mounted) setState(() {});
+  }
+
+  int? _maximumAvailableSats() {
+    final address = widget.account.address;
+    if (address == null) return null;
+
+    try {
+      return widget.controller
+          .prepareSend(
+            WalletSendRequest(
+              destinationAddress: address,
+              amountSats: 0,
+              feeRateSatsPerKb: _feeRateSatsPerKb,
+              maximum: true,
+            ),
+          )
+          .amountSats;
+    } on WalletInsufficientFunds {
+      return 0;
+    } on WalletTransactionFailure {
+      return null;
+    }
   }
 
   void _review() {
@@ -869,7 +894,7 @@ class _SendDialogState extends State<_SendDialog> {
         WalletSendRequest(
           destinationAddress: _destinationController.text,
           amountSats: _maximum ? 0 : _parsePpc(_amountController.text)!,
-          feeRateSatsPerKb: int.parse(_feeRateController.text.trim()),
+          feeRateSatsPerKb: _feeRateSatsPerKb,
           maximum: _maximum,
         ),
       );
@@ -951,76 +976,68 @@ class _SendDialogState extends State<_SendDialog> {
     );
   }
 
-  Widget _buildForm() => Form(
-    key: _formKey,
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextFormField(
-          key: const Key('send-address-field'),
-          controller: _destinationController,
-          autofocus: true,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: const InputDecoration(labelText: 'Taproot address'),
-          validator: (value) => value == null || value.trim().isEmpty
-              ? 'Enter a destination address.'
-              : null,
-        ),
-        const SizedBox(height: 14),
-        TextFormField(
-          key: const Key('send-amount-field'),
-          controller: _amountController,
-          enabled: !_maximum,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Amount',
-            suffixText: 'PPC',
+  Widget _buildForm() {
+    final maximumAvailableSats = _maximumAvailableSats();
+    return Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            key: const Key('send-address-field'),
+            controller: _destinationController,
+            autofocus: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: const InputDecoration(labelText: 'Taproot address'),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Enter a destination address.'
+                : null,
           ),
-          validator: (value) {
-            if (_maximum) return null;
-            final amount = _parsePpc(value ?? '');
-            return amount == null || amount <= 0
-                ? 'Enter a valid amount with up to 6 decimals.'
-                : null;
-          },
-        ),
-        CheckboxListTile(
-          key: const Key('send-maximum-field'),
-          value: _maximum,
-          onChanged: (value) => setState(() {
-            _maximum = value ?? false;
-            _error = null;
-          }),
-          controlAffinity: ListTileControlAffinity.leading,
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Send maximum available'),
-          subtitle: const Text('The network fee is deducted automatically.'),
-        ),
-        const SizedBox(height: 14),
-        TextFormField(
-          key: const Key('send-fee-rate-field'),
-          controller: _feeRateController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Fee rate',
-            suffixText: 'sat/kB',
-          ),
-          validator: (value) {
-            final feeRate = int.tryParse(value?.trim() ?? '');
-            return feeRate == null || feeRate <= 0
-                ? 'Enter a valid fee rate.'
-                : null;
-          },
-        ),
-        if (_error != null) ...[
           const SizedBox(height: 14),
-          Text(_error!, style: const TextStyle(color: Colors.red)),
+          TextFormField(
+            key: const Key('send-amount-field'),
+            controller: _amountController,
+            enabled: !_maximum,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Amount',
+              suffixText: 'PPC',
+            ),
+            validator: (value) {
+              if (_maximum) return null;
+              final amount = _parsePpc(value ?? '');
+              return amount == null || amount <= 0
+                  ? 'Enter a valid amount with up to 6 decimals.'
+                  : null;
+            },
+          ),
+          CheckboxListTile(
+            key: const Key('send-maximum-field'),
+            value: _maximum,
+            onChanged: (value) => setState(() {
+              _maximum = value ?? false;
+              _error = null;
+            }),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Send maximum available'),
+            subtitle: Text(
+              maximumAvailableSats == null
+                  ? 'The network fee is deducted automatically.'
+                  : '${_formatPpc(maximumAvailableSats)} PPC available after '
+                        'the network fee.',
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 14),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
         ],
-      ],
-    ),
-  );
+      ),
+    );
+  }
 
   Widget _buildPreview(WalletTransactionPreview preview) => Column(
     mainAxisSize: MainAxisSize.min,
