@@ -3,11 +3,14 @@ import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_account.dart';
+import '../models/roast_setup.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
+import 'onboarding_screen.dart';
+import 'roast_setup_flow.dart';
 import 'widgets/brand_mark.dart';
 
 class WalletHome extends StatelessWidget {
@@ -40,6 +43,15 @@ class WalletHome extends StatelessWidget {
             surfaceTintColor: Colors.transparent,
             title: const BrandMark(),
             actions: [
+              if (controller.roastSigningRequests.isNotEmpty)
+                Badge(
+                  label: Text('${controller.roastSigningRequests.length}'),
+                  child: IconButton(
+                    tooltip: 'Signing requests',
+                    onPressed: () => _showRoastRequests(context, controller),
+                    icon: const Icon(Icons.approval_outlined),
+                  ),
+                ),
               IconButton(
                 tooltip: 'Settings',
                 onPressed: () => _showSettings(context, controller),
@@ -102,6 +114,7 @@ class _WalletSidebar extends StatelessWidget {
                     final selected = index == controller.selectedAccountIndex;
                     return _WalletListTile(
                       account: account,
+                      setup: controller.setupForAccount(account),
                       balanceSats: controller.balanceSatsFor(account),
                       syncStatus: controller.syncStatusFor(account),
                       selected: selected,
@@ -112,6 +125,17 @@ class _WalletSidebar extends StatelessWidget {
               ),
               const Divider(),
               const SizedBox(height: 10),
+              if (controller.roastSigningRequests.isNotEmpty)
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                  leading: Badge(
+                    label: Text('${controller.roastSigningRequests.length}'),
+                    child: const Icon(Icons.approval_outlined, size: 21),
+                  ),
+                  title: const Text('Signing requests'),
+                  trailing: const Icon(Icons.chevron_right_rounded, size: 19),
+                  onTap: () => _showRoastRequests(context, controller),
+                ),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                 leading: const Icon(Icons.settings_outlined, size: 21),
@@ -130,12 +154,14 @@ class _WalletSidebar extends StatelessWidget {
 class _WalletListTile extends StatelessWidget {
   const _WalletListTile({
     required this.account,
+    required this.setup,
     required this.balanceSats,
     required this.syncStatus,
     required this.selected,
     required this.onTap,
   });
   final WalletAccount account;
+  final RoastSetup? setup;
   final int balanceSats;
   final AccountSyncStatus syncStatus;
   final bool selected;
@@ -187,7 +213,9 @@ class _WalletListTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      account.address == null
+                      setup != null && !setup!.isActive
+                          ? 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
+                          : account.address == null
                           ? 'Pending derivation'
                           : syncStatus == AccountSyncStatus.syncing
                           ? 'Synchronizing…'
@@ -225,6 +253,7 @@ class _WalletDashboard extends StatelessWidget {
         ),
       );
     }
+    final roastSetup = controller.setupForAccount(account);
     return SafeArea(
       top: !mobile,
       child: SingleChildScrollView(
@@ -252,41 +281,50 @@ class _WalletDashboard extends StatelessWidget {
                   onRename: () =>
                       _showRenameWallet(context, controller, account),
                 ),
-                const SizedBox(height: 24),
-                _BalanceCard(account: account, controller: controller),
-                const SizedBox(height: 18),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final twoColumns = constraints.maxWidth >= 680;
-                    if (twoColumns) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: _AddressCard(account: account)),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            child: _AccountDetails(
-                              account: account,
-                              controller: controller,
+                if (roastSetup != null) ...[
+                  const SizedBox(height: 18),
+                  RoastSetupPanel(controller: controller, account: account),
+                ],
+                if (roastSetup != null && !roastSetup.isActive) ...[
+                  const SizedBox(height: 18),
+                  const _PendingRoastNotice(),
+                ] else ...[
+                  const SizedBox(height: 24),
+                  _BalanceCard(account: account, controller: controller),
+                  const SizedBox(height: 18),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final twoColumns = constraints.maxWidth >= 680;
+                      if (twoColumns) {
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: _AddressCard(account: account)),
+                            const SizedBox(width: 18),
+                            Expanded(
+                              child: _AccountDetails(
+                                account: account,
+                                controller: controller,
+                              ),
                             ),
+                          ],
+                        );
+                      }
+                      return Column(
+                        children: [
+                          _AddressCard(account: account),
+                          const SizedBox(height: 18),
+                          _AccountDetails(
+                            account: account,
+                            controller: controller,
                           ),
                         ],
                       );
-                    }
-                    return Column(
-                      children: [
-                        _AddressCard(account: account),
-                        const SizedBox(height: 18),
-                        _AccountDetails(
-                          account: account,
-                          controller: controller,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 18),
-                const _ActivityCard(),
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                  const _ActivityCard(),
+                ],
               ],
             ),
           ),
@@ -341,6 +379,25 @@ class _MobileWalletPicker extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PendingRoastNotice extends StatelessWidget {
+  const _PendingRoastNotice();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: AppColors.warning.withValues(alpha: 0.13),
+      border: Border.all(color: AppColors.warning),
+      borderRadius: BorderRadius.circular(4),
+    ),
+    child: const Text(
+      'Balance and receive address appear after every participant approves '
+      'the DKG ceremony and the shared key is stored.',
+    ),
+  );
 }
 
 class _DashboardHeader extends StatelessWidget {
@@ -429,8 +486,8 @@ class _DashboardHeader extends StatelessWidget {
                 if (value == 'rename') onRename();
                 if (value == 'delete') onDelete();
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
+              itemBuilder: (_) => [
+                const PopupMenuItem(
                   value: 'rename',
                   child: Row(
                     children: [
@@ -440,16 +497,17 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline_rounded, color: Colors.red),
-                      SizedBox(width: 10),
-                      Text('Delete wallet'),
-                    ],
+                if (account.keySource == WalletKeySource.personal)
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline_rounded, color: Colors.red),
+                        SizedBox(width: 10),
+                        Text('Delete wallet'),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ],
@@ -713,6 +771,13 @@ class _AccountDetails extends StatelessWidget {
             ),
             const SizedBox(height: 13),
             _DetailRow(
+              label: 'Key source',
+              value: account.keySource == WalletKeySource.personal
+                  ? 'Personal BIP-86 seed'
+                  : 'ROAST threshold key',
+            ),
+            const SizedBox(height: 13),
+            _DetailRow(
               label: 'Account index',
               value: '${account.accountIndex}',
             ),
@@ -936,43 +1001,52 @@ class _SendDialogState extends State<_SendDialog> {
   @override
   Widget build(BuildContext context) {
     final preview = _preview;
-    return AlertDialog(
-      title: Text(preview == null ? 'Send Peercoin' : 'Review transaction'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          child: preview == null ? _buildForm() : _buildPreview(preview),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _submitting
-              ? null
-              : preview == null
-              ? () => Navigator.pop(context)
-              : () => setState(() {
-                  _preview = null;
-                  _error = null;
-                }),
-          child: Text(preview == null ? 'Cancel' : 'Back'),
-        ),
-        FilledButton(
-          key: Key(
-            preview == null ? 'send-review-button' : 'send-confirm-button',
+    return PopScope(
+      canPop: !_submitting,
+      child: AlertDialog(
+        title: Text(preview == null ? 'Send Peercoin' : 'Review transaction'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: SingleChildScrollView(
+            child: preview == null ? _buildForm() : _buildPreview(preview),
           ),
-          onPressed: _submitting
-              ? null
-              : preview == null
-              ? _review
-              : _send,
-          child: _submitting
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(preview == null ? 'Review' : 'Sign and send'),
         ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: _submitting
+                ? null
+                : preview == null
+                ? () => Navigator.pop(context)
+                : () => setState(() {
+                    _preview = null;
+                    _error = null;
+                  }),
+            child: Text(preview == null ? 'Cancel' : 'Back'),
+          ),
+          FilledButton(
+            key: Key(
+              preview == null ? 'send-review-button' : 'send-confirm-button',
+            ),
+            onPressed: _submitting
+                ? null
+                : preview == null
+                ? _review
+                : _send,
+            child: _submitting
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(
+                    preview == null
+                        ? 'Review'
+                        : widget.account.keySource == WalletKeySource.roast
+                        ? 'Request approvals'
+                        : 'Sign and send',
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1043,8 +1117,11 @@ class _SendDialogState extends State<_SendDialog> {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Text(
-        'Confirm every detail before the private key signs this transaction.',
+      Text(
+        widget.account.keySource == WalletKeySource.roast
+            ? 'Confirm every detail. The transaction will be sent to the '
+                  'other participants for threshold approval.'
+            : 'Confirm every detail before the private key signs this transaction.',
         style: TextStyle(color: AppColors.inkMuted),
       ),
       const SizedBox(height: 18),
@@ -1138,6 +1215,57 @@ Future<void> _showAddWallet(
   BuildContext context,
   WalletController controller,
 ) async {
+  final type = await showDialog<WalletKeySource>(
+    context: context,
+    builder: (dialogContext) => SimpleDialog(
+      title: const Text('Add wallet'),
+      children: [
+        SimpleDialogOption(
+          onPressed: () =>
+              Navigator.pop(dialogContext, WalletKeySource.personal),
+          child: const ListTile(
+            leading: Icon(Icons.key_outlined),
+            title: Text('Personal wallet'),
+            subtitle: Text('Use the local BIP-39 recovery phrase.'),
+          ),
+        ),
+        SimpleDialogOption(
+          onPressed: controller.roastAvailable
+              ? () => Navigator.pop(dialogContext, WalletKeySource.roast)
+              : null,
+          child: ListTile(
+            leading: const Icon(Icons.hub_outlined),
+            title: const Text('ROAST shared wallet'),
+            subtitle: Text(
+              controller.roastAvailable
+                  ? 'Create or join a threshold signing setup.'
+                  : 'Available on Linux and macOS.',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  if (!context.mounted) return;
+  if (type == WalletKeySource.roast) {
+    await showRoastSetupCreation(context, controller);
+    return;
+  }
+  if (type != WalletKeySource.personal) return;
+  if (controller.vault?.mnemonic == null) {
+    if (context.mounted) {
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (routeContext) => OnboardingScreen(
+            controller: controller,
+            onCreated: () => Navigator.pop(routeContext),
+          ),
+        ),
+      );
+    }
+    return;
+  }
   final result = await showDialog<({String name, WalletNetwork network})>(
     context: context,
     builder: (context) => _AddWalletDialog(
@@ -1333,38 +1461,209 @@ Future<void> _showSettings(
                 color: Colors.red,
               ),
               title: const Text('Remove local wallet'),
-              subtitle: const Text('Delete vault data from this device.'),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (dialogContext) => AlertDialog(
-                    title: const Text('Remove wallet?'),
-                    content: const Text(
-                      'This deletes the local vault. Recovery verification will '
-                      'be added with the coinlib integration.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialogContext, false),
-                        child: const Text('Cancel'),
-                      ),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.red,
+              subtitle: Text(
+                controller.roastSetups.isEmpty
+                    ? 'Delete vault data from this device.'
+                    : 'Unavailable while this device holds ROAST setups. '
+                          'Signer removal requires a separate recovery-safe '
+                          'workflow.',
+              ),
+              onTap: controller.roastSetups.isNotEmpty
+                  ? null
+                  : () async {
+                      Navigator.pop(sheetContext);
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('Remove wallet?'),
+                          content: const Text(
+                            'This deletes the local vault. Recovery verification will '
+                            'be added with the coinlib integration.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
+                              child: const Text('Remove'),
+                            ),
+                          ],
                         ),
-                        onPressed: () => Navigator.pop(dialogContext, true),
-                        child: const Text('Remove'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed == true) await controller.resetWallet();
-              },
+                      );
+                      if (confirmed == true) await controller.resetWallet();
+                    },
             ),
           ],
         ),
       ),
     ),
   );
+}
+
+Future<void> _showRoastRequests(
+  BuildContext context,
+  WalletController controller,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Signing requests',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Approve only after verifying every recipient, amount, fee '
+                  'and change output.',
+                  style: TextStyle(color: AppColors.inkMuted),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: controller.roastSigningRequests.isEmpty
+                      ? const Center(child: Text('No pending requests.'))
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: controller.roastSigningRequests.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) => _RoastRequestCard(
+                            controller: controller,
+                            item: controller.roastSigningRequests[index],
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class const _RoastRequestCard({
+  required final WalletController controller,
+  required final RoastSigningInboxItem item,
+}) extends StatefulWidget {
+  @override
+  State<_RoastRequestCard> createState() => _RoastRequestCardState();
+}
+
+class _RoastRequestCardState extends State<_RoastRequestCard> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _perform(Future<void> Function() operation) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await operation();
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final request = widget.item.request;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.item.walletName,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Requested by ${_shortTransactionId(request.creator)} · '
+              '${request.masterGroupKeys.length} input(s)',
+              style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+            ),
+            const Divider(height: 24),
+            for (var i = 0; i < request.outputs.length; i++)
+              _TransactionRow(
+                label:
+                    widget.controller.isRoastChangeOutput(
+                      widget.item,
+                      request.outputs[i],
+                    )
+                    ? 'Change'
+                    : 'Recipient',
+                value:
+                    '${widget.controller.roastOutputAddress(widget.item, request.outputs[i])}\n'
+                    '${_formatPpc(request.outputs[i].valueSats)} PPC',
+                monospace: true,
+              ),
+            _TransactionRow(
+              label: 'Network fee',
+              value: '${_formatPpc(request.feeSats)} PPC',
+            ),
+            _TransactionRow(
+              label: 'Expires',
+              value: request.expiry.toLocal().toString(),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => _perform(
+                          () => widget.controller.rejectRoastSigningRequest(
+                            widget.item,
+                          ),
+                        ),
+                  child: const Text('Reject'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _busy
+                      ? null
+                      : () => _perform(
+                          () => widget.controller.acceptRoastSigningRequest(
+                            widget.item,
+                          ),
+                        ),
+                  child: Text(_busy ? 'Submitting…' : 'Approve and sign'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

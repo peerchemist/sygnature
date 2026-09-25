@@ -1,3 +1,5 @@
+enum WalletKeySource { personal, roast }
+
 class WalletAccount {
   const WalletAccount({
     required this.id,
@@ -6,6 +8,9 @@ class WalletAccount {
     required this.blockchainId,
     required this.networkId,
     required this.createdAt,
+    this.keySource = WalletKeySource.personal,
+    this.sourceId,
+    this.keyId,
     this.derivationPath,
     this.address,
     this.privateKeyHex,
@@ -16,6 +21,9 @@ class WalletAccount {
   final int accountIndex;
   final String blockchainId;
   final String networkId;
+  final WalletKeySource keySource;
+  final String? sourceId;
+  final String? keyId;
 
   /// BIP-86 account metadata derived from the wallet mnemonic.
   final String? derivationPath;
@@ -26,14 +34,22 @@ class WalletAccount {
   final String? privateKeyHex;
   final DateTime createdAt;
 
-  WalletAccount copyWith({String? name}) => WalletAccount(
+  WalletAccount copyWith({
+    String? name,
+    String? derivationPath,
+    String? address,
+    String? keyId,
+  }) => WalletAccount(
     id: id,
     name: name ?? this.name,
     accountIndex: accountIndex,
     blockchainId: blockchainId,
     networkId: networkId,
-    derivationPath: derivationPath,
-    address: address,
+    keySource: keySource,
+    sourceId: sourceId,
+    keyId: keyId ?? this.keyId,
+    derivationPath: derivationPath ?? this.derivationPath,
+    address: address ?? this.address,
     privateKeyHex: privateKeyHex,
     createdAt: createdAt,
   );
@@ -44,6 +60,9 @@ class WalletAccount {
     'accountIndex': accountIndex,
     'blockchainId': blockchainId,
     'networkId': networkId,
+    'keySource': keySource.name,
+    'sourceId': sourceId,
+    'keyId': keyId,
     'derivationPath': derivationPath,
     'address': address,
     'privateKeyHex': privateKeyHex,
@@ -56,6 +75,11 @@ class WalletAccount {
     accountIndex: json['accountIndex']! as int,
     blockchainId: json['blockchainId']! as String,
     networkId: json['networkId']! as String,
+    keySource: WalletKeySource.values.byName(
+      json['keySource'] as String? ?? WalletKeySource.personal.name,
+    ),
+    sourceId: json['sourceId'] as String?,
+    keyId: json['keyId'] as String?,
     derivationPath: json['derivationPath'] as String?,
     address: json['address'] as String?,
     privateKeyHex: json['privateKeyHex'] as String?,

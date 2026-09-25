@@ -2,9 +2,10 @@
 
 Status: design documentation based on the local Sygnature,
 `noosphere_flutter`, `noosphere_roast_client` and `noosphere_roast_server`
-sources inspected on 2026-09-25. Sygnature does not implement this integration
-yet. This document describes the current Noosphere transport and the required
-Sygnature request-context extension.
+sources inspected on 2026-09-25. Sygnature now integrates the transport,
+runtime, durable client storage, DKG and Taproot transaction approval/signing
+through the preconfigured-roster flow. The Sygnature request-context extension
+described below is not implemented yet.
 
 ## 1. Topology and responsibilities
 

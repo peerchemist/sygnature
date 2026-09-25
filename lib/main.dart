@@ -1,13 +1,17 @@
 import 'dart:async';
 
 import 'package:coinlib/coinlib.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import 'controllers/wallet_controller.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
+import 'services/roast_runtime_manager.dart';
 import 'services/ui_sounds.dart';
 import 'storage/wallet_repository.dart';
+import 'storage/roast_storage.dart';
 import 'ui/app_theme.dart';
 import 'ui/onboarding_screen.dart';
 import 'ui/wallet_home.dart';
@@ -16,6 +20,7 @@ import 'ui/widgets/brand_mark.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadCoinlib();
+  if (_roastSupported) await NoosphereFlutter.initialize();
   runApp(const SygnatureApp());
 }
 
@@ -39,6 +44,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
     final repository = await HiveWalletRepository.open();
     final controller = WalletController(
       repository,
+      roastRuntime: _roastSupported
+          ? RoastRuntimeManager(RoastPersistenceFactory())
+          : null,
       networkServiceFactory: (network) =>
           PeercoinElectrumxService.createForPreset(
             PeercoinNetworks.fromWalletNetwork(network),
@@ -81,6 +89,11 @@ class _SygnatureAppState extends State<SygnatureApp> {
     );
   }
 }
+
+bool get _roastSupported =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS);
 
 class _StartupLoading extends StatelessWidget {
   const _StartupLoading();

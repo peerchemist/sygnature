@@ -28,6 +28,10 @@ void main() {
     await tester.pumpWidget(SygnatureApp(controllerFactory: createController));
     await tester.pumpAndSettle();
 
+    expect(find.text('Choose your wallet'), findsOneWidget);
+    await tester.tap(find.text('Personal wallet'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Mnemonic'), findsOneWidget);
     expect(find.text('English'), findsOneWidget);
     expect(find.text('Peercoin mainnet'), findsOneWidget);
@@ -61,6 +65,8 @@ void main() {
     expect(find.text('Peercoin testnet'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Add sub-wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Personal wallet'));
     await tester.pumpAndSettle();
     expect(find.text('New sub-wallet'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Add'), findsOneWidget);

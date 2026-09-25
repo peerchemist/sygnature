@@ -4,17 +4,32 @@ import 'package:flutter/foundation.dart';
 
 import '../models/electrumx_utxo.dart';
 import '../models/mnemonic_seed.dart';
+import '../models/roast_setup.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../models/wallet_vault.dart';
 import '../services/electrumx_service.dart';
 import '../services/peercoin_network_service.dart';
+import '../services/roast_key_service.dart';
+import '../services/roast_runtime_manager.dart';
 import '../services/wallet_key_service.dart';
 import '../services/wallet_transaction_service.dart';
 import '../storage/wallet_repository.dart';
 
 enum AccountSyncStatus { unavailable, syncing, synced, error }
+
+class RoastSigningInboxItem({
+  required final String setupId,
+  required final String walletName,
+  required final RoastSigningRequest request,
+});
+
+final class _PendingRoastSend({
+  required final ThresholdWalletTransaction transaction,
+  required final String expectedInternalKeyHex,
+  required final Completer<List<Uint8List>> completer,
+});
 
 typedef WalletNetworkServiceFactory = Future<ElectrumxService?> Function(
   WalletNetwork network,
@@ -27,10 +42,15 @@ class WalletController extends ChangeNotifier {
     this.onCoinsReceived,
     WalletKeyService? keyService,
     WalletTransactionService? transactionService,
+    RoastRuntime? roastRuntime,
+    RoastKeyService? roastKeyService,
     List<WalletNetwork>? supportedNetworks,
   }) : _keyService = keyService ?? CoinlibWalletKeyService(),
        _transactionService =
            transactionService ?? const CoinlibWalletTransactionService(),
+       // ignore: prefer_initializing_formals
+       _roastRuntime = roastRuntime,
+       _roastKeyService = roastKeyService ?? const RoastKeyService(),
        supportedNetworks = List.unmodifiable(
          supportedNetworks ?? PeercoinNetworks.values,
        ) {
@@ -48,6 +68,8 @@ class WalletController extends ChangeNotifier {
   final VoidCallback? onCoinsReceived;
   final WalletKeyService _keyService;
   final WalletTransactionService _transactionService;
+  final RoastRuntime? _roastRuntime;
+  final RoastKeyService _roastKeyService;
   final List<WalletNetwork> supportedNetworks;
   final Map<String, ElectrumxService> _networkServices = {};
   WalletVault? _vault;
@@ -63,11 +85,21 @@ class WalletController extends ChangeNotifier {
   final Set<String> _broadcastingTransactionIds = {};
   final Set<String> _broadcastedTransactionIds = {};
   bool _sending = false;
+  StreamSubscription<RoastRuntimeEvent>? _roastEvents;
+  Future<void> _roastEventQueue = Future.value();
+  final Set<String> _roastOperations = {};
+  final Map<String, RoastSigningInboxItem> _roastSigningRequests = {};
+  final Map<String, _PendingRoastSend> _pendingRoastSends = {};
+  final Map<String, List<Uint8List>> _earlyRoastSigningResults = {};
 
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
   bool get busy => _busy;
   List<WalletAccount> get accounts => _vault?.accounts ?? const [];
+  List<RoastSetup> get roastSetups => _vault?.roastSetups ?? const [];
+  bool get roastAvailable => _roastRuntime != null;
+  List<RoastSigningInboxItem> get roastSigningRequests =>
+      List.unmodifiable(_roastSigningRequests.values);
   int get selectedAccountIndex => _selectedAccount;
   WalletAccount? get selectedAccount => accounts.isEmpty
       ? null
@@ -75,6 +107,42 @@ class WalletController extends ChangeNotifier {
   WalletNetwork? get walletNetwork {
     final account = selectedAccount;
     return account == null ? null : networkForAccount(account);
+  }
+
+  RoastSetup? setupForAccount(WalletAccount account) {
+    final setupId = account.sourceId;
+    if (account.keySource != WalletKeySource.roast || setupId == null) {
+      return null;
+    }
+    return roastSetups.where((setup) => setup.id == setupId).firstOrNull;
+  }
+
+  bool roastOperationInProgress(String setupId) =>
+      _roastOperations.contains(setupId);
+
+  String roastOutputAddress(
+    RoastSigningInboxItem item,
+    RoastSigningOutput output,
+  ) {
+    final setup = _setupById(item.setupId);
+    final network = _networkById(setup.blockchainId, setup.networkId);
+    return _roastKeyService.addressForScript(network, output.scriptHex);
+  }
+
+  bool isRoastChangeOutput(
+    RoastSigningInboxItem item,
+    RoastSigningOutput output,
+  ) {
+    final account = accounts.firstWhere(
+      (account) => account.sourceId == item.setupId,
+    );
+    final address = account.address;
+    if (address == null) return false;
+    return output.scriptHex ==
+        _roastKeyService.scriptHexForAddress(
+          networkForAccount(account),
+          address,
+        );
   }
 
   WalletNetwork networkForAccount(WalletAccount account) =>
@@ -129,10 +197,19 @@ class WalletController extends ChangeNotifier {
   Future<void> load() async {
     _vault = await _repository.load();
     _selectedAccount = 0;
+    final runtime = _roastRuntime;
+    if (runtime != null) {
+      _roastEvents = runtime.events.listen(_queueRoastEvent);
+    }
     for (final network in accounts.map(networkForAccount).toSet()) {
       await _ensureNetworkService(network);
     }
     await _restartElectrumxSync();
+    if (runtime != null) {
+      for (final setup in roastSetups.where((item) => item.isFinalized)) {
+        unawaited(resumeRoastSetup(setup.id));
+      }
+    }
   }
 
   MnemonicSession generateMnemonic({
@@ -178,16 +255,18 @@ class WalletController extends ChangeNotifier {
         selectedNetwork,
         material,
       );
+      final current = _vault;
       final vault = WalletVault(
         mnemonic: mnemonic.phrase,
         languageId: mnemonic.language.id,
         mnemonicWordCount: mnemonic.words.length,
-        accounts: [first],
+        accounts: [...?current?.accounts, first],
         nextAccountIndex: 1,
+        roastSetups: current?.roastSetups ?? const [],
       );
       await _repository.save(vault);
       _vault = vault;
-      _selectedAccount = 0;
+      _selectedAccount = vault.accounts.length - 1;
       await _restartElectrumxSync();
     });
   }
@@ -230,6 +309,390 @@ class WalletController extends ChangeNotifier {
       await _restartElectrumxSync();
     });
   }
+
+  Future<String> createRoastSetupDraft({
+    required RoastSetupRole role,
+    required String setupName,
+    required String walletName,
+    required String participantName,
+    required int threshold,
+    required int participantCount,
+    required WalletNetwork network,
+  }) async {
+    if (_roastRuntime == null) {
+      throw UnsupportedError(
+        'ROAST is available on supported desktop platforms only.',
+      );
+    }
+    final cleanParticipantName = participantName.trim();
+    if (cleanParticipantName.isEmpty) {
+      throw ArgumentError('Participant name cannot be empty.');
+    }
+    if (threshold < 2 || threshold > participantCount) {
+      throw ArgumentError('Threshold must be between 2 and participant count.');
+    }
+    final material = _roastKeyService.generateParticipant();
+    final setupId = _roastKeyService.newSetupId();
+    final groupId = _roastKeyService.newSetupId();
+    final selectedNetwork = _networkById(
+      network.blockchainId,
+      network.networkId,
+    );
+    final setup = RoastSetup(
+      id: setupId,
+      groupId: groupId,
+      name: setupName.trim().isEmpty ? 'Shared setup' : setupName.trim(),
+      role: role,
+      status: RoastSetupStatus.draft,
+      threshold: threshold,
+      participantCount: participantCount,
+      blockchainId: selectedNetwork.blockchainId,
+      networkId: selectedNetwork.networkId,
+      localCardId: material.cardId,
+      localParticipantPrivateKeyHex: material.privateKeyHex,
+      participants: [
+        RoastParticipant(
+          cardId: material.cardId,
+          name: cleanParticipantName,
+          identifierHex: '',
+          publicKeyHex: material.publicKeyHex,
+        ),
+      ],
+      onlineParticipantIds: const [],
+      keyName: '$groupId:generation:1',
+      createdAt: DateTime.now().toUtc(),
+    );
+    final account = WalletAccount(
+      id: 'roast-$setupId-${selectedNetwork.storageId}-0',
+      name: walletName.trim().isEmpty ? 'Shared wallet' : walletName.trim(),
+      accountIndex: 0,
+      blockchainId: selectedNetwork.blockchainId,
+      networkId: selectedNetwork.networkId,
+      keySource: WalletKeySource.roast,
+      sourceId: setupId,
+      keyId: setup.keyName,
+      createdAt: DateTime.now().toUtc(),
+    );
+    final current = _vault;
+    final next = current == null
+        ? WalletVault(
+            accounts: [account],
+            nextAccountIndex: 0,
+            roastSetups: [setup],
+          )
+        : current.copyWith(
+            accounts: [...current.accounts, account],
+            roastSetups: [...current.roastSetups, setup],
+          );
+    await _repository.save(next);
+    _vault = next;
+    _selectedAccount = next.accounts.length - 1;
+    notifyListeners();
+    return setupId;
+  }
+
+  String participantCard(String setupId) {
+    final setup = _setupById(setupId);
+    final participant = setup.localParticipant;
+    return RoastExchangeCodec.encodeParticipantCard(
+      cardId: participant.cardId,
+      name: participant.name,
+      publicKeyHex: participant.publicKeyHex,
+    );
+  }
+
+  String roastInvitation(String setupId) =>
+      RoastExchangeCodec.encodeInvitation(_setupById(setupId));
+
+  Future<void> finalizeHostedRoastSetup(
+    String setupId,
+    List<String> participantCards,
+  ) async {
+    final draft = _setupById(setupId);
+    if (draft.role != RoastSetupRole.host) {
+      throw StateError('Only a host can finalize this participant roster.');
+    }
+    final participants = _roastKeyService.finalizeRoster(
+      draft,
+      participantCards,
+    );
+    var setup = draft.copyWith(
+      participants: participants,
+      status: RoastSetupStatus.connecting,
+      clearError: true,
+    );
+    setup = setup.copyWith(
+      groupFingerprintHex: _roastKeyService.groupFingerprint(setup),
+    );
+    await _replaceSetup(setup);
+    await _startRoastRuntime(setup);
+  }
+
+  Future<void> joinRoastSetup(String setupId, String invitation) async {
+    final draft = _setupById(setupId);
+    if (draft.role != RoastSetupRole.member) {
+      throw StateError('This setup is not waiting for an invitation.');
+    }
+    final setup = _roastKeyService
+        .applyInvitation(draft, invitation)
+        .copyWith(status: RoastSetupStatus.connecting, clearError: true);
+    final current = _vault!;
+    final account = current.accounts.firstWhere(
+      (item) => item.sourceId == setupId,
+    );
+    final replacementAccount = WalletAccount(
+      id: 'roast-$setupId-${setup.blockchainId}:${setup.networkId}-0',
+      name: account.name,
+      accountIndex: 0,
+      blockchainId: setup.blockchainId,
+      networkId: setup.networkId,
+      keySource: WalletKeySource.roast,
+      sourceId: setupId,
+      keyId: setup.keyName,
+      createdAt: account.createdAt,
+    );
+    final next = current.copyWith(
+      roastSetups: [
+        for (final item in current.roastSetups)
+          if (item.id == setupId) setup else item,
+      ],
+      accounts: [
+        for (final item in current.accounts)
+          if (item.sourceId == setupId) replacementAccount else item,
+      ],
+    );
+    await _repository.save(next);
+    _vault = next;
+    notifyListeners();
+    await _startRoastRuntime(setup);
+  }
+
+  Future<void> resumeRoastSetup(String setupId) async {
+    final setup = _setupById(setupId);
+    if (!setup.isFinalized || _roastOperations.contains(setupId)) return;
+    await _startRoastRuntime(
+      setup.copyWith(status: RoastSetupStatus.connecting),
+    );
+  }
+
+  Future<void> startRoastDkg(String setupId) async {
+    final setup = _setupById(setupId);
+    if (setup.role != RoastSetupRole.host) {
+      throw StateError('Only the setup host can start key creation.');
+    }
+    if (setup.onlineParticipantIds.length < setup.participantCount) {
+      throw StateError('All participants must be online before key creation.');
+    }
+    await _replaceSetup(
+      setup.copyWith(status: RoastSetupStatus.creatingKey, clearError: true),
+    );
+    await _roastRuntime!.requestDkg(setup);
+  }
+
+  Future<void> acceptRoastDkg(String setupId) async {
+    final setup = _setupById(setupId);
+    final proposal = setup.pendingDkgProposalHex;
+    if (proposal == null) {
+      throw StateError('There is no DKG proposal to accept.');
+    }
+    await _replaceSetup(
+      setup.copyWith(status: RoastSetupStatus.creatingKey, clearError: true),
+    );
+    await _roastRuntime!.acceptDkg(setupId, proposal);
+  }
+
+  Future<void> rejectRoastDkg(String setupId) async {
+    final setup = _setupById(setupId);
+    final proposal = setup.pendingDkgProposalHex;
+    if (proposal == null) {
+      throw StateError('There is no DKG proposal to reject.');
+    }
+    await _roastRuntime!.rejectDkg(setupId, proposal);
+    await _replaceSetup(
+      setup.copyWith(
+        status: RoastSetupStatus.ready,
+        clearPendingDkgProposal: true,
+      ),
+    );
+  }
+
+  Future<void> _startRoastRuntime(RoastSetup setup) async {
+    final runtime = _roastRuntime;
+    if (runtime == null || !_roastOperations.add(setup.id)) return;
+    notifyListeners();
+    try {
+      await _replaceSetup(setup.copyWith(status: RoastSetupStatus.connecting));
+      final snapshot = await runtime.startSetup(setup);
+      final connected = setup.copyWith(
+        status: snapshot.groupKeyHex == null
+            ? snapshot.pendingDkgProposalHex == null
+                  ? RoastSetupStatus.ready
+                  : RoastSetupStatus.awaitingDkgApproval
+            : RoastSetupStatus.active,
+        onlineParticipantIds: snapshot.onlineParticipantIds,
+        coordinatorId: snapshot.coordinatorId,
+        coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
+        coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
+        groupKeyHex: snapshot.groupKeyHex,
+        pendingDkgProposalHex: snapshot.pendingDkgProposalHex,
+        clearError: true,
+      );
+      await _replaceSetup(connected);
+      if (snapshot.groupKeyHex != null) {
+        await _activateRoastAccount(connected, snapshot.groupKeyHex!);
+      }
+    } catch (error) {
+      await _replaceSetup(
+        setup.copyWith(
+          status: RoastSetupStatus.error,
+          errorMessage: _cleanRoastError(error),
+        ),
+      );
+    } finally {
+      _roastOperations.remove(setup.id);
+      notifyListeners();
+    }
+  }
+
+  RoastSetup _setupById(String setupId) => roastSetups.firstWhere(
+    (setup) => setup.id == setupId,
+    orElse: () => throw ArgumentError.value(setupId, 'setupId'),
+  );
+
+  Future<void> _replaceSetup(RoastSetup replacement) async {
+    final current = _vault;
+    if (current == null) return;
+    final next = current.copyWith(
+      roastSetups: [
+        for (final setup in current.roastSetups)
+          if (setup.id == replacement.id) replacement else setup,
+      ],
+    );
+    await _repository.save(next);
+    _vault = next;
+    notifyListeners();
+  }
+
+  void _queueRoastEvent(RoastRuntimeEvent event) {
+    _roastEventQueue = _roastEventQueue.then((_) => _handleRoastEvent(event));
+  }
+
+  Future<void> _handleRoastEvent(RoastRuntimeEvent event) async {
+    if (_disposed || !roastSetups.any((setup) => setup.id == event.setupId)) {
+      return;
+    }
+    final setup = _setupById(event.setupId);
+    switch (event) {
+      case RoastRuntimeSnapshotEvent():
+        await _replaceSetup(
+          setup.copyWith(
+            onlineParticipantIds: event.onlineParticipantIds,
+            coordinatorId: event.coordinatorId,
+            coordinatorRelayUrls: event.coordinatorRelayUrls,
+            coordinatorIpAddrs: event.coordinatorIpAddrs,
+            status:
+                setup.status == RoastSetupStatus.connecting && event.connected
+                ? RoastSetupStatus.ready
+                : setup.status,
+          ),
+        );
+      case RoastRuntimeDkgEvent():
+        await _replaceSetup(
+          setup.copyWith(
+            status: event.failure != null || event.rejected
+                ? RoastSetupStatus.error
+                : setup.role == RoastSetupRole.host
+                ? RoastSetupStatus.creatingKey
+                : RoastSetupStatus.awaitingDkgApproval,
+            pendingDkgProposalHex: event.proposalHex,
+            errorMessage: event.failure,
+          ),
+        );
+      case RoastRuntimeKeyEvent():
+        final active = setup.copyWith(
+          status: RoastSetupStatus.active,
+          groupKeyHex: event.groupKeyHex,
+          clearPendingDkgProposal: true,
+          clearError: true,
+        );
+        await _replaceSetup(active);
+        await _activateRoastAccount(active, event.groupKeyHex);
+      case RoastRuntimeFailureEvent():
+        await _replaceSetup(
+          setup.copyWith(
+            status: event.interrupted
+                ? RoastSetupStatus.interrupted
+                : RoastSetupStatus.error,
+            errorMessage: event.message,
+          ),
+        );
+      case RoastRuntimeSigningRequestEvent():
+        if (event.request.creator == setup.localParticipant.identifierHex) {
+          return;
+        }
+        try {
+          _validateRoastSigningRequest(setup, event.request);
+          final account = accounts.firstWhere(
+            (item) => item.sourceId == setup.id,
+          );
+          _roastSigningRequests['${setup.id}:${event.request.idHex}'] =
+              RoastSigningInboxItem(
+                setupId: setup.id,
+                walletName: account.name,
+                request: event.request,
+              );
+          notifyListeners();
+        } on Object {
+          // Unsupported or foreign proposals are deliberately not rendered.
+        }
+      case RoastRuntimeSigningResultEvent():
+        final pendingKey = '${setup.id}:${event.requestIdHex}';
+        final pending = _pendingRoastSends[pendingKey];
+        if (pending != null && !pending.completer.isCompleted) {
+          pending.completer.complete(event.signatures);
+        } else if (event.creator == setup.localParticipant.identifierHex) {
+          _earlyRoastSigningResults[pendingKey] = event.signatures;
+        }
+    }
+  }
+
+  Future<void> _activateRoastAccount(
+    RoastSetup setup,
+    String groupKeyHex,
+  ) async {
+    final current = _vault;
+    if (current == null) return;
+    final network = _networkById(setup.blockchainId, setup.networkId);
+    final derived = _roastKeyService.deriveAddress(
+      groupKeyHex: groupKeyHex,
+      threshold: setup.threshold,
+      network: network,
+      accountIndex: 0,
+    );
+    final next = current.copyWith(
+      accounts: [
+        for (final account in current.accounts)
+          if (account.sourceId == setup.id)
+            account.copyWith(
+              keyId: setup.keyName,
+              derivationPath: derived.pathLabel,
+              address: derived.address,
+            )
+          else
+            account,
+      ],
+    );
+    await _ensureNetworkService(network);
+    await _repository.save(next);
+    _vault = next;
+    await _restartElectrumxSync();
+  }
+
+  static String _cleanRoastError(Object error) => switch (error) {
+    ArgumentError(:final message) => '$message',
+    StateError(:final message) => message,
+    _ => 'Unable to connect to the ROAST coordinator.',
+  };
 
   Future<void> deleteAccount(String accountId) async {
     final current = _vault;
@@ -329,41 +792,179 @@ class WalletController extends ChangeNotifier {
       final account = accounts
           .where((candidate) => candidate.id == preview.accountId)
           .firstOrNull;
-      final privateKeyHex = account?.privateKeyHex;
-      if (account == null || privateKeyHex == null) {
+      if (account == null) {
         throw const WalletSigningUnavailable();
       }
-      final signed = _transactionService.sign(
-        network: networkForAccount(account),
-        preview: preview,
-        privateKeyHex: privateKeyHex,
-      );
-      if (_broadcastedTransactionIds.contains(signed.transactionId) ||
-          !_broadcastingTransactionIds.add(signed.transactionId)) {
-        throw const WalletTransactionRejected(
-          'This transaction has already been submitted.',
+      final SignedWalletTransaction signed;
+      if (account.keySource == WalletKeySource.personal) {
+        final privateKeyHex = account.privateKeyHex;
+        if (privateKeyHex == null) throw const WalletSigningUnavailable();
+        signed = _transactionService.sign(
+          network: networkForAccount(account),
+          preview: preview,
+          privateKeyHex: privateKeyHex,
         );
-      }
-      try {
-        final service = _networkServices[networkForAccount(account).storageId];
-        if (service == null) {
-          throw StateError('ElectrumX is not configured.');
+      } else {
+        final setup = setupForAccount(account);
+        final runtime = _roastRuntime;
+        if (setup == null ||
+            runtime == null ||
+            !setup.isActive ||
+            setup.groupKeyHex == null) {
+          throw const WalletSigningUnavailable();
         }
-        final serverTransactionId = await service.broadcastTransaction(
-          signed.rawTransactionHex,
+        if (setup.onlineParticipantIds.length < setup.threshold) {
+          throw const WalletTransactionRejected(
+            'The ROAST signing quorum is not online.',
+          );
+        }
+        final network = networkForAccount(account);
+        final derived = _roastKeyService.deriveAddress(
+          groupKeyHex: setup.groupKeyHex!,
+          threshold: setup.threshold,
+          network: network,
+          accountIndex: account.accountIndex,
         );
-        _broadcastedTransactionIds.add(signed.transactionId);
-        await _restartElectrumxSync();
-        return WalletSendResult(
-          transactionId: signed.transactionId,
-          serverTransactionId: serverTransactionId,
+        final transaction = _transactionService.prepareThresholdSigning(
+          network: network,
+          preview: preview,
         );
-      } finally {
-        _broadcastingTransactionIds.remove(signed.transactionId);
+        final requestId = await runtime.requestTransactionSignatures(
+          setup,
+          transaction,
+          derived.path,
+        );
+        final completer = Completer<List<Uint8List>>();
+        final pendingKey = '${setup.id}:$requestId';
+        _pendingRoastSends[pendingKey] = _PendingRoastSend(
+          transaction: transaction,
+          expectedInternalKeyHex: derived.internalKeyHex,
+          completer: completer,
+        );
+        final earlyResult = _earlyRoastSigningResults.remove(pendingKey);
+        if (earlyResult != null) completer.complete(earlyResult);
+        notifyListeners();
+        try {
+          final signatures = await completer.future.timeout(
+            const Duration(minutes: 5),
+          );
+          signed = _transactionService.completeThresholdSigning(
+            transaction: transaction,
+            signatures: signatures,
+            expectedInternalKeyHex: derived.internalKeyHex,
+          );
+        } finally {
+          _pendingRoastSends.remove(pendingKey);
+          notifyListeners();
+        }
       }
+      return await _broadcastSigned(account, signed);
     } finally {
       _sending = false;
     }
+  }
+
+  Future<WalletSendResult> _broadcastSigned(
+    WalletAccount account,
+    SignedWalletTransaction signed,
+  ) async {
+    if (_broadcastedTransactionIds.contains(signed.transactionId) ||
+        !_broadcastingTransactionIds.add(signed.transactionId)) {
+      throw const WalletTransactionRejected(
+        'This transaction has already been submitted.',
+      );
+    }
+    try {
+      final service = _networkServices[networkForAccount(account).storageId];
+      if (service == null) throw StateError('ElectrumX is not configured.');
+      final serverTransactionId = await service.broadcastTransaction(
+        signed.rawTransactionHex,
+      );
+      _broadcastedTransactionIds.add(signed.transactionId);
+      await _restartElectrumxSync();
+      return WalletSendResult(
+        transactionId: signed.transactionId,
+        serverTransactionId: serverTransactionId,
+      );
+    } finally {
+      _broadcastingTransactionIds.remove(signed.transactionId);
+    }
+  }
+
+  Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
+    final setup = _setupById(item.setupId);
+    _validateRoastSigningRequest(setup, item.request);
+    await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
+    _roastSigningRequests.remove('${setup.id}:${item.request.idHex}');
+    notifyListeners();
+  }
+
+  Future<void> rejectRoastSigningRequest(RoastSigningInboxItem item) async {
+    await _roastRuntime!.rejectSignatures(item.setupId, item.request.idHex);
+    _roastSigningRequests.remove('${item.setupId}:${item.request.idHex}');
+    notifyListeners();
+  }
+
+  void _validateRoastSigningRequest(
+    RoastSetup setup,
+    RoastSigningRequest request,
+  ) {
+    if (!request.hasTransactionMetadata ||
+        !request.usesSupportedSighash ||
+        request.expiry.isBefore(DateTime.now())) {
+      throw const WalletTransactionRejected(
+        'The signing request is expired or has unsupported metadata.',
+      );
+    }
+    final account = accounts.firstWhere(
+      (item) => item.sourceId == setup.id && item.accountIndex == 0,
+    );
+    final network = networkForAccount(account);
+    final derived = _roastKeyService.deriveAddress(
+      groupKeyHex: setup.groupKeyHex!,
+      threshold: setup.threshold,
+      network: network,
+      accountIndex: account.accountIndex,
+    );
+    final expectedScript = _roastKeyService.scriptHexForAddress(
+      network,
+      derived.address,
+    );
+    final validKeys =
+        request.masterGroupKeys.isNotEmpty &&
+        request.masterGroupKeys.every((key) => key == setup.groupKeyHex);
+    final validPaths =
+        request.derivationPaths.length == request.masterGroupKeys.length &&
+        request.derivationPaths.every((path) => _samePath(path, derived.path));
+    final validInputs =
+        request.previousOutputScripts.length == request.transactionInputCount &&
+        request.previousOutputScripts.every(
+          (script) => script == expectedScript,
+        );
+    final signsEveryInput =
+        request.transactionInputCount == request.signedInputIndexes.length &&
+        request.transactionInputCount == request.masterGroupKeys.length &&
+        request.signedInputIndexes.indexed.every(
+          (entry) => entry.$1 == entry.$2,
+        );
+    if (!validKeys ||
+        !validPaths ||
+        !validInputs ||
+        !signsEveryInput ||
+        request.outputs.isEmpty ||
+        request.feeSats < 0) {
+      throw const WalletTransactionRejected(
+        'The signing request does not belong to this wallet.',
+      );
+    }
+  }
+
+  static bool _samePath(List<int> first, List<int> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
   }
 
   void selectAccount(int index) {
@@ -374,6 +975,12 @@ class WalletController extends ChangeNotifier {
 
   Future<void> resetWallet() async {
     await _guard(() async {
+      final runtime = _roastRuntime;
+      if (runtime != null) {
+        for (final setup in roastSetups) {
+          await runtime.stopSetup(setup.id);
+        }
+      }
       await _repository.delete();
       _vault = null;
       _selectedAccount = 0;
@@ -537,6 +1144,18 @@ class WalletController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _syncGeneration++;
+    unawaited(_roastEvents?.cancel());
+    final roastRuntime = _roastRuntime;
+    if (roastRuntime != null) unawaited(roastRuntime.close());
+    for (final pending in _pendingRoastSends.values) {
+      if (!pending.completer.isCompleted) {
+        pending.completer.completeError(
+          const WalletTransactionRejected('ROAST signer stopped.'),
+        );
+      }
+    }
+    _pendingRoastSends.clear();
+    _earlyRoastSigningResults.clear();
     for (final subscription in _syncSubscriptions.values) {
       unawaited(subscription.cancel());
     }
