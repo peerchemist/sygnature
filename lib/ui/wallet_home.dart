@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_account.dart';
@@ -548,14 +547,6 @@ class _BalanceCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _BalanceAction(
-                    icon: Icons.south_west,
-                    label: 'Receive',
-                    enabled: active,
-                    onPressed: active
-                        ? () => _showReceiveAddress(context, account)
-                        : null,
-                  ),
-                  _BalanceAction(
                     icon: Icons.north_east,
                     label: 'Send',
                     enabled:
@@ -635,7 +626,10 @@ class _AddressCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.qr_code_2_rounded, color: AppColors.greenDark),
+                const Icon(
+                  Icons.account_balance_wallet_outlined,
+                  color: AppColors.greenDark,
+                ),
                 const SizedBox(width: 10),
                 Text(
                   'Receive address',
@@ -807,60 +801,6 @@ class _ActivityCard extends StatelessWidget {
       ),
     );
   }
-}
-
-Future<void> _showReceiveAddress(
-  BuildContext context,
-  WalletAccount account,
-) async {
-  final address = account.address;
-  if (address == null) return;
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Receive Peercoin'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Semantics(
-              label: 'QR code for receive address',
-              child: QrImageView(
-                data: address,
-                version: QrVersions.auto,
-                size: 220,
-                backgroundColor: Colors.white,
-                errorCorrectionLevel: QrErrorCorrectLevel.M,
-              ),
-            ),
-            const SizedBox(height: 18),
-            SelectableText(
-              address,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton.icon(
-          onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: address));
-            if (!dialogContext.mounted) return;
-            ScaffoldMessenger.of(dialogContext)
-                .showSnackBar(const SnackBar(content: Text('Address copied.')));
-          },
-          icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copy'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Done'),
-        ),
-      ],
-    ),
-  );
 }
 
 Future<void> _showSendDialog(

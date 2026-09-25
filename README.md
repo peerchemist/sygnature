@@ -21,7 +21,7 @@ Cross-platform Peercoin light-wallet foundation built with Flutter.
 - network-validated Taproot send form with coin selection, fee review, local
   key-path signing and ElectrumX broadcast;
 - one BIP-86 address per sub-wallet, used for both receiving and change;
-- receive-address copy and QR actions.
+- receive-address display and copy action.
 
 No addresses or private keys are fabricated. BIP-39/BIP-32 derivation and
 transaction construction/signing remain separate from the ElectrumX transport.
