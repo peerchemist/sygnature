@@ -134,6 +134,15 @@ void main() {
       network: PeercoinNetworks.mainnet,
       preview: preview,
     );
+    final restored = ThresholdWalletTransaction.fromJson(unsigned.toJson());
+    expect(
+      bytesToHex(restored.transaction.toBytes()),
+      bytesToHex(unsigned.transaction.toBytes()),
+    );
+    expect(
+      restored.signatureHashes.map(bytesToHex),
+      unsigned.signatureHashes.map(bytesToHex),
+    );
     final tweakedPrivateKey = taproot.tweakPrivateKey(sourceKey);
     final signatures = [
       for (final hash in unsigned.signatureHashes)
@@ -141,7 +150,7 @@ void main() {
     ];
 
     final signed = service.completeThresholdSigning(
-      transaction: unsigned,
+      transaction: restored,
       signatures: signatures,
       expectedInternalKeyHex: sourceKey.pubkey.hex,
     );

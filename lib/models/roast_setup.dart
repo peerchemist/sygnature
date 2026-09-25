@@ -51,12 +51,17 @@ class RoastSetup({
   required final List<String> onlineParticipantIds,
   required final String keyName,
   required final DateTime createdAt,
+  final String? hostParticipantId,
   final String? coordinatorId,
   final List<String> coordinatorRelayUrls = const [],
   final List<String> coordinatorIpAddrs = const [],
   final String? groupFingerprintHex,
   final String? groupKeyHex,
   final String? pendingDkgProposalHex,
+  final String? pendingDkgName,
+  final int? pendingDkgThreshold,
+  final String? pendingDkgCreatorId,
+  final DateTime? pendingDkgExpiry,
   final String? errorMessage,
 }) {
   RoastParticipant get localParticipant => participants.firstWhere(
@@ -70,12 +75,17 @@ class RoastSetup({
     RoastSetupStatus? status,
     List<RoastParticipant>? participants,
     List<String>? onlineParticipantIds,
+    String? hostParticipantId,
     String? coordinatorId,
     List<String>? coordinatorRelayUrls,
     List<String>? coordinatorIpAddrs,
     String? groupFingerprintHex,
     String? groupKeyHex,
     String? pendingDkgProposalHex,
+    String? pendingDkgName,
+    int? pendingDkgThreshold,
+    String? pendingDkgCreatorId,
+    DateTime? pendingDkgExpiry,
     bool clearPendingDkgProposal = false,
     String? errorMessage,
     bool clearError = false,
@@ -95,6 +105,7 @@ class RoastSetup({
     onlineParticipantIds: onlineParticipantIds ?? this.onlineParticipantIds,
     keyName: keyName,
     createdAt: createdAt,
+    hostParticipantId: hostParticipantId ?? this.hostParticipantId,
     coordinatorId: coordinatorId ?? this.coordinatorId,
     coordinatorRelayUrls: coordinatorRelayUrls ?? this.coordinatorRelayUrls,
     coordinatorIpAddrs: coordinatorIpAddrs ?? this.coordinatorIpAddrs,
@@ -103,6 +114,18 @@ class RoastSetup({
     pendingDkgProposalHex: clearPendingDkgProposal
         ? null
         : pendingDkgProposalHex ?? this.pendingDkgProposalHex,
+    pendingDkgName: clearPendingDkgProposal
+        ? null
+        : pendingDkgName ?? this.pendingDkgName,
+    pendingDkgThreshold: clearPendingDkgProposal
+        ? null
+        : pendingDkgThreshold ?? this.pendingDkgThreshold,
+    pendingDkgCreatorId: clearPendingDkgProposal
+        ? null
+        : pendingDkgCreatorId ?? this.pendingDkgCreatorId,
+    pendingDkgExpiry: clearPendingDkgProposal
+        ? null
+        : pendingDkgExpiry ?? this.pendingDkgExpiry,
     errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
   );
 
@@ -122,45 +145,62 @@ class RoastSetup({
     'onlineParticipantIds': onlineParticipantIds,
     'keyName': keyName,
     'createdAt': createdAt.toUtc().toIso8601String(),
+    'hostParticipantId': hostParticipantId,
     'coordinatorId': coordinatorId,
     'coordinatorRelayUrls': coordinatorRelayUrls,
     'coordinatorIpAddrs': coordinatorIpAddrs,
     'groupFingerprintHex': groupFingerprintHex,
     'groupKeyHex': groupKeyHex,
     'pendingDkgProposalHex': pendingDkgProposalHex,
+    'pendingDkgName': pendingDkgName,
+    'pendingDkgThreshold': pendingDkgThreshold,
+    'pendingDkgCreatorId': pendingDkgCreatorId,
+    'pendingDkgExpiry': pendingDkgExpiry?.toUtc().toIso8601String(),
     'errorMessage': errorMessage,
   };
 
-  factory RoastSetup.fromJson(Map<Object?, Object?> json) => RoastSetup(
-    id: json['id']! as String,
-    groupId: json['groupId']! as String,
-    name: json['name']! as String,
-    role: RoastSetupRole.values.byName(json['role']! as String),
-    status: RoastSetupStatus.values.byName(json['status']! as String),
-    threshold: json['threshold']! as int,
-    participantCount: json['participantCount']! as int,
-    blockchainId: json['blockchainId']! as String,
-    networkId: json['networkId']! as String,
-    localCardId: json['localCardId']! as String,
-    localParticipantPrivateKeyHex:
-        json['localParticipantPrivateKeyHex']! as String,
-    participants: (json['participants']! as List)
+  factory RoastSetup.fromJson(Map<Object?, Object?> json) {
+    final participants = (json['participants']! as List)
         .map((item) => RoastParticipant.fromJson(item as Map))
-        .toList(growable: false),
-    onlineParticipantIds: ((json['onlineParticipantIds'] as List?) ?? const [])
-        .cast<String>(),
-    keyName: json['keyName']! as String,
-    createdAt: DateTime.parse(json['createdAt']! as String),
-    coordinatorId: json['coordinatorId'] as String?,
-    coordinatorRelayUrls: ((json['coordinatorRelayUrls'] as List?) ?? const [])
-        .cast<String>(),
-    coordinatorIpAddrs: ((json['coordinatorIpAddrs'] as List?) ?? const [])
-        .cast<String>(),
-    groupFingerprintHex: json['groupFingerprintHex'] as String?,
-    groupKeyHex: json['groupKeyHex'] as String?,
-    pendingDkgProposalHex: json['pendingDkgProposalHex'] as String?,
-    errorMessage: json['errorMessage'] as String?,
-  );
+        .toList(growable: false);
+    return RoastSetup(
+      id: json['id']! as String,
+      groupId: json['groupId']! as String,
+      name: json['name']! as String,
+      role: RoastSetupRole.values.byName(json['role']! as String),
+      status: RoastSetupStatus.values.byName(json['status']! as String),
+      threshold: json['threshold']! as int,
+      participantCount: json['participantCount']! as int,
+      blockchainId: json['blockchainId']! as String,
+      networkId: json['networkId']! as String,
+      localCardId: json['localCardId']! as String,
+      localParticipantPrivateKeyHex:
+          json['localParticipantPrivateKeyHex']! as String,
+      participants: participants,
+      onlineParticipantIds:
+          ((json['onlineParticipantIds'] as List?) ?? const []).cast<String>(),
+      keyName: json['keyName']! as String,
+      createdAt: DateTime.parse(json['createdAt']! as String),
+      hostParticipantId:
+          json['hostParticipantId'] as String? ??
+          participants.firstOrNull?.identifierHex,
+      coordinatorId: json['coordinatorId'] as String?,
+      coordinatorRelayUrls:
+          ((json['coordinatorRelayUrls'] as List?) ?? const []).cast<String>(),
+      coordinatorIpAddrs: ((json['coordinatorIpAddrs'] as List?) ?? const [])
+          .cast<String>(),
+      groupFingerprintHex: json['groupFingerprintHex'] as String?,
+      groupKeyHex: json['groupKeyHex'] as String?,
+      pendingDkgProposalHex: json['pendingDkgProposalHex'] as String?,
+      pendingDkgName: json['pendingDkgName'] as String?,
+      pendingDkgThreshold: json['pendingDkgThreshold'] as int?,
+      pendingDkgCreatorId: json['pendingDkgCreatorId'] as String?,
+      pendingDkgExpiry: json['pendingDkgExpiry'] == null
+          ? null
+          : DateTime.parse(json['pendingDkgExpiry']! as String),
+      errorMessage: json['errorMessage'] as String?,
+    );
+  }
 }
 
 abstract final class RoastExchangeCodec {
@@ -191,7 +231,9 @@ abstract final class RoastExchangeCodec {
   }
 
   static String encodeInvitation(RoastSetup setup) {
-    if (!setup.isFinalized || setup.coordinatorId == null) {
+    if (!setup.isFinalized ||
+        setup.coordinatorId == null ||
+        setup.hostParticipantId == null) {
       throw StateError('The ROAST setup is not ready for an invitation.');
     }
     return _encode({
@@ -204,10 +246,15 @@ abstract final class RoastExchangeCodec {
       'blockchainId': setup.blockchainId,
       'networkId': setup.networkId,
       'keyName': setup.keyName,
+      'hostParticipantId': setup.hostParticipantId,
       'coordinatorId': setup.coordinatorId,
       'coordinatorRelayUrls': setup.coordinatorRelayUrls,
       'coordinatorIpAddrs': setup.coordinatorIpAddrs,
       'groupFingerprintHex': setup.groupFingerprintHex,
+      'expiresAt': DateTime.now()
+          .toUtc()
+          .add(const Duration(days: 7))
+          .toIso8601String(),
       'participants': setup.participants.map((item) => item.toJson()).toList(),
     });
   }

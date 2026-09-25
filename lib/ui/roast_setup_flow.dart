@@ -272,7 +272,7 @@ class const RoastSetupPanel({
             Text(_statusText(setup), style: const TextStyle(fontSize: 13)),
             const SizedBox(height: 8),
             Text(
-              '${setup.onlineParticipantIds.length} of '
+              '${controller.onlineSignerCount(setup)} of '
               '${setup.participantCount} signers online · '
               '${setup.threshold} required',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
@@ -323,6 +323,20 @@ class const RoastSetupPanel({
                 style: const TextStyle(color: Colors.red, fontSize: 12),
               ),
             ],
+            if (setup.status == RoastSetupStatus.awaitingDkgApproval) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Proposal ${setup.pendingDkgName ?? 'unknown'} · '
+                '${setup.pendingDkgThreshold ?? 0} required · creator '
+                '${_short(setup.pendingDkgCreatorId ?? 'unknown')} · expires '
+                '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
+                style: const TextStyle(
+                  color: AppColors.inkMuted,
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             Wrap(
               spacing: 10,
@@ -340,6 +354,23 @@ class const RoastSetupPanel({
   }
 
   List<Widget> _actions(BuildContext context, RoastSetup setup, bool busy) {
+    final recoverableBroadcast = controller.recoverableBroadcastForSetup(
+      setup.id,
+    );
+    if (recoverableBroadcast != null) {
+      return [
+        FilledButton.icon(
+          onPressed: busy
+              ? null
+              : () => _perform(
+                  context,
+                  () => controller.retryRoastBroadcast(recoverableBroadcast),
+                ),
+          icon: const Icon(Icons.send_rounded),
+          label: const Text('Retry saved broadcast'),
+        ),
+      ];
+    }
     if (setup.status == RoastSetupStatus.draft) {
       return [
         OutlinedButton.icon(
@@ -401,7 +432,8 @@ class const RoastSetupPanel({
         ),
         FilledButton(
           onPressed:
-              busy || setup.onlineParticipantIds.length < setup.participantCount
+              busy ||
+                  controller.onlineSignerCount(setup) < setup.participantCount
               ? null
               : () =>
                     _perform(context, () => controller.startRoastDkg(setup.id)),

@@ -4,8 +4,11 @@ Status: design documentation based on the local Sygnature,
 `noosphere_flutter`, `noosphere_roast_client` and `noosphere_roast_server`
 sources inspected on 2026-09-25. Sygnature now integrates the transport,
 runtime, durable client storage, DKG and Taproot transaction approval/signing
-through the preconfigured-roster flow. The Sygnature request-context extension
-described below is not implemented yet.
+through the preconfigured-roster flow. It also persists creator-side proposals,
+aggregate signatures, signed transaction bytes and broadcast outcomes, allowing
+an unknown broadcast to retry the exact same bytes after restart. Coordinator
+round state, cross-peer UTXO reservations and the Sygnature request-context
+extension described below are not implemented yet.
 
 ## 1. Topology and responsibilities
 

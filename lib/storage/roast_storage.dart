@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
+import '../models/roast_signing_operation.dart';
 import 'hive_storage_initializer.dart';
 import 'wallet_repository.dart';
 
@@ -13,15 +14,28 @@ class RoastPersistence._(
   final SecureKeyStore _keyStore,
 );
 
-class RoastPersistenceFactory {
+abstract interface class RoastSigningOperationRepository {
+  Future<List<RoastSigningOperation>> loadSigningOperations();
+  Future<RoastSigningOperation?> getSigningOperation(String storageId);
+  Future<void> putSigningOperation(RoastSigningOperation operation);
+  Future<void> recordSigningResult(
+    String storageId, {
+    required String proposalHex,
+    required List<String> signaturesHex,
+  });
+}
+
+class RoastPersistenceFactory implements RoastSigningOperationRepository {
   RoastPersistenceFactory({SecureKeyStore? secureKeyStore})
     : _keyStore = secureKeyStore ?? PlatformSecureKeyStore();
 
   static const _boxName = 'sygnature_roast_private_v1';
   static const _cipherKeyName = 'sygnature_roast_hive_key_v1';
+  static const _signingOperationsKey = 'wallet-signing-operations-v1';
 
   final SecureKeyStore _keyStore;
   Future<RoastPersistence>? _opening;
+  Future<void> _operationWrites = Future.value();
 
   Future<RoastPersistence> open() => _opening ??= _open();
 
@@ -41,6 +55,107 @@ class RoastPersistenceFactory {
       encryptionCipher: HiveAesCipher(key),
     );
     return RoastPersistence._(box, _keyStore);
+  }
+
+  Future<T> _mutateOperations<T>(
+    T Function(Map<String, RoastSigningOperation>) operation,
+  ) {
+    final completer = Completer<T>();
+    _operationWrites = _operationWrites.then((_) async {
+      try {
+        final persistence = await open();
+        final operations = _readOperations(persistence._box);
+        final result = operation(operations);
+        await persistence._box.put(_signingOperationsKey, {
+          for (final entry in operations.entries)
+            entry.key: entry.value.toJson(),
+        });
+        completer.complete(result);
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  static Map<String, RoastSigningOperation> _readOperations(Box box) {
+    final raw = box.get(_signingOperationsKey);
+    if (raw == null) return {};
+    if (raw is! Map) {
+      throw StateError('Invalid ROAST signing operations record.');
+    }
+    return {
+      for (final entry in raw.entries)
+        entry.key as String: RoastSigningOperation.fromJson(entry.value as Map),
+    };
+  }
+
+  @override
+  Future<List<RoastSigningOperation>> loadSigningOperations() async {
+    await _operationWrites;
+    return _readOperations((await open())._box).values.toList(growable: false);
+  }
+
+  @override
+  Future<RoastSigningOperation?> getSigningOperation(String storageId) async {
+    await _operationWrites;
+    return _readOperations((await open())._box)[storageId];
+  }
+
+  @override
+  Future<void> putSigningOperation(RoastSigningOperation operation) =>
+      _mutateOperations((operations) {
+        operations[operation.storageId] = operation;
+      });
+
+  @override
+  Future<void> recordSigningResult(
+    String storageId, {
+    required String proposalHex,
+    required List<String> signaturesHex,
+  }) => _mutateOperations((operations) {
+    final operation = operations[storageId];
+    if (operation == null || operation.proposalHex != proposalHex) {
+      throw StateError('The completed ROAST proposal is not persisted.');
+    }
+    operations[storageId] = operation.copyWith(
+      signaturesHex: signaturesHex,
+      clearError: true,
+    );
+  });
+}
+
+final class MemoryRoastSigningOperationRepository
+    implements RoastSigningOperationRepository {
+  final Map<String, RoastSigningOperation> _operations = {};
+
+  @override
+  Future<List<RoastSigningOperation>> loadSigningOperations() async =>
+      _operations.values.toList(growable: false);
+
+  @override
+  Future<RoastSigningOperation?> getSigningOperation(String storageId) async =>
+      _operations[storageId];
+
+  @override
+  Future<void> putSigningOperation(RoastSigningOperation operation) async {
+    _operations[operation.storageId] = operation;
+  }
+
+  @override
+  Future<void> recordSigningResult(
+    String storageId, {
+    required String proposalHex,
+    required List<String> signaturesHex,
+  }) async {
+    final operation = _operations[storageId];
+    if (operation == null || operation.proposalHex != proposalHex) {
+      throw StateError('The completed ROAST proposal is not persisted.');
+    }
+    _operations[storageId] = operation.copyWith(
+      signaturesHex: signaturesHex,
+      clearError: true,
+    );
   }
 }
 

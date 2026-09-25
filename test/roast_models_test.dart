@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
+import 'package:sygnature_ng/services/roast_key_service.dart';
 
 void main() {
   test('migrates schema 1 vaults without changing personal account data', () {
@@ -68,6 +69,7 @@ void main() {
       onlineParticipantIds: const [],
       keyName: 'family:generation:1',
       createdAt: DateTime.utc(2026),
+      hostParticipantId: '01',
       coordinatorId: 'coordinator-id',
       groupFingerprintHex: 'fingerprint',
     );
@@ -80,9 +82,76 @@ void main() {
     expect(invitation['participants'], hasLength(2));
   });
 
+  test('migrates schema 2 ROAST setups with the host first in the roster', () {
+    final setup = <String, Object?>{
+      'id': 'setup',
+      'groupId': 'group',
+      'name': 'Family',
+      'role': 'member',
+      'status': 'ready',
+      'threshold': 2,
+      'participantCount': 2,
+      'blockchainId': 'peercoin',
+      'networkId': 'mainnet',
+      'localCardId': 'member-card',
+      'localParticipantPrivateKeyHex': 'private',
+      'participants': [
+        {
+          'cardId': 'host-card',
+          'name': 'Host',
+          'identifierHex': '01',
+          'publicKeyHex': '02${'22' * 32}',
+        },
+        {
+          'cardId': 'member-card',
+          'name': 'Member',
+          'identifierHex': '02',
+          'publicKeyHex': '03${'33' * 32}',
+        },
+      ],
+      'onlineParticipantIds': <String>[],
+      'keyName': 'setup:generation:1',
+      'createdAt': '2026-01-01T00:00:00.000Z',
+    };
+    final vault = WalletVault.fromJson({
+      'schemaVersion': 2,
+      'accounts': <Object?>[],
+      'nextAccountIndex': 0,
+      'roastSetups': [setup],
+    });
+
+    expect(vault.roastSetups.single.hostParticipantId, '01');
+    expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
+  });
+
   test('rejects unsupported exchange payloads', () {
     expect(
       () => RoastExchangeCodec.decodeParticipantCard('not-an-invitation'),
+      throwsFormatException,
+    );
+  });
+
+  test('rejects duplicate participant authentication keys', () {
+    expect(
+      () => const RoastKeyService().validateRoster(
+        participants: [
+          RoastParticipant(
+            cardId: 'a',
+            name: 'A',
+            identifierHex: '01',
+            publicKeyHex: '02${'11' * 32}',
+          ),
+          RoastParticipant(
+            cardId: 'b',
+            name: 'B',
+            identifierHex: '02',
+            publicKeyHex: '02${'11' * 32}',
+          ),
+        ],
+        participantCount: 2,
+        threshold: 2,
+        hostParticipantId: '01',
+      ),
       throwsFormatException,
     );
   });

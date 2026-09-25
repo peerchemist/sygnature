@@ -77,6 +77,47 @@ class ThresholdWalletTransaction({
   List<Uint8List> get signatureHashes => [
     for (final details in signDetails) TaprootSignatureHasher(details).hash,
   ];
+
+  Map<String, Object?> toJson() => {
+    'transactionHex': bytesToHex(transaction.toBytes()),
+    'previousOutputs': [
+      for (final output in signDetails.first.prevOuts)
+        {
+          'value': output.value.toString(),
+          'scriptHex': bytesToHex(output.scriptPubKey),
+        },
+    ],
+    'inputIndexes': [for (final details in signDetails) details.inputN],
+  };
+
+  factory ThresholdWalletTransaction.fromJson(Map<Object?, Object?> json) {
+    final transaction = Transaction.fromHex(json['transactionHex']! as String);
+    final previousOutputs = (json['previousOutputs']! as List)
+        .map((raw) {
+          final output = raw as Map;
+          return Output.fromScriptBytes(
+            BigInt.parse(output['value']! as String),
+            hexToBytes(output['scriptHex']! as String),
+          );
+        })
+        .toList(growable: false);
+    final inputIndexes = (json['inputIndexes']! as List).cast<int>();
+    if (inputIndexes.length != transaction.inputs.length ||
+        previousOutputs.length != transaction.inputs.length) {
+      throw const FormatException('Invalid stored threshold transaction.');
+    }
+    return ThresholdWalletTransaction(
+      transaction: transaction,
+      signDetails: [
+        for (final inputIndex in inputIndexes)
+          TaprootKeySignDetails(
+            tx: transaction,
+            inputN: inputIndex,
+            prevOuts: previousOutputs,
+          ),
+      ],
+    );
+  }
 }
 
 class CoinlibWalletTransactionService implements WalletTransactionService {

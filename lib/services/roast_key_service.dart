@@ -65,7 +65,7 @@ class RoastKeyService {
     for (final card in cards) {
       ECCompressedPublicKey.fromHex(card.publicKeyHex);
     }
-    return [
+    final participants = [
       for (var i = 0; i < cards.length; i++)
         RoastParticipant(
           cardId: cards[i].cardId,
@@ -74,6 +74,53 @@ class RoastKeyService {
           publicKeyHex: cards[i].publicKeyHex,
         ),
     ];
+    validateRoster(
+      participants: participants,
+      participantCount: setup.participantCount,
+      threshold: setup.threshold,
+      hostParticipantId: participants.first.identifierHex,
+    );
+    return participants;
+  }
+
+  void validateRoster({
+    required List<RoastParticipant> participants,
+    required int participantCount,
+    required int threshold,
+    required String hostParticipantId,
+  }) {
+    if (threshold < 2 ||
+        threshold > participantCount ||
+        participants.length != participantCount) {
+      throw const FormatException('The ROAST roster has an invalid policy.');
+    }
+    if (participants.any(
+      (participant) =>
+          participant.cardId.trim().isEmpty ||
+          participant.name.trim().isEmpty ||
+          participant.identifierHex.trim().isEmpty,
+    )) {
+      throw const FormatException('The ROAST roster is incomplete.');
+    }
+    if (participants.map((item) => item.cardId).toSet().length !=
+            participants.length ||
+        participants.map((item) => item.identifierHex).toSet().length !=
+            participants.length ||
+        participants.map((item) => item.publicKeyHex).toSet().length !=
+            participants.length) {
+      throw const FormatException(
+        'ROAST participant identifiers and keys must be unique.',
+      );
+    }
+    for (final participant in participants) {
+      Identifier.fromHex(participant.identifierHex);
+      ECCompressedPublicKey.fromHex(participant.publicKeyHex);
+    }
+    if (!participants.any(
+      (participant) => participant.identifierHex == hostParticipantId,
+    )) {
+      throw const FormatException('The ROAST host is not in the roster.');
+    }
   }
 
   String groupFingerprint(RoastSetup setup) => bytesToHex(
@@ -102,11 +149,17 @@ class RoastKeyService {
     }
     final threshold = json['threshold']! as int;
     final participantCount = json['participantCount']! as int;
-    if (threshold < 2 ||
-        threshold > participantCount ||
-        participants.length != participantCount) {
-      throw const FormatException('The invitation has an invalid policy.');
+    final hostParticipantId = json['hostParticipantId']! as String;
+    final expiry = DateTime.parse(json['expiresAt']! as String);
+    if (!expiry.isAfter(DateTime.now())) {
+      throw const FormatException('The ROAST invitation has expired.');
     }
+    validateRoster(
+      participants: participants,
+      participantCount: participantCount,
+      threshold: threshold,
+      hostParticipantId: hostParticipantId,
+    );
     final invited = RoastSetup(
       id: draft.id,
       groupId: json['groupId']! as String,
@@ -123,6 +176,7 @@ class RoastKeyService {
       onlineParticipantIds: const [],
       keyName: json['keyName']! as String,
       createdAt: draft.createdAt,
+      hostParticipantId: hostParticipantId,
       coordinatorId: json['coordinatorId']! as String,
       coordinatorRelayUrls: (json['coordinatorRelayUrls']! as List)
           .cast<String>(),

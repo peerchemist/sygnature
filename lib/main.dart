@@ -42,11 +42,13 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   Future<WalletController> _createController() async {
     final repository = await HiveWalletRepository.open();
+    final roastPersistence = _roastSupported ? RoastPersistenceFactory() : null;
     final controller = WalletController(
       repository,
       roastRuntime: _roastSupported
-          ? RoastRuntimeManager(RoastPersistenceFactory())
+          ? RoastRuntimeManager(roastPersistence!)
           : null,
+      roastSigningOperations: roastPersistence,
       networkServiceFactory: (network) =>
           PeercoinElectrumxService.createForPreset(
             PeercoinNetworks.fromWalletNetwork(network),
