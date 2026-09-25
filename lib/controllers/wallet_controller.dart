@@ -6,10 +6,12 @@ import '../models/electrumx_utxo.dart';
 import '../models/mnemonic_seed.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
+import '../models/wallet_transaction.dart';
 import '../models/wallet_vault.dart';
 import '../services/electrumx_service.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/wallet_key_service.dart';
+import '../services/wallet_transaction_service.dart';
 import '../storage/wallet_repository.dart';
 
 enum AccountSyncStatus { unavailable, syncing, synced, error }
@@ -24,8 +26,11 @@ class WalletController extends ChangeNotifier {
     this.networkServiceFactory,
     this.onCoinsReceived,
     WalletKeyService? keyService,
+    WalletTransactionService? transactionService,
     List<WalletNetwork>? supportedNetworks,
   }) : _keyService = keyService ?? CoinlibWalletKeyService(),
+       _transactionService =
+           transactionService ?? const CoinlibWalletTransactionService(),
        supportedNetworks = List.unmodifiable(
          supportedNetworks ?? PeercoinNetworks.values,
        ) {
@@ -42,6 +47,7 @@ class WalletController extends ChangeNotifier {
   final WalletNetworkServiceFactory? networkServiceFactory;
   final VoidCallback? onCoinsReceived;
   final WalletKeyService _keyService;
+  final WalletTransactionService _transactionService;
   final List<WalletNetwork> supportedNetworks;
   final Map<String, ElectrumxService> _networkServices = {};
   WalletVault? _vault;
@@ -54,6 +60,9 @@ class WalletController extends ChangeNotifier {
   final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
   final Map<String, Object> _syncErrorsByAddress = {};
   final Set<String> _syncingAddresses = {};
+  final Set<String> _broadcastingTransactionIds = {};
+  final Set<String> _broadcastedTransactionIds = {};
+  bool _sending = false;
 
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
@@ -79,6 +88,21 @@ class WalletController extends ChangeNotifier {
   int balanceSatsFor(WalletAccount account) {
     return utxosFor(account).fold(0, (total, utxo) => total + utxo.value);
   }
+
+  int confirmedBalanceSatsFor(WalletAccount account) =>
+      utxosFor(account)
+          .where((utxo) => utxo.isConfirmed)
+          .fold(0, (total, utxo) => total + utxo.value);
+
+  int pendingBalanceSatsFor(WalletAccount account) =>
+      utxosFor(account)
+          .where((utxo) => !utxo.isConfirmed)
+          .fold(0, (total, utxo) => total + utxo.value);
+
+  List<ElectrumxUtxo> spendableUtxosFor(WalletAccount account) =>
+      utxosFor(account)
+          .where((utxo) => utxo.isConfirmed)
+          .toList(growable: false);
 
   AccountSyncStatus syncStatusFor(WalletAccount account) {
     final address = account.address;
@@ -239,6 +263,31 @@ class WalletController extends ChangeNotifier {
     });
   }
 
+  Future<void> renameAccount(String accountId, String name) async {
+    final current = _vault;
+    if (current == null) throw StateError('Wallet is not initialized.');
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw ArgumentError('Wallet name cannot be empty.');
+    }
+    if (!current.accounts.any((account) => account.id == accountId)) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
+    }
+    await _guard(() async {
+      final next = current.copyWith(
+        accounts: [
+          for (final account in current.accounts)
+            if (account.id == accountId)
+              account.copyWith(name: trimmedName)
+            else
+              account,
+        ],
+      );
+      await _repository.save(next);
+      _vault = next;
+    });
+  }
+
   Future<void> refreshBalances() => _restartElectrumxSync();
 
   Future<String> broadcastTransaction(String rawTransactionHex) {
@@ -250,6 +299,71 @@ class WalletController extends ChangeNotifier {
       throw StateError('ElectrumX is not configured.');
     }
     return service.broadcastTransaction(rawTransactionHex);
+  }
+
+  WalletTransactionPreview prepareSend(WalletSendRequest request) {
+    final account = selectedAccount;
+    final address = account?.address;
+    if (account == null || address == null) {
+      throw const WalletSigningUnavailable();
+    }
+    return _transactionService.prepare(
+      accountId: account.id,
+      network: networkForAccount(account),
+      sourceAddress: address,
+      availableUtxos: spendableUtxosFor(account),
+      request: request,
+    );
+  }
+
+  Future<WalletSendResult> sendTransaction(
+    WalletTransactionPreview preview,
+  ) async {
+    if (_sending) {
+      throw const WalletTransactionRejected(
+        'Another transaction is already being submitted.',
+      );
+    }
+    _sending = true;
+    try {
+      final account = accounts
+          .where((candidate) => candidate.id == preview.accountId)
+          .firstOrNull;
+      final privateKeyHex = account?.privateKeyHex;
+      if (account == null || privateKeyHex == null) {
+        throw const WalletSigningUnavailable();
+      }
+      final signed = _transactionService.sign(
+        network: networkForAccount(account),
+        preview: preview,
+        privateKeyHex: privateKeyHex,
+      );
+      if (_broadcastedTransactionIds.contains(signed.transactionId) ||
+          !_broadcastingTransactionIds.add(signed.transactionId)) {
+        throw const WalletTransactionRejected(
+          'This transaction has already been submitted.',
+        );
+      }
+      try {
+        final service = _networkServices[networkForAccount(account).storageId];
+        if (service == null) {
+          throw StateError('ElectrumX is not configured.');
+        }
+        final serverTransactionId = await service.broadcastTransaction(
+          signed.rawTransactionHex,
+        );
+        _broadcastedTransactionIds.add(signed.transactionId);
+        await _restartElectrumxSync();
+        return WalletSendResult(
+          transactionId: signed.transactionId,
+          serverTransactionId: serverTransactionId,
+        );
+      } finally {
+        _broadcastingTransactionIds.remove(signed.transactionId);
+      }
+    } finally {
+      _sending = false;
+    }
   }
 
   void selectAccount(int index) {

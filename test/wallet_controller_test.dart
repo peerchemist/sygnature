@@ -5,9 +5,11 @@ import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
+import 'package:sygnature_ng/models/wallet_transaction.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
+import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
@@ -79,6 +81,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.balanceSatsFor(account), 1750000);
+    expect(controller.confirmedBalanceSatsFor(account), 1250000);
+    expect(controller.pendingBalanceSatsFor(account), 500000);
+    expect(controller.spendableUtxosFor(account), hasLength(1));
     expect(controller.utxosFor(account), hasLength(2));
     expect(controller.syncStatusFor(account), AccountSyncStatus.synced);
     expect(receivedSoundCount, 0);
@@ -203,6 +208,21 @@ void main() {
     controller.dispose();
   });
 
+  test('renames an account and persists the new name', () async {
+    final repository = MemoryWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+
+    await controller.renameAccount(controller.accounts.single.id, 'Daily');
+
+    expect(controller.accounts.single.name, 'Daily');
+    expect(repository.value?.accounts.single.name, 'Daily');
+  });
+
   test(
     'deleting the last account keeps the vault and recovery phrase',
     () async {
@@ -231,6 +251,55 @@ void main() {
       expect(controller.accounts.single.accountIndex, 1);
     },
   );
+
+  test('previews, signs and broadcasts a send exactly once', () async {
+    final electrumx = _FakeElectrumxService();
+    final transactions = _FakeWalletTransactionService();
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      transactionService: transactions,
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(
+        address: 'pc1paccount0',
+        utxos: [
+          ElectrumxUtxo(
+            address: 'pc1paccount0',
+            txHash: 'funding',
+            txPos: 0,
+            height: 10,
+            value: 2000000,
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final preview = controller.prepareSend(
+      const WalletSendRequest(
+        destinationAddress: 'pc1pdestination',
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+    final result = await controller.sendTransaction(preview);
+
+    expect(transactions.preparedUtxos, hasLength(1));
+    expect(transactions.signedPrivateKey, 'private-key-0');
+    expect(electrumx.broadcastedTransactions, ['signed-transaction']);
+    expect(result.transactionId, 'local-transaction-id');
+    expect(result.serverTransactionId, 'transaction-id');
+    await expectLater(
+      controller.sendTransaction(preview),
+      throwsA(isA<WalletTransactionRejected>()),
+    );
+
+    controller.dispose();
+  });
 }
 
 const _mnemonic = MnemonicSession(
@@ -291,6 +360,7 @@ class _FakeElectrumxService implements ElectrumxService {
       StreamController<PeercoinElectrumxUtxoSnapshot>.broadcast();
   final List<Set<String>> watchedAddresses = [];
   bool closed = false;
+  final List<String> broadcastedTransactions = [];
 
   @override
   Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
@@ -305,6 +375,7 @@ class _FakeElectrumxService implements ElectrumxService {
 
   @override
   Future<String> broadcastTransaction(String rawTransactionHex) async {
+    broadcastedTransactions.add(rawTransactionHex);
     return 'transaction-id';
   }
 
@@ -312,5 +383,44 @@ class _FakeElectrumxService implements ElectrumxService {
   Future<void> close() async {
     closed = true;
     await snapshots.close();
+  }
+}
+
+class _FakeWalletTransactionService implements WalletTransactionService {
+  List<ElectrumxUtxo> preparedUtxos = const [];
+  String? signedPrivateKey;
+
+  @override
+  WalletTransactionPreview prepare({
+    required String accountId,
+    required WalletNetwork network,
+    required String sourceAddress,
+    required List<ElectrumxUtxo> availableUtxos,
+    required WalletSendRequest request,
+  }) {
+    preparedUtxos = availableUtxos;
+    return WalletTransactionPreview(
+      accountId: accountId,
+      sourceAddress: sourceAddress,
+      destinationAddress: request.destinationAddress,
+      amountSats: request.amountSats,
+      feeSats: 1000,
+      changeSats: 999000,
+      feeRateSatsPerKb: request.feeRateSatsPerKb,
+      selectedUtxos: availableUtxos,
+    );
+  }
+
+  @override
+  SignedWalletTransaction sign({
+    required WalletNetwork network,
+    required WalletTransactionPreview preview,
+    required String privateKeyHex,
+  }) {
+    signedPrivateKey = privateKeyHex;
+    return const SignedWalletTransaction(
+      transactionId: 'local-transaction-id',
+      rawTransactionHex: 'signed-transaction',
+    );
   }
 }

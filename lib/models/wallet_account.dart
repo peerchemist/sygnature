@@ -26,6 +26,18 @@ class WalletAccount {
   final String? privateKeyHex;
   final DateTime createdAt;
 
+  WalletAccount copyWith({String? name}) => WalletAccount(
+    id: id,
+    name: name ?? this.name,
+    accountIndex: accountIndex,
+    blockchainId: blockchainId,
+    networkId: networkId,
+    derivationPath: derivationPath,
+    address: address,
+    privateKeyHex: privateKeyHex,
+    createdAt: createdAt,
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,

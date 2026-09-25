@@ -591,6 +591,12 @@ class _BackupStep extends StatelessWidget {
                 label: 'Phrase',
                 value: '${mnemonic.words.length} words',
               ),
+              const Divider(height: 20),
+              _SetupRow(
+                label: 'Derivation path',
+                value: network.derivationPathForAccount(0),
+                monospace: true,
+              ),
             ],
           ),
         ),
@@ -681,8 +687,11 @@ class _RecoveryPhrase extends StatelessWidget {
 }
 
 class _SetupRow extends StatelessWidget {
-  const _SetupRow({required this.label, required this.value})
-    : monospace = false;
+  const _SetupRow({
+    required this.label,
+    required this.value,
+    this.monospace = false,
+  });
 
   final String label;
   final String value;

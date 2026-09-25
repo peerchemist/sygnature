@@ -40,6 +40,7 @@ dependencies:
   coinlib: ^6.0.1
   unorm_dart: ^0.3.2
   logger: ^2.8.0
+  qr_flutter: ^4.1.0
   web_socket_channel: ^3.0.3
 
 dev_dependencies:

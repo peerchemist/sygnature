@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
+import '../models/wallet_transaction.dart';
+import '../services/peercoin_network_service.dart';
+import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
 import 'widgets/brand_mark.dart';
 
@@ -246,6 +250,8 @@ class _WalletDashboard extends StatelessWidget {
                   syncStatus: controller.syncStatusFor(account),
                   onDelete: () =>
                       _confirmDeleteWallet(context, controller, account),
+                  onRename: () =>
+                      _showRenameWallet(context, controller, account),
                 ),
                 const SizedBox(height: 24),
                 _BalanceCard(account: account, controller: controller),
@@ -343,10 +349,12 @@ class _DashboardHeader extends StatelessWidget {
     required this.account,
     required this.syncStatus,
     required this.onDelete,
+    required this.onRename,
   });
   final WalletAccount account;
   final AccountSyncStatus syncStatus;
   final VoidCallback onDelete;
+  final VoidCallback onRename;
 
   @override
   Widget build(BuildContext context) {
@@ -418,8 +426,21 @@ class _DashboardHeader extends StatelessWidget {
                 size: 20,
                 color: AppColors.inkMuted,
               ),
-              onSelected: (_) => onDelete(),
+              onSelected: (value) {
+                if (value == 'rename') onRename();
+                if (value == 'delete') onDelete();
+              },
               itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'rename',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined),
+                      SizedBox(width: 10),
+                      Text('Rename wallet'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'delete',
                   child: Row(
@@ -449,6 +470,8 @@ class _BalanceCard extends StatelessWidget {
     final active = account.address != null;
     final syncStatus = controller.syncStatusFor(account);
     final balance = controller.balanceSatsFor(account);
+    final confirmedBalance = controller.confirmedBalanceSatsFor(account);
+    final pendingBalance = controller.pendingBalanceSatsFor(account);
     final utxoCount = controller.utxosFor(account).length;
     return Card(
       child: SizedBox(
@@ -496,7 +519,11 @@ class _BalanceCard extends StatelessWidget {
                         AccountSyncStatus.syncing =>
                           'Synchronizing with ElectrumX…',
                         AccountSyncStatus.synced =>
-                          '$utxoCount spendable ${utxoCount == 1 ? 'output' : 'outputs'}',
+                          pendingBalance == 0
+                              ? '${_formatPpc(confirmedBalance)} PPC confirmed · '
+                                    '$utxoCount ${utxoCount == 1 ? 'output' : 'outputs'}'
+                              : '${_formatPpc(confirmedBalance)} PPC confirmed · '
+                                    '${_formatPpc(pendingBalance)} PPC pending',
                         AccountSyncStatus.error =>
                           'ElectrumX synchronization failed',
                       },
@@ -524,16 +551,29 @@ class _BalanceCard extends StatelessWidget {
                     icon: Icons.south_west,
                     label: 'Receive',
                     enabled: active,
+                    onPressed: active
+                        ? () => _showReceiveAddress(context, account)
+                        : null,
                   ),
                   _BalanceAction(
                     icon: Icons.north_east,
                     label: 'Send',
-                    enabled: active,
+                    enabled:
+                        active &&
+                        syncStatus == AccountSyncStatus.synced &&
+                        confirmedBalance > 0,
+                    onPressed:
+                        active &&
+                            syncStatus == AccountSyncStatus.synced &&
+                            confirmedBalance > 0
+                        ? () => _showSendDialog(context, controller, account)
+                        : null,
                   ),
                   const _BalanceAction(
                     icon: Icons.history,
                     label: 'History',
                     enabled: false,
+                    onPressed: null,
                   ),
                 ],
               ),
@@ -559,15 +599,17 @@ class _BalanceAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.enabled,
+    required this.onPressed,
   });
   final IconData icon;
   final String label;
   final bool enabled;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      onPressed: enabled ? () {} : null,
+      onPressed: enabled ? onPressed : null,
       icon: Icon(icon, size: 16),
       label: Text(label),
       style: OutlinedButton.styleFrom(
@@ -767,6 +809,374 @@ class _ActivityCard extends StatelessWidget {
   }
 }
 
+Future<void> _showReceiveAddress(
+  BuildContext context,
+  WalletAccount account,
+) async {
+  final address = account.address;
+  if (address == null) return;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Receive Peercoin'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Semantics(
+              label: 'QR code for receive address',
+              child: QrImageView(
+                data: address,
+                version: QrVersions.auto,
+                size: 220,
+                backgroundColor: Colors.white,
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+              ),
+            ),
+            const SizedBox(height: 18),
+            SelectableText(
+              address,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: address));
+            if (!dialogContext.mounted) return;
+            ScaffoldMessenger.of(dialogContext)
+                .showSnackBar(const SnackBar(content: Text('Address copied.')));
+          },
+          icon: const Icon(Icons.copy_rounded),
+          label: const Text('Copy'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Done'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _showSendDialog(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account,
+) async {
+  final result = await showDialog<WalletSendResult>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _SendDialog(controller: controller, account: account),
+  );
+  if (result == null || !context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        'Transaction submitted: ${_shortTransactionId(result.transactionId)}',
+      ),
+    ),
+  );
+}
+
+class _SendDialog extends StatefulWidget {
+  const _SendDialog({required this.controller, required this.account});
+
+  final WalletController controller;
+  final WalletAccount account;
+
+  @override
+  State<_SendDialog> createState() => _SendDialogState();
+}
+
+class _SendDialogState extends State<_SendDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _destinationController = TextEditingController();
+  final _amountController = TextEditingController();
+  late final TextEditingController _feeRateController;
+  WalletTransactionPreview? _preview;
+  String? _error;
+  bool _submitting = false;
+  bool _maximum = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final network = PeercoinNetworks.fromWalletNetwork(
+      widget.controller.networkForAccount(widget.account),
+    );
+    _feeRateController = TextEditingController(
+      text: network.network.feePerKb.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _destinationController.dispose();
+    _amountController.dispose();
+    _feeRateController.dispose();
+    super.dispose();
+  }
+
+  void _review() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    try {
+      final preview = widget.controller.prepareSend(
+        WalletSendRequest(
+          destinationAddress: _destinationController.text,
+          amountSats: _maximum ? 0 : _parsePpc(_amountController.text)!,
+          feeRateSatsPerKb: int.parse(_feeRateController.text.trim()),
+          maximum: _maximum,
+        ),
+      );
+      setState(() {
+        _preview = preview;
+        _error = null;
+      });
+    } on WalletTransactionFailure catch (error) {
+      setState(() => _error = error.message);
+    } catch (_) {
+      setState(() => _error = 'Unable to prepare the transaction.');
+    }
+  }
+
+  Future<void> _send() async {
+    final preview = _preview;
+    if (preview == null || _submitting) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.controller.sendTransaction(preview);
+      if (!mounted) return;
+      Navigator.pop(context, result);
+    } on WalletTransactionFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'Broadcast failed. Verify the network connection and retry.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _preview;
+    return AlertDialog(
+      title: Text(preview == null ? 'Send Peercoin' : 'Review transaction'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          child: preview == null ? _buildForm() : _buildPreview(preview),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting
+              ? null
+              : preview == null
+              ? () => Navigator.pop(context)
+              : () => setState(() {
+                  _preview = null;
+                  _error = null;
+                }),
+          child: Text(preview == null ? 'Cancel' : 'Back'),
+        ),
+        FilledButton(
+          key: Key(
+            preview == null ? 'send-review-button' : 'send-confirm-button',
+          ),
+          onPressed: _submitting
+              ? null
+              : preview == null
+              ? _review
+              : _send,
+          child: _submitting
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(preview == null ? 'Review' : 'Sign and send'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildForm() => Form(
+    key: _formKey,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          key: const Key('send-address-field'),
+          controller: _destinationController,
+          autofocus: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(labelText: 'Taproot address'),
+          validator: (value) => value == null || value.trim().isEmpty
+              ? 'Enter a destination address.'
+              : null,
+        ),
+        const SizedBox(height: 14),
+        TextFormField(
+          key: const Key('send-amount-field'),
+          controller: _amountController,
+          enabled: !_maximum,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Amount',
+            suffixText: 'PPC',
+          ),
+          validator: (value) {
+            if (_maximum) return null;
+            final amount = _parsePpc(value ?? '');
+            return amount == null || amount <= 0
+                ? 'Enter a valid amount with up to 6 decimals.'
+                : null;
+          },
+        ),
+        CheckboxListTile(
+          key: const Key('send-maximum-field'),
+          value: _maximum,
+          onChanged: (value) => setState(() {
+            _maximum = value ?? false;
+            _error = null;
+          }),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Send maximum available'),
+          subtitle: const Text('The network fee is deducted automatically.'),
+        ),
+        const SizedBox(height: 14),
+        TextFormField(
+          key: const Key('send-fee-rate-field'),
+          controller: _feeRateController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Fee rate',
+            suffixText: 'sat/kB',
+          ),
+          validator: (value) {
+            final feeRate = int.tryParse(value?.trim() ?? '');
+            return feeRate == null || feeRate <= 0
+                ? 'Enter a valid fee rate.'
+                : null;
+          },
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 14),
+          Text(_error!, style: const TextStyle(color: Colors.red)),
+        ],
+      ],
+    ),
+  );
+
+  Widget _buildPreview(WalletTransactionPreview preview) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Confirm every detail before the private key signs this transaction.',
+        style: TextStyle(color: AppColors.inkMuted),
+      ),
+      const SizedBox(height: 18),
+      _TransactionRow(label: 'From', value: widget.account.name),
+      _TransactionRow(
+        label: 'To',
+        value: preview.destinationAddress,
+        monospace: true,
+      ),
+      _TransactionRow(
+        label: 'Amount',
+        value: '${_formatPpc(preview.amountSats)} PPC',
+      ),
+      _TransactionRow(
+        label: 'Network fee',
+        value: '${_formatPpc(preview.feeSats)} PPC',
+      ),
+      _TransactionRow(
+        label: 'Change',
+        value: '${_formatPpc(preview.changeSats)} PPC',
+      ),
+      _TransactionRow(
+        label: 'Inputs',
+        value: '${preview.selectedUtxos.length}',
+      ),
+      if (_error != null) ...[
+        const SizedBox(height: 12),
+        Text(_error!, style: const TextStyle(color: Colors.red)),
+      ],
+    ],
+  );
+}
+
+class _TransactionRow extends StatelessWidget {
+  const _TransactionRow({
+    required this.label,
+    required this.value,
+    this.monospace = false,
+  });
+
+  final String label;
+  final String value;
+  final bool monospace;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 7),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(label, style: const TextStyle(color: AppColors.inkMuted)),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontFamily: monospace ? 'monospace' : null,
+              fontSize: monospace ? 11 : null,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+int? _parsePpc(String input) {
+  final value = input.trim();
+  if (!RegExp(r'^\d+(?:\.\d{1,6})?$').hasMatch(value)) return null;
+  final parts = value.split('.');
+  final whole = BigInt.tryParse(parts.first);
+  final fraction = BigInt.tryParse(
+    parts.length == 1 ? '0' : parts[1].padRight(6, '0'),
+  );
+  if (whole == null || fraction == null) return null;
+  final satoshis = whole * BigInt.from(1000000) + fraction;
+  // Dart's JavaScript backend represents integers exactly up to 2^53 - 1.
+  if (satoshis > BigInt.parse('9007199254740991')) return null;
+  return satoshis.toInt();
+}
+
+String _shortTransactionId(String transactionId) => transactionId.length <= 16
+    ? transactionId
+    : '${transactionId.substring(0, 8)}…${transactionId.substring(transactionId.length - 8)}';
+
 Future<void> _showAddWallet(
   BuildContext context,
   WalletController controller,
@@ -896,6 +1306,46 @@ Future<void> _confirmDeleteWallet(
     ),
   );
   if (confirmed == true) await controller.deleteAccount(account.id);
+}
+
+Future<void> _showRenameWallet(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account,
+) async {
+  final nameController = TextEditingController(text: account.name);
+  final name = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Rename wallet'),
+      content: TextField(
+        key: const Key('rename-wallet-field'),
+        controller: nameController,
+        autofocus: true,
+        maxLength: 32,
+        decoration: const InputDecoration(labelText: 'Name'),
+        onSubmitted: (value) {
+          if (value.trim().isNotEmpty) Navigator.pop(dialogContext, value);
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (nameController.text.trim().isNotEmpty) {
+              Navigator.pop(dialogContext, nameController.text);
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+  nameController.dispose();
+  if (name != null) await controller.renameAccount(account.id, name);
 }
 
 Future<void> _showSettings(
