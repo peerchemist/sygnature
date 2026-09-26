@@ -145,6 +145,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('WALLETS'), findsOneWidget);
+    expect(find.text('LOCAL'), findsOneWidget);
+    expect(find.text('ROAST'), findsNothing);
     expect(find.text('Recent activity'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

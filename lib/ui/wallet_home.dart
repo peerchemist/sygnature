@@ -169,6 +169,8 @@ class _WalletListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isRoast = account.keySource == WalletKeySource.roast;
+
     return Material(
       color: selected ? AppColors.lime : Colors.transparent,
       borderRadius: BorderRadius.circular(4),
@@ -202,14 +204,49 @@ class _WalletListTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      account.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.ink,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            account.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isRoast
+                                ? AppColors.forest
+                                : AppColors.canvas,
+                            border: Border.all(
+                              color: isRoast
+                                  ? AppColors.forest
+                                  : AppColors.line,
+                            ),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            isRoast ? 'ROAST' : 'LOCAL',
+                            style: TextStyle(
+                              color: isRoast
+                                  ? Colors.white
+                                  : AppColors.inkMuted,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 3),
                     Text(

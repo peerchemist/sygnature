@@ -14,6 +14,9 @@ void main() {
   testWidgets('adds a pending ROAST wallet after personal wallet setup', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final runtime = _FakeRoastRuntime();
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
@@ -48,6 +51,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('LOCAL'), findsOneWidget);
+    expect(find.text('ROAST'), findsNothing);
+
     await tester.tap(find.byTooltip('Add sub-wallet'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('ROAST shared wallet'));
@@ -61,6 +67,8 @@ void main() {
 
     expect(find.text('Shared wallet'), findsWidgets);
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
+    expect(find.text('LOCAL'), findsOneWidget);
+    expect(find.text('ROAST'), findsOneWidget);
     expect(find.text('Signer 2 of 2'), findsOneWidget);
     expect(find.byKey(const Key('roast-signer-name-0')), findsOneWidget);
     expect(find.byKey(const Key('roast-invite-wizard-back')), findsOneWidget);
