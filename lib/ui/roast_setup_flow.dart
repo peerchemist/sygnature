@@ -303,103 +303,244 @@ class const RoastSetupPanel({
     final setup = controller.setupForAccount(account);
     if (setup == null) return const SizedBox.shrink();
     final busy = controller.roastOperationInProgress(setup.id);
+    final onlineSigners = controller.onlineSignerCount(setup);
+    final actions = _actions(context, setup, busy);
+    final errorMessage = _displayError(setup);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.hub_outlined, color: AppColors.greenDark),
-                Text(
-                  setup.name,
-                  style: Theme.of(context).textTheme.titleMedium,
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.lime,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.hub_outlined,
+                    color: AppColors.greenDark,
+                    size: 22,
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        setup.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _statusText(setup),
+                        style: const TextStyle(
+                          color: AppColors.inkMuted,
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
                 _RoastBadge(setup: setup),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(_statusText(setup), style: const TextStyle(fontSize: 13)),
-            const SizedBox(height: 8),
-            Text(
-              '${controller.onlineSignerCount(setup)} of '
-              '${setup.participantCount} signers online · '
-              '${setup.threshold} required',
-              style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
-            ),
             if (setup.isFinalized) ...[
+              const SizedBox(height: 18),
+              _SwarmHealth(
+                online: onlineSigners,
+                total: setup.participantCount,
+                requiredSigners: setup.threshold,
+              ),
               const SizedBox(height: 14),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppColors.canvas,
                   border: Border.all(color: AppColors.line),
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Group ${_short(setup.groupFingerprintHex ?? 'pending')}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                      child: Row(
+                        children: [
+                          const Text(
+                            'SIGNERS',
+                            style: TextStyle(
+                              color: AppColors.inkMuted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.9,
+                            ),
+                          ),
+                          const Spacer(),
+                          Tooltip(
+                            message: setup.groupFingerprintHex ?? 'Pending',
+                            child: Text(
+                              'GROUP  ${_short(setup.groupFingerprintHex ?? 'pending')}',
+                              style: const TextStyle(
+                                color: AppColors.inkMuted,
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    for (final participant in setup.participants)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          '${participant.name} · '
-                          '${_short(participant.publicKeyHex)}',
-                          style: const TextStyle(
-                            color: AppColors.inkMuted,
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                          ),
+                    const Divider(height: 1),
+                    for (
+                      var index = 0;
+                      index < setup.participants.length;
+                      index++
+                    ) ...[
+                      _RoastParticipantRow(
+                        participant: setup.participants[index],
+                        online: controller.isRoastParticipantOnline(
+                          setup,
+                          setup.participants[index],
+                        ),
+                        local:
+                            setup.participants[index].cardId ==
+                            setup.localCardId,
+                      ),
+                      if (index < setup.participants.length - 1)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 42),
+                          child: Divider(height: 1),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.canvas,
+                  border: Border.all(color: AppColors.line),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.construction_rounded,
+                      color: AppColors.warningDark,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        setup.role == RoastSetupRole.host
+                            ? 'Complete the signer roster to start the swarm.'
+                            : 'Import your participant-bound invite to join the swarm.',
+                        style: const TextStyle(
+                          color: AppColors.inkMuted,
+                          fontSize: 12,
+                          height: 1.4,
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
             ],
-            if (setup.errorMessage != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                setup.errorMessage!,
-                style: const TextStyle(color: Colors.red, fontSize: 12),
+            if (errorMessage != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                key: const Key('roast-setup-error'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.dangerSurface,
+                  border: Border.all(
+                    color: AppColors.danger.withValues(alpha: 0.3),
+                  ),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: AppColors.danger,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'ACTION REQUIRED',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            errorMessage,
+                            style: const TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
             if (setup.status == RoastSetupStatus.awaitingDkgApproval) ...[
               const SizedBox(height: 12),
-              Text(
-                'Proposal ${setup.pendingDkgName ?? 'unknown'} · '
-                '${setup.pendingDkgThreshold ?? 0} required · creator '
-                '${_short(setup.pendingDkgCreatorId ?? 'unknown')} · expires '
-                '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
-                style: const TextStyle(
-                  color: AppColors.inkMuted,
-                  fontFamily: 'monospace',
-                  fontSize: 11,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Proposal ${setup.pendingDkgName ?? 'unknown'} · '
+                  '${setup.pendingDkgThreshold ?? 0} required · creator '
+                  '${_short(setup.pendingDkgCreatorId ?? 'unknown')} · expires '
+                  '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
+                  style: const TextStyle(
+                    color: AppColors.ink,
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ],
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: _actions(context, setup, busy),
-            ),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(spacing: 10, runSpacing: 10, children: actions),
+            ],
             if (busy) ...[
               const SizedBox(height: 14),
-              const LinearProgressIndicator(minHeight: 2),
+              const LinearProgressIndicator(minHeight: 3),
             ],
           ],
         ),
@@ -579,9 +720,285 @@ class const RoastSetupPanel({
     RoastSetupStatus.error => 'ROAST setup needs attention',
   };
 
+  static String? _displayError(RoastSetup setup) {
+    final message = setup.errorMessage?.trim();
+    if (message != null &&
+        message.isNotEmpty &&
+        message.toLowerCase() != 'null') {
+      return message;
+    }
+    return switch (setup.status) {
+      RoastSetupStatus.error =>
+        'The last ROAST operation failed. Reconnect and try again.',
+      RoastSetupStatus.interrupted =>
+        'The ROAST connection was interrupted. Reconnect to restore it.',
+      _ => null,
+    };
+  }
+
   static String _short(String value) => value.length <= 18
       ? value
       : '${value.substring(0, 8)}…${value.substring(value.length - 8)}';
+}
+
+class const _SwarmHealth({
+  required final int online,
+  required final int total,
+  required final int requiredSigners,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final healthy = online == total;
+    final hasQuorum = online >= requiredSigners;
+    final color = healthy
+        ? AppColors.success
+        : hasQuorum
+        ? AppColors.warningDark
+        : AppColors.danger;
+    final surface = healthy
+        ? AppColors.successSurface
+        : hasQuorum
+        ? AppColors.warning
+        : AppColors.dangerSurface;
+    final label = healthy
+        ? 'Healthy'
+        : hasQuorum
+        ? 'Degraded'
+        : 'Unavailable';
+    final missingForQuorum = (requiredSigners - online).clamp(
+      0,
+      requiredSigners,
+    );
+    final offline = (total - online).clamp(0, total);
+    final detail = healthy
+        ? 'All $total signers are online.'
+        : hasQuorum
+        ? '$offline ${offline == 1 ? 'signer is' : 'signers are'} offline. Quorum is still available.'
+        : '$missingForQuorum more ${missingForQuorum == 1 ? 'signer is' : 'signers are'} needed for quorum.';
+    final progress = total == 0
+        ? 0.0
+        : (online / total).clamp(0.0, 1.0).toDouble();
+
+    return Semantics(
+      label:
+          'ROAST swarm health: $label. $online of $total signers online. '
+          '$requiredSigners required.',
+      child: Container(
+        key: ValueKey('roast-swarm-health-${label.toLowerCase()}'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: surface,
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 80,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox.square(
+                    dimension: 72,
+                    child: CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 8,
+                      strokeCap: StrokeCap.round,
+                      color: color,
+                      backgroundColor: color.withValues(alpha: 0.14),
+                    ),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$online/$total',
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 19,
+                          height: 1,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'ONLINE',
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'SWARM HEALTH',
+                    style: TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.9,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    detail,
+                    style: const TextStyle(
+                      color: AppColors.ink,
+                      fontSize: 11,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$requiredSigners required to sign',
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class const _RoastParticipantRow({
+  required final RoastParticipant participant,
+  required final bool online,
+  required final bool local,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final color = online ? AppColors.success : AppColors.danger;
+    return Semantics(
+      label: '${participant.name}, ${online ? 'online' : 'offline'}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.22),
+                    blurRadius: 0,
+                    spreadRadius: 3,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          participant.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.ink,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (local) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.lime,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: const Text(
+                            'YOU',
+                            style: TextStyle(
+                              color: AppColors.greenDark,
+                              fontSize: 8,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Tooltip(
+                    message: participant.publicKeyHex,
+                    child: Text(
+                      RoastSetupPanel._short(participant.publicKeyHex),
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              online ? 'ONLINE' : 'OFFLINE',
+              style: TextStyle(
+                color: color,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class const _RoastInviteWizard({

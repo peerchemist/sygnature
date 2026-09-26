@@ -158,13 +158,20 @@ class WalletController extends ChangeNotifier {
           .firstOrNull;
 
   int onlineSignerCount(RoastSetup setup) {
-    final presence = _roastPresence[setup.id];
-    final localOnline =
-        presence?.connected == true && presence?.signerRunning == true;
-    final remoteIds = setup.onlineParticipantIds
-        .where((id) => id != setup.localParticipant.identifierHex)
-        .toSet();
-    return remoteIds.length + (localOnline ? 1 : 0);
+    return setup.participants
+        .where((participant) => isRoastParticipantOnline(setup, participant))
+        .length;
+  }
+
+  bool isRoastParticipantOnline(
+    RoastSetup setup,
+    RoastParticipant participant,
+  ) {
+    if (participant.cardId == setup.localCardId) {
+      final presence = _roastPresence[setup.id];
+      return presence?.connected == true && presence?.signerRunning == true;
+    }
+    return setup.onlineParticipantIds.contains(participant.identifierHex);
   }
 
   String roastOutputAddress(
@@ -1107,7 +1114,7 @@ class WalletController extends ChangeNotifier {
   }
 
   static String _cleanRoastError(Object error) => switch (error) {
-    ArgumentError(:final message) => '$message',
+    ArgumentError() => error.toString(),
     StateError(:final message) => message,
     _ => 'Unable to connect to the ROAST coordinator.',
   };

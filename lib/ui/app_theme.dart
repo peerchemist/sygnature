@@ -6,6 +6,11 @@ abstract final class AppColors {
   static const forest = Color(0xff24583b);
   static const green = Color(0xff3a7d57);
   static const greenDark = Color(0xff24583b);
+  static const success = Color(0xff087a41);
+  static const successSurface = Color(0xffe7f6ed);
+  static const danger = Color(0xffb42318);
+  static const dangerSurface = Color(0xffffecea);
+  static const warningDark = Color(0xff8a5b00);
   static const lime = Color(0xffdce9df);
   static const canvas = Color(0xfff5f5f2);
   static const surface = Color(0xffffffff);

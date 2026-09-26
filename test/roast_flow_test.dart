@@ -12,6 +12,7 @@ import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
+import 'package:sygnature_ng/ui/app_theme.dart';
 
 void main() {
   testWidgets('adds a pending ROAST wallet after personal wallet setup', (
@@ -165,7 +166,137 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('shows healthy and unavailable ROAST swarm states', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+    final repository = MemoryWalletRepository()..value = _finalizedRoastVault();
+    final controller = WalletController(
+      repository,
+      roastRuntime: runtime,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    var health = find.byKey(const Key('roast-swarm-health-healthy'));
+    expect(health, findsOneWidget);
+    expect(find.text('2/2'), findsOneWidget);
+    expect(
+      tester
+          .widget<CircularProgressIndicator>(
+            find.descendant(
+              of: health,
+              matching: find.byType(CircularProgressIndicator),
+            ),
+          )
+          .color,
+      AppColors.success,
+    );
+
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        'setup',
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    health = find.byKey(const Key('roast-swarm-health-unavailable'));
+    expect(health, findsOneWidget);
+    expect(find.text('1/2'), findsOneWidget);
+    expect(
+      tester
+          .widget<CircularProgressIndicator>(
+            find.descendant(
+              of: health,
+              matching: find.byType(CircularProgressIndicator),
+            ),
+          )
+          .color,
+      AppColors.danger,
+    );
+    expect(find.text('null'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }
+
+WalletVault _finalizedRoastVault() => WalletVault(
+  accounts: [
+    WalletAccount(
+      id: 'roast-wallet',
+      name: 'Shared wallet',
+      accountIndex: 0,
+      blockchainId: 'peercoin',
+      networkId: 'mainnet',
+      keySource: WalletKeySource.roast,
+      sourceId: 'setup',
+      keyId: 'group-g1',
+      createdAt: DateTime.utc(2026),
+    ),
+  ],
+  nextAccountIndex: 0,
+  roastSetups: [
+    RoastSetup(
+      id: 'setup',
+      groupId: 'group',
+      name: 'Family wallet',
+      role: RoastSetupRole.host,
+      status: RoastSetupStatus.ready,
+      threshold: 2,
+      participantCount: 2,
+      blockchainId: 'peercoin',
+      networkId: 'mainnet',
+      localCardId: 'local-card',
+      localParticipantPrivateKeyHex: '11' * 32,
+      participants: [
+        RoastParticipant(
+          cardId: 'remote-card',
+          name: 'Bob',
+          identifierHex: '01',
+          publicKeyHex: '02${'11' * 32}',
+        ),
+        RoastParticipant(
+          cardId: 'local-card',
+          name: 'This device',
+          identifierHex: '02',
+          publicKeyHex: '03${'22' * 32}',
+        ),
+      ],
+      onlineParticipantIds: const [],
+      keyName: 'group-g1',
+      createdAt: DateTime.utc(2026),
+      usesRoomEnrollment: true,
+      hostParticipantId: '02',
+      coordinatorId: 'coordinator',
+      groupFingerprintHex: 'aa' * 32,
+    ),
+  ],
+);
 
 final class _FakeRoastKeyService extends RoastKeyService {
   int _id = 0;
@@ -194,12 +325,16 @@ final class _FakeRoastKeyService extends RoastKeyService {
 final class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
+  RoastRuntimeSnapshot? startSnapshot;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
 
+  void emit(RoastRuntimeEvent event) => _events.add(event);
+
   @override
-  Future<RoastRuntimeSnapshot> startSetup(setup) => throw UnimplementedError();
+  Future<RoastRuntimeSnapshot> startSetup(setup) async =>
+      startSnapshot ?? (throw UnimplementedError());
 
   @override
   Future<RoastRoomCreation> createRoom(setup) => throw UnimplementedError();
