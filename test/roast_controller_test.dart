@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:noosphere_flutter/noosphere_flutter.dart' show HDKeyInfo;
+import 'package:noosphere_flutter/noosphere_flutter.dart'
+    show Expiry, HDKeyInfo, NewDkgDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
@@ -41,8 +42,20 @@ void main() {
       );
 
       final account = controller.accounts.single;
+      final setup = controller.roastSetups.single;
       expect(account.name, 'Family treasury');
-      expect(controller.roastSetups.single.name, 'Family treasury');
+      expect(setup.name, 'Family treasury');
+      expect(setup.keyName, roastKeyName(setup.groupId));
+      expect(setup.keyName.length, lessThanOrEqualTo(maxRoastKeyNameLength));
+      expect(
+        () => NewDkgDetails(
+          name: setup.keyName,
+          description: 'ROAST wallet',
+          threshold: setup.threshold,
+          expiry: Expiry(const Duration(hours: 1)),
+        ),
+        returnsNormally,
+      );
 
       await controller.renameAccount(account.id, 'My local wallet');
 

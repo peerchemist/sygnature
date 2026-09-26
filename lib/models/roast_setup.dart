@@ -76,6 +76,7 @@ class RoastSetup({
     RoastSetupStatus? status,
     List<RoastParticipant>? participants,
     List<String>? onlineParticipantIds,
+    String? keyName,
     String? hostParticipantId,
     String? coordinatorId,
     List<String>? coordinatorRelayUrls,
@@ -104,7 +105,7 @@ class RoastSetup({
     localParticipantPrivateKeyHex: localParticipantPrivateKeyHex,
     participants: participants ?? this.participants,
     onlineParticipantIds: onlineParticipantIds ?? this.onlineParticipantIds,
-    keyName: keyName,
+    keyName: keyName ?? this.keyName,
     createdAt: createdAt,
     usesRoomEnrollment: usesRoomEnrollment,
     hostParticipantId: hostParticipantId ?? this.hostParticipantId,
@@ -166,9 +167,10 @@ class RoastSetup({
     final participants = (json['participants']! as List)
         .map((item) => RoastParticipant.fromJson(item as Map))
         .toList(growable: false);
+    final groupId = json['groupId']! as String;
     return RoastSetup(
       id: json['id']! as String,
-      groupId: json['groupId']! as String,
+      groupId: groupId,
       name: json['name']! as String,
       role: RoastSetupRole.values.byName(json['role']! as String),
       status: RoastSetupStatus.values.byName(json['status']! as String),
@@ -182,7 +184,7 @@ class RoastSetup({
       participants: participants,
       onlineParticipantIds:
           ((json['onlineParticipantIds'] as List?) ?? const []).cast<String>(),
-      keyName: json['keyName']! as String,
+      keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: DateTime.parse(json['createdAt']! as String),
       usesRoomEnrollment: json['usesRoomEnrollment'] as bool? ?? false,
       hostParticipantId:
@@ -206,6 +208,22 @@ class RoastSetup({
     );
   }
 }
+
+const maxRoastKeyNameLength = 40;
+
+String roastKeyName(String groupId) {
+  const suffix = '-g1';
+  final maxGroupIdLength = maxRoastKeyNameLength - suffix.length;
+  final keyPrefix = groupId.length <= maxGroupIdLength
+      ? groupId
+      : groupId.substring(0, maxGroupIdLength);
+  return '$keyPrefix$suffix';
+}
+
+String normalizeRoastKeyName(String groupId, String keyName) =>
+    keyName.length >= 3 && keyName.length <= maxRoastKeyNameLength
+    ? keyName
+    : roastKeyName(groupId);
 
 String roastKeyDescription(RoastSetup setup) => jsonEncode([
   'sygnature-roast-wallet-v1',

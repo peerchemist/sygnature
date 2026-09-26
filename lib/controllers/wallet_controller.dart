@@ -489,7 +489,7 @@ class WalletController extends ChangeNotifier {
         ),
       ],
       onlineParticipantIds: const [],
-      keyName: '$groupId:generation:1',
+      keyName: roastKeyName(groupId),
       createdAt: DateTime.now().toUtc(),
       usesRoomEnrollment: true,
     );
@@ -700,10 +700,16 @@ class WalletController extends ChangeNotifier {
           'All participants must be online before key creation.',
         );
       }
-      await _replaceSetup(
-        setup.copyWith(status: RoastSetupStatus.creatingKey, clearError: true),
+      final dkgSetup = setup.copyWith(
+        keyName: normalizeRoastKeyName(setup.groupId, setup.keyName),
       );
-      await _roastRuntime!.requestDkg(setup);
+      await _replaceSetup(
+        dkgSetup.copyWith(
+          status: RoastSetupStatus.creatingKey,
+          clearError: true,
+        ),
+      );
+      await _roastRuntime!.requestDkg(dkgSetup);
     });
   }
 

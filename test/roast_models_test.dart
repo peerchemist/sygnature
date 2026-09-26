@@ -44,6 +44,7 @@ void main() {
   });
 
   test('participant cards and legacy invitations round trip', () {
+    const groupId = 'abcdef0123456789abcdef0123456789';
     final service = _InvitationTestRoastKeyService();
     final memberKey = ECPrivateKey.generate();
     final memberPublicKey = ECCompressedPublicKey.fromPubkey(memberKey.pubkey);
@@ -59,7 +60,7 @@ void main() {
     );
     final expiresAt = DateTime.now().toUtc().add(const Duration(days: 1));
     final roomInvite = RoomInvite(
-      roomId: 'group-1',
+      roomId: groupId,
       inviteId: 'invite-1',
       token: Uint8List(32),
       expectedParticipantPublicKey: memberPublicKey,
@@ -69,7 +70,7 @@ void main() {
     );
     final setup = RoastSetup(
       id: 'local-setup',
-      groupId: 'group-1',
+      groupId: groupId,
       name: 'Family',
       role: RoastSetupRole.member,
       status: RoastSetupStatus.ready,
@@ -96,7 +97,7 @@ void main() {
         ),
       ],
       onlineParticipantIds: const [],
-      keyName: 'family:generation:1',
+      keyName: '$groupId:generation:1',
       createdAt: DateTime.utc(2026),
       usesRoomEnrollment: true,
       hostParticipantId: '01',
@@ -123,6 +124,7 @@ void main() {
 
     expect(decoded.setup.coordinatorId, coordinator.toZ32());
     expect(decoded.setup.coordinatorIpAddrs, roomInvite.ipAddrs);
+    expect(decoded.setup.keyName, '$groupId-g1');
     expect(
       () => PublicKey.fromZ32(decoded.setup.coordinatorId!),
       returnsNormally,
@@ -153,9 +155,10 @@ void main() {
   });
 
   test('migrates schema 2 ROAST setups with the host first in the roster', () {
+    const groupId = 'abcdef0123456789abcdef0123456789';
     final setup = <String, Object?>{
       'id': 'setup',
-      'groupId': 'group',
+      'groupId': groupId,
       'name': 'Family',
       'role': 'member',
       'status': 'ready',
@@ -180,7 +183,7 @@ void main() {
         },
       ],
       'onlineParticipantIds': <String>[],
-      'keyName': 'setup:generation:1',
+      'keyName': '$groupId:generation:1',
       'createdAt': '2026-01-01T00:00:00.000Z',
     };
     final vault = WalletVault.fromJson({
@@ -191,6 +194,7 @@ void main() {
     });
 
     expect(vault.roastSetups.single.hostParticipantId, '01');
+    expect(vault.roastSetups.single.keyName, '$groupId-g1');
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
   });
 

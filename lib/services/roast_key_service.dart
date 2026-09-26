@@ -179,6 +179,7 @@ class RoastKeyService {
 
   RoastInvitation applyInvitation(RoastSetup draft, String encodedInvitation) {
     final json = RoastExchangeCodec.decodeInvitation(encodedInvitation);
+    final groupId = json['groupId']! as String;
     final participants = (json['participants']! as List)
         .map((item) => RoastParticipant.fromJson(item as Map))
         .toList(growable: false);
@@ -214,7 +215,7 @@ class RoastKeyService {
       throw const FormatException('The room invitation is missing.');
     }
     final decodedRoomInvite = RoomInvite.decode(roomInvite);
-    if (decodedRoomInvite.roomId != json['groupId'] ||
+    if (decodedRoomInvite.roomId != groupId ||
         decodedRoomInvite.expectedParticipantPublicKey.hex !=
             draft.localParticipant.publicKeyHex) {
       throw const FormatException(
@@ -223,7 +224,7 @@ class RoastKeyService {
     }
     final invited = RoastSetup(
       id: draft.id,
-      groupId: json['groupId']! as String,
+      groupId: groupId,
       name: json['setupName']! as String,
       role: RoastSetupRole.member,
       status: RoastSetupStatus.ready,
@@ -235,7 +236,7 @@ class RoastKeyService {
       localParticipantPrivateKeyHex: draft.localParticipantPrivateKeyHex,
       participants: participants,
       onlineParticipantIds: const [],
-      keyName: json['keyName']! as String,
+      keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: draft.createdAt,
       usesRoomEnrollment: true,
       hostParticipantId: hostParticipantId,
