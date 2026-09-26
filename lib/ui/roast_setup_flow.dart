@@ -464,7 +464,7 @@ class const RoastSetupPanel({
         ),
         FilledButton(
           onPressed: busy ? null : () => _join(context, setup),
-          child: const Text('Paste invitation'),
+          child: const Text('Paste invite from clipboard'),
         ),
       ];
     }
