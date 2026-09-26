@@ -608,13 +608,17 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   Future<void> requestDkg(RoastSetup setup) async {
     AppLogger.info('${_roastScope(setup.id)} Requesting DKG');
     final worker = await _ensureWorker();
-    await worker.requestDkg(
+    await _runDkgCommand(
       setup.id,
-      NewDkgDetails(
-        name: setup.keyName,
-        description: roastKeyDescription(setup),
-        threshold: setup.threshold,
-        expiry: Expiry(const Duration(hours: 24)),
+      'DKG request',
+      () => worker.requestDkg(
+        setup.id,
+        NewDkgDetails(
+          name: setup.keyName,
+          description: roastKeyDescription(setup),
+          threshold: setup.threshold,
+          expiry: Expiry(const Duration(hours: 24)),
+        ),
       ),
     );
     AppLogger.info(
@@ -632,7 +636,13 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     AppLogger.info(
       '${_roastScope(setupId)} Accepting DKG ${_shortId(proposalHex)}',
     );
-    await (await _ensureWorker()).acceptDkg(setupId, proposal);
+    final worker = await _ensureWorker();
+    await _runDkgCommand(
+      setupId,
+      'DKG approval',
+      () => worker.acceptDkg(setupId, proposal),
+    );
+    AppLogger.info('${_roastScope(setupId)} DKG approved locally');
   }
 
   @override
@@ -644,7 +654,30 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     AppLogger.info(
       '${_roastScope(setupId)} Rejecting DKG ${_shortId(proposalHex)}',
     );
-    await (await _ensureWorker()).rejectDkg(setupId, proposal);
+    final worker = await _ensureWorker();
+    await _runDkgCommand(
+      setupId,
+      'DKG rejection',
+      () => worker.rejectDkg(setupId, proposal),
+    );
+    AppLogger.info('${_roastScope(setupId)} DKG rejected locally');
+  }
+
+  Future<void> _runDkgCommand(
+    String setupId,
+    String operation,
+    Future<void> Function() command,
+  ) async {
+    try {
+      await command();
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '${_roastScope(setupId)} $operation failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
   }
 
   @override
@@ -989,6 +1022,13 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   void _rememberDkgs(NoosphereWorkerSnapshot snapshot) {
     for (final proposal in snapshot.dkgs) {
       final proposalHex = bytesToHex(proposal.proposalBytes);
+      final participantCount = _setups[snapshot.setupId]?.participantCount;
+      AppLogger.info(
+        '${_roastScope(snapshot.setupId)} DKG ${_shortId(proposalHex)} '
+        'snapshot stage=${proposal.stage}, '
+        'completed=${proposal.completedParticipants.length}/'
+        '${participantCount ?? '?'}',
+      );
       _dkgProposals['${snapshot.setupId}:$proposalHex'] = proposal;
       _events.add(
         RoastRuntimeDkgEvent(

@@ -205,6 +205,36 @@ void main() {
     controller.dispose();
   });
 
+  test('asks a reconnected host to approve a pending DKG', () async {
+    final expiry = DateTime.now().add(const Duration(hours: 1));
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['02'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: 'existing-proposal',
+        pendingDkgStage: 'waiting',
+        pendingDkgName: 'setup:generation:1',
+        pendingDkgThreshold: 2,
+        pendingDkgCreator: '01',
+        pendingDkgExpiry: expiry,
+      );
+    final controller = _controller(runtime: runtime, role: RoastSetupRole.host);
+
+    await controller.load();
+    await _flushEvents();
+
+    final setup = controller.roastSetups.single;
+    expect(setup.status, RoastSetupStatus.awaitingDkgApproval);
+    expect(setup.pendingDkgProposalHex, 'existing-proposal');
+
+    controller.dispose();
+  });
+
   test('rejects a DKG proposal that does not match setup policy', () async {
     final runtime = _FakeRoastRuntime();
     final controller = _controller(runtime: runtime);
@@ -763,6 +793,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
   bool failSigningRequests = false;
   RoastRoomCreation? roomCreation;
   RoastSetup? createdRoomSetup;
+  RoastRuntimeSnapshot? startSnapshot;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -771,6 +802,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async =>
+      startSnapshot ??
       RoastRuntimeSnapshot(
         connected: true,
         signerRunning: true,

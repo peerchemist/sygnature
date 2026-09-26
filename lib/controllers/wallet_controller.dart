@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:coinlib/coinlib.dart' show hexToBytes;
 import 'package:flutter/foundation.dart';
+import 'package:noosphere_flutter/noosphere_flutter.dart'
+    show NoosphereWorkerException;
 
 import '../models/electrumx_utxo.dart';
 import '../models/mnemonic_seed.dart';
@@ -11,6 +13,7 @@ import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../models/wallet_vault.dart';
+import '../services/app_logger.dart';
 import '../services/electrumx_service.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_key_service.dart';
@@ -794,8 +797,7 @@ class WalletController extends ChangeNotifier {
         status: snapshot.groupKeyHex == null
             ? snapshot.pendingDkgProposalHex == null
                   ? RoastSetupStatus.ready
-                  : setup.role == RoastSetupRole.host ||
-                        snapshot.pendingDkgStage != 'waiting'
+                  : snapshot.pendingDkgStage != 'waiting'
                   ? RoastSetupStatus.creatingKey
                   : RoastSetupStatus.awaitingDkgApproval
             : RoastSetupStatus.active,
@@ -841,6 +843,18 @@ class WalletController extends ChangeNotifier {
   Future<void> _replaceSetup(RoastSetup replacement) async {
     final current = _vault;
     if (current == null) return;
+    final previous = current.roastSetups
+        .where((setup) => setup.id == replacement.id)
+        .firstOrNull;
+    if (previous != null && previous.status != replacement.status) {
+      AppLogger.info(
+        '${_roastLogScope(replacement.id)} State '
+        '${previous.status.name} -> ${replacement.status.name}; '
+        'dkgStage=${replacement.pendingDkgStage ?? '-'}, '
+        'confirmed=${replacement.pendingDkgCompletedParticipantIds.length}/'
+        '${replacement.participantCount}',
+      );
+    }
     final next = current.copyWith(
       roastSetups: [
         for (final setup in current.roastSetups)
@@ -962,7 +976,7 @@ class WalletController extends ChangeNotifier {
           setup.copyWith(
             status: event.failure != null
                 ? RoastSetupStatus.error
-                : setup.role == RoastSetupRole.host || event.stage != 'waiting'
+                : event.stage != 'waiting'
                 ? RoastSetupStatus.creatingKey
                 : RoastSetupStatus.awaitingDkgApproval,
             pendingDkgProposalHex: event.proposalHex,
@@ -1119,10 +1133,16 @@ class WalletController extends ChangeNotifier {
   }
 
   static String _cleanRoastError(Object error) => switch (error) {
+    NoosphereWorkerException(:final message) => message,
     ArgumentError() => error.toString(),
     StateError(:final message) => message,
     _ => 'Unable to connect to the ROAST coordinator.',
   };
+
+  static String _roastLogScope(String setupId) {
+    final shortId = setupId.length <= 8 ? setupId : setupId.substring(0, 8);
+    return '[ROAST $shortId]';
+  }
 
   Future<void> deleteAccount(String accountId) async {
     final current = _vault;
