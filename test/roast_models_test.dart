@@ -75,11 +75,21 @@ void main() {
     );
 
     final invitation = RoastExchangeCodec.decodeInvitation(
-      RoastExchangeCodec.encodeInvitation(setup),
+      RoastExchangeCodec.encodeInvitation(
+        setup,
+        roomInvite: 'noosphere-room-invite',
+        participantPublicKeyHex: setup.participants.last.publicKeyHex,
+        expiresAt: DateTime.now().add(const Duration(days: 1)),
+      ),
     );
     expect(invitation['setupName'], 'Family');
     expect(invitation['threshold'], 2);
     expect(invitation['participants'], hasLength(2));
+    expect(invitation['roomInvite'], 'noosphere-room-invite');
+    expect(
+      invitation['participantPublicKeyHex'],
+      setup.participants.last.publicKeyHex,
+    );
   });
 
   test('migrates schema 2 ROAST setups with the host first in the roster', () {

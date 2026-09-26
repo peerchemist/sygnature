@@ -28,6 +28,12 @@ class RoastSigningInboxItem({
   required final RoastSigningRequest request,
 });
 
+class RoastIssuedInvitation({
+  required final String participantName,
+  required final String participantPublicKeyHex,
+  required final String encoded,
+});
+
 final class _PendingRoastSend({
   required final Completer<_RoastSendOutcome> completer,
 });
@@ -107,6 +113,7 @@ class WalletController extends ChangeNotifier {
   final Set<String> _roastOperations = {};
   final Map<String, RoastSigningInboxItem> _roastSigningRequests = {};
   final Map<String, _PendingRoastSend> _pendingRoastSends = {};
+  final Map<String, List<RoastIssuedInvitation>> _issuedRoastInvitations = {};
   final Map<String, RoastSigningOperation> _storedRoastSigningOperations = {};
   final Map<String, _RoastPresence> _roastPresence = {};
 
@@ -141,6 +148,9 @@ class WalletController extends ChangeNotifier {
 
   bool roastOperationInProgress(String setupId) =>
       _roastOperations.contains(setupId);
+
+  List<RoastIssuedInvitation> issuedRoastInvitations(String setupId) =>
+      _issuedRoastInvitations[setupId] ?? const [];
 
   RoastSigningOperation? recoverableBroadcastForSetup(String setupId) =>
       recoverableRoastSigningOperations
@@ -479,6 +489,7 @@ class WalletController extends ChangeNotifier {
       onlineParticipantIds: const [],
       keyName: '$groupId:generation:1',
       createdAt: DateTime.now().toUtc(),
+      usesRoomEnrollment: true,
     );
     final account = WalletAccount(
       id: 'roast-$setupId-${selectedNetwork.storageId}-0',
@@ -519,10 +530,7 @@ class WalletController extends ChangeNotifier {
     );
   }
 
-  String roastInvitation(String setupId) =>
-      RoastExchangeCodec.encodeInvitation(_setupById(setupId));
-
-  Future<void> finalizeHostedRoastSetup(
+  Future<List<RoastIssuedInvitation>> finalizeHostedRoastSetup(
     String setupId,
     List<String> participantCards,
   ) async {
@@ -536,7 +544,9 @@ class WalletController extends ChangeNotifier {
     );
     var setup = draft.copyWith(
       participants: participants,
-      hostParticipantId: participants.first.identifierHex,
+      hostParticipantId: participants
+          .singleWhere((participant) => participant.cardId == draft.localCardId)
+          .identifierHex,
       status: RoastSetupStatus.connecting,
       clearError: true,
     );
@@ -544,7 +554,45 @@ class WalletController extends ChangeNotifier {
       groupFingerprintHex: _roastKeyService.groupFingerprint(setup),
     );
     await _replaceSetup(setup);
-    await _startRoastRuntime(setup);
+    try {
+      final room = await _roastRuntime!.createRoom(setup);
+      setup = setup.copyWith(
+        coordinatorId: room.coordinatorId,
+        coordinatorRelayUrls: room.coordinatorRelayUrls,
+        coordinatorIpAddrs: room.coordinatorIpAddrs,
+      );
+      await _replaceSetup(setup);
+      final invitations = [
+        for (final invite in room.invites)
+          RoastIssuedInvitation(
+            participantName: participants
+                .singleWhere(
+                  (participant) =>
+                      participant.publicKeyHex ==
+                      invite.participantPublicKeyHex,
+                )
+                .name,
+            participantPublicKeyHex: invite.participantPublicKeyHex,
+            encoded: RoastExchangeCodec.encodeInvitation(
+              setup,
+              roomInvite: invite.encoded,
+              participantPublicKeyHex: invite.participantPublicKeyHex,
+              expiresAt: invite.expiresAt,
+            ),
+          ),
+      ];
+      _issuedRoastInvitations[setup.id] = invitations;
+      notifyListeners();
+      return invitations;
+    } catch (error) {
+      await _replaceSetup(
+        setup.copyWith(
+          status: RoastSetupStatus.error,
+          errorMessage: _cleanRoastError(error),
+        ),
+      );
+      rethrow;
+    }
   }
 
   Future<void> joinRoastSetup(String setupId, String invitation) async {
@@ -552,9 +600,11 @@ class WalletController extends ChangeNotifier {
     if (draft.role != RoastSetupRole.member) {
       throw StateError('This setup is not waiting for an invitation.');
     }
-    final setup = _roastKeyService
-        .applyInvitation(draft, invitation)
-        .copyWith(status: RoastSetupStatus.connecting, clearError: true);
+    final decoded = _roastKeyService.applyInvitation(draft, invitation);
+    final setup = decoded.setup.copyWith(
+      status: RoastSetupStatus.connecting,
+      clearError: true,
+    );
     final current = _vault!;
     final account = current.accounts.firstWhere(
       (item) => item.sourceId == setupId,
@@ -583,7 +633,33 @@ class WalletController extends ChangeNotifier {
     await _repository.save(next);
     _vault = next;
     notifyListeners();
-    await _startRoastRuntime(setup);
+    try {
+      final snapshot = await _roastRuntime!.joinRoom(setup, decoded.roomInvite);
+      _roastPresence[setup.id] = _RoastPresence(
+        connected: snapshot.connected,
+        signerRunning: snapshot.signerRunning,
+      );
+      await _replaceSetup(
+        setup.copyWith(
+          status: snapshot.connected
+              ? RoastSetupStatus.ready
+              : RoastSetupStatus.connecting,
+          onlineParticipantIds: snapshot.onlineParticipantIds,
+          coordinatorId: snapshot.coordinatorId,
+          coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
+          coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
+          clearError: true,
+        ),
+      );
+    } catch (error) {
+      await _replaceSetup(
+        setup.copyWith(
+          status: RoastSetupStatus.error,
+          errorMessage: _cleanRoastError(error),
+        ),
+      );
+      rethrow;
+    }
   }
 
   Future<void> resumeRoastSetup(String setupId) async {
@@ -971,7 +1047,7 @@ class WalletController extends ChangeNotifier {
   ) =>
       event.name == setup.keyName &&
       event.threshold == setup.threshold &&
-      event.description == 'Sygnature ${setup.name} shared wallet';
+      event.description == roastKeyDescription(setup);
 
   Future<void> _activateRoastAccount(
     RoastSetup setup,

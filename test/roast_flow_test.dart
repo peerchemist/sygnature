@@ -38,6 +38,14 @@ void main() {
     expect(find.text('Copy participant card'), findsOneWidget);
     expect(find.text('BALANCE'), findsNothing);
 
+    await tester.tap(find.text('Enter participant cards'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), 'participant-card');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }
@@ -65,6 +73,13 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(setup) => throw UnimplementedError();
+
+  @override
+  Future<RoastRoomCreation> createRoom(setup) => throw UnimplementedError();
+
+  @override
+  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
+      throw UnimplementedError();
 
   @override
   Future<void> requestDkg(setup) => throw UnimplementedError();

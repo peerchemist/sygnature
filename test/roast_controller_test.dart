@@ -21,6 +21,95 @@ import 'package:sygnature_ng/storage/roast_storage.dart';
 void main() {
   setUpAll(loadCoinlib);
 
+  test('creates a separate room invite bound to each remote signer', () async {
+    final participants = [
+      RoastParticipant(
+        cardId: 'member-card',
+        name: 'Member',
+        identifierHex: '01',
+        publicKeyHex: '02${'11' * 32}',
+      ),
+      RoastParticipant(
+        cardId: 'host-card',
+        name: 'Host',
+        identifierHex: '02',
+        publicKeyHex: '03${'22' * 32}',
+      ),
+    ];
+    final runtime = _FakeRoastRuntime()
+      ..roomCreation = RoastRoomCreation(
+        invites: [
+          RoastRoomInvite(
+            participantPublicKeyHex: participants.first.publicKeyHex,
+            encoded: 'noosphere-bound-invite',
+            expiresAt: DateTime.now().add(const Duration(days: 1)),
+          ),
+        ],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+      );
+    final repository = MemoryWalletRepository()
+      ..value = WalletVault(
+        accounts: [
+          WalletAccount(
+            id: 'shared',
+            name: 'Shared wallet',
+            accountIndex: 0,
+            blockchainId: 'peercoin',
+            networkId: 'mainnet',
+            keySource: WalletKeySource.roast,
+            sourceId: 'setup',
+            keyId: 'group:generation:1',
+            createdAt: DateTime.utc(2026),
+          ),
+        ],
+        nextAccountIndex: 0,
+        roastSetups: [
+          RoastSetup(
+            id: 'setup',
+            groupId: 'group',
+            name: 'Family',
+            role: RoastSetupRole.host,
+            status: RoastSetupStatus.draft,
+            threshold: 2,
+            participantCount: 2,
+            blockchainId: 'peercoin',
+            networkId: 'mainnet',
+            localCardId: 'host-card',
+            localParticipantPrivateKeyHex: '11' * 32,
+            participants: [participants.last],
+            onlineParticipantIds: const [],
+            keyName: 'group:generation:1',
+            createdAt: DateTime.utc(2026),
+            usesRoomEnrollment: true,
+          ),
+        ],
+      );
+    final controller = WalletController(
+      repository,
+      roastRuntime: runtime,
+      roastKeyService: _RoomRoastKeyService(participants),
+    );
+    await controller.load();
+
+    final invitations = await controller.finalizeHostedRoastSetup(
+      'setup',
+      const ['participant-card'],
+    );
+
+    expect(invitations, hasLength(1));
+    expect(invitations.single.participantName, 'Member');
+    final payload = RoastExchangeCodec.decodeInvitation(
+      invitations.single.encoded,
+    );
+    expect(payload['roomInvite'], 'noosphere-bound-invite');
+    expect(payload['participantPublicKeyHex'], participants.first.publicKeyHex);
+    expect(runtime.createdRoomSetup?.hostParticipantId, '02');
+    expect(controller.issuedRoastInvitations('setup'), invitations);
+    controller.dispose();
+  });
+
   test('counts the connected local signer for DKG quorum', () async {
     final runtime = _FakeRoastRuntime();
     final controller = _controller(runtime: runtime, role: RoastSetupRole.host);
@@ -50,7 +139,7 @@ void main() {
         threshold: 1,
         creator: '01',
         expiry: DateTime.now().add(const Duration(hours: 1)),
-        description: 'Sygnature Family shared wallet',
+        description: roastKeyDescription(controller.roastSetups.single),
         stage: 'waiting',
         rejected: false,
       ),
@@ -68,7 +157,7 @@ void main() {
         threshold: 2,
         creator: '01',
         expiry: DateTime.now().add(const Duration(hours: 1)),
-        description: 'Sygnature Family shared wallet',
+        description: roastKeyDescription(controller.roastSetups.single),
         stage: 'waiting',
         rejected: false,
       ),
@@ -88,7 +177,7 @@ void main() {
         threshold: 2,
         creator: '01',
         expiry: DateTime.now().add(const Duration(hours: 1)),
-        description: 'Sygnature Family shared wallet',
+        description: roastKeyDescription(controller.roastSetups.single),
         stage: 'round1',
         rejected: false,
       ),
@@ -104,7 +193,7 @@ void main() {
         threshold: 2,
         creator: '02',
         expiry: DateTime.now().add(const Duration(hours: 1)),
-        description: 'Sygnature Family shared wallet',
+        description: roastKeyDescription(controller.roastSetups.single),
         stage: 'rejected',
         rejected: true,
         failure: 'participantRejected',
@@ -558,6 +647,15 @@ final class _FakeRoastKeyService extends RoastKeyService {
   }
 }
 
+final class _RoomRoastKeyService(final List<RoastParticipant> roster)
+    extends RoastKeyService {
+  @override
+  List<RoastParticipant> finalizeRoster(setup, encodedCards) => roster;
+
+  @override
+  String groupFingerprint(setup) => 'fingerprint';
+}
+
 final class _FixedRoastKeyService(final RoastDerivedAddress address)
     extends RoastKeyService {
   @override
@@ -576,6 +674,8 @@ final class _FakeRoastRuntime implements RoastRuntime {
   final List<String> rejectedDkgProposalHexes = [];
   String? snapshotGroupKey;
   bool failSigningRequests = false;
+  RoastRoomCreation? roomCreation;
+  RoastSetup? createdRoomSetup;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -594,6 +694,16 @@ final class _FakeRoastRuntime implements RoastRuntime {
         groupKeyHex: snapshotGroupKey,
         pendingDkgProposalHex: null,
       );
+
+  @override
+  Future<RoastRoomCreation> createRoom(setup) async {
+    createdRoomSetup = setup;
+    return roomCreation ?? (throw UnimplementedError());
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
+      throw UnimplementedError();
 
   @override
   Future<void> requestDkg(RoastSetup setup) async {
@@ -706,6 +816,13 @@ final class _SigningRoastRuntime(
         groupKeyHex: signingKey.pubkey.hex,
         pendingDkgProposalHex: null,
       );
+
+  @override
+  Future<RoastRoomCreation> createRoom(setup) => throw UnimplementedError();
+
+  @override
+  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
+      throw UnimplementedError();
 
   @override
   RoastSigningProposal createTransactionSigningProposal(

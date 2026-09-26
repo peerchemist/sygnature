@@ -120,10 +120,25 @@ class RoastSigningProposal({
   required final DateTime expiry,
 });
 
+class RoastRoomInvite({
+  required final String participantPublicKeyHex,
+  required final String encoded,
+  required final DateTime expiresAt,
+});
+
+class RoastRoomCreation({
+  required final List<RoastRoomInvite> invites,
+  required final String coordinatorId,
+  required final List<String> coordinatorRelayUrls,
+  required final List<String> coordinatorIpAddrs,
+});
+
 abstract interface class RoastRuntime {
   Stream<RoastRuntimeEvent> get events;
 
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup);
+  Future<RoastRoomCreation> createRoom(RoastSetup setup);
+  Future<RoastRuntimeSnapshot> joinRoom(RoastSetup setup, String encodedInvite);
   Future<void> requestDkg(RoastSetup setup);
   Future<void> acceptDkg(String setupId, String proposalHex);
   Future<void> rejectDkg(String setupId, String proposalHex);
@@ -153,6 +168,11 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   final Map<String, String> _emittedGroupKeys = {};
   final Set<String> _serverSetups = {};
   final Set<String> _signerSetups = {};
+  final Map<String, NoosphereNode> _roomServers = {};
+  final Map<String, StreamSubscription<RoomSnapshot>> _roomSubscriptions = {};
+  final Set<String> _freezingRooms = {};
+  final Map<String, Timer> _roomSignerTimers = {};
+  final Set<String> _connectingRoomSigners = {};
   final Map<String, Timer> _keyReadinessTimers = {};
   NoosphereWorker? _worker;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
@@ -185,11 +205,16 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   }
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) =>
+      _startSetup(setup, scheduleRoomRetry: true);
+
+  Future<RoastRuntimeSnapshot> _startSetup(
+    RoastSetup setup, {
+    required bool scheduleRoomRetry,
+  }) async {
     if (!setup.isFinalized) {
       throw StateError('Finalize the participant roster before connecting.');
     }
-    final worker = await _ensureWorker();
     _setups[setup.id] = setup;
     final persistence = await _persistenceFactory.open();
     final group = _group(setup);
@@ -200,7 +225,27 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     }
 
     NoosphereWorkerSnapshot? serverSnapshot;
+    WorkerCoordinatorAddress? roomCoordinator;
+    if (setup.role == RoastSetupRole.host && setup.usesRoomEnrollment) {
+      final server = await _ensureRoomServer(setup);
+      final room = await server.server!.getRoom(setup.groupId);
+      roomCoordinator = _coordinator(server.server!.address);
+      if (room.lifecycle != RoomLifecycle.frozen) {
+        return RoastRuntimeSnapshot(
+          connected: false,
+          signerRunning: false,
+          onlineParticipantIds: const [],
+          coordinatorId: roomCoordinator.id,
+          coordinatorRelayUrls: roomCoordinator.relayUrls,
+          coordinatorIpAddrs: roomCoordinator.ipAddrs,
+          groupKeyHex: null,
+          pendingDkgProposalHex: null,
+        );
+      }
+    }
+    final worker = await _ensureWorker();
     if (setup.role == RoastSetupRole.host &&
+        !setup.usesRoomEnrollment &&
         !_serverSetups.contains(setup.id)) {
       serverSnapshot = await worker.startSetup(
         setupId: setup.id,
@@ -215,7 +260,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       serverSnapshot = await worker.snapshot(setup.id);
     }
 
-    final coordinator = serverSnapshot?.coordinator;
+    final coordinator = roomCoordinator ?? serverSnapshot?.coordinator;
     final coordinatorId = setup.role == RoastSetupRole.host
         ? coordinator?.id
         : setup.coordinatorId;
@@ -237,24 +282,245 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
     );
-    final snapshot = _signerSetups.contains(setup.id)
-        ? await worker.snapshot(setup.id)
-        : await worker.startSetup(
-            setupId: setup.id,
-            client: ClientNodeOptions(
-              clientConfig: ClientConfig(
-                group: group,
-                id: Identifier.fromHex(setup.localParticipant.identifierHex),
+    late final NoosphereWorkerSnapshot snapshot;
+    try {
+      snapshot = _signerSetups.contains(setup.id)
+          ? await worker.snapshot(setup.id)
+          : await worker.startSetup(
+              setupId: setup.id,
+              client: ClientNodeOptions(
+                clientConfig: ClientConfig(
+                  group: group,
+                  id: Identifier.fromHex(setup.localParticipant.identifierHex),
+                ),
+                bootstrapAddress: address,
+                pinnedServerId: pinnedId,
+                storage: persistence.clientStorage(setup.id),
+                getPrivateKey: (_) async => privateKey,
               ),
-              bootstrapAddress: address,
-              pinnedServerId: pinnedId,
-              storage: persistence.clientStorage(setup.id),
-              getPrivateKey: (_) async => privateKey,
-            ),
-          );
+            );
+    } on Object {
+      if (scheduleRoomRetry &&
+          setup.role == RoastSetupRole.member &&
+          setup.usesRoomEnrollment) {
+        _scheduleRoomSignerConnection(setup);
+        return _pendingRoomSnapshot(setup);
+      }
+      rethrow;
+    }
     _signerSetups.add(setup.id);
     return _snapshot(snapshot, setup);
   }
+
+  @override
+  Future<RoastRoomCreation> createRoom(RoastSetup setup) async {
+    if (setup.role != RoastSetupRole.host || !setup.isFinalized) {
+      throw StateError('Only a host with a complete roster can create a room.');
+    }
+    _setups[setup.id] = setup;
+    final node = await _ensureRoomServer(setup);
+    final server = node.server!;
+    await server.createRoom(
+      roomId: setup.groupId,
+      expectedParticipants: setup.participantCount,
+      threshold: setup.threshold,
+    );
+    final privateKey = ECPrivateKey.fromHex(
+      setup.localParticipantPrivateKeyHex,
+    );
+    final issued = <RoastRoomInvite>[];
+    for (final participant in setup.participants) {
+      final invite = await server.issueRoomInvite(
+        roomId: setup.groupId,
+        expectedParticipantPublicKey: ECCompressedPublicKey.fromHex(
+          participant.publicKeyHex,
+        ),
+        expiresAt: DateTime.now().toUtc().add(const Duration(days: 7)),
+      );
+      if (participant.cardId == setup.localCardId) {
+        await _joinRoomInvite(invite, privateKey);
+      } else {
+        issued.add(
+          RoastRoomInvite(
+            participantPublicKeyHex: participant.publicKeyHex,
+            encoded: invite.encode(),
+            expiresAt: invite.expiresAt,
+          ),
+        );
+      }
+    }
+    final coordinator = _coordinator(server.address);
+    return RoastRoomCreation(
+      invites: issued,
+      coordinatorId: coordinator.id,
+      coordinatorRelayUrls: coordinator.relayUrls,
+      coordinatorIpAddrs: coordinator.ipAddrs,
+    );
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> joinRoom(
+    RoastSetup setup,
+    String encodedInvite,
+  ) async {
+    final invite = RoomInvite.decode(encodedInvite);
+    if (invite.roomId != setup.groupId ||
+        invite.expectedParticipantPublicKey.hex !=
+            setup.localParticipant.publicKeyHex ||
+        bytesToHex(invite.coordinatorEndpointId) !=
+            bytesToHex(PublicKey.fromZ32(setup.coordinatorId!).asBytes())) {
+      throw const FormatException(
+        'The room invite does not match this participant setup.',
+      );
+    }
+    final privateKey = ECPrivateKey.fromHex(
+      setup.localParticipantPrivateKeyHex,
+    );
+    invite.requirePrivateKey(privateKey);
+    await _joinRoomInvite(invite, privateKey);
+    _setups[setup.id] = setup;
+    _scheduleRoomSignerConnection(setup);
+    return _pendingRoomSnapshot(setup);
+  }
+
+  static RoastRuntimeSnapshot _pendingRoomSnapshot(RoastSetup setup) =>
+      RoastRuntimeSnapshot(
+        connected: false,
+        signerRunning: false,
+        onlineParticipantIds: const [],
+        coordinatorId: setup.coordinatorId,
+        coordinatorRelayUrls: setup.coordinatorRelayUrls,
+        coordinatorIpAddrs: setup.coordinatorIpAddrs,
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+
+  void _scheduleRoomSignerConnection(RoastSetup setup) {
+    if (_roomSignerTimers.containsKey(setup.id)) return;
+    unawaited(_connectRoomSigner(setup));
+    _roomSignerTimers[setup.id] = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(_connectRoomSigner(setup)),
+    );
+  }
+
+  Future<void> _connectRoomSigner(RoastSetup setup) async {
+    if (!_connectingRoomSigners.add(setup.id)) return;
+    try {
+      final snapshot = await _startSetup(setup, scheduleRoomRetry: false);
+      _roomSignerTimers.remove(setup.id)?.cancel();
+      _emitSnapshotValues(setup.id, snapshot);
+    } on Object {
+      // The ordinary ROAST group becomes available only after the host freezes
+      // the full room. Retry quietly while enrollment is still in progress.
+    } finally {
+      _connectingRoomSigners.remove(setup.id);
+    }
+  }
+
+  Future<NoosphereNode> _ensureRoomServer(RoastSetup setup) async {
+    final existing = _roomServers[setup.id];
+    if (existing != null) return existing;
+    final persistence = await _persistenceFactory.open();
+    final node = await NoosphereNode.start(
+      server: EmbeddedServerOptions(
+        serverConfig: ServerConfig(group: _bootstrapGroup(setup.groupId)),
+        identityStore: persistence.serverIdentity(setup.id),
+        roomPersistence: persistence.roomPersistence(setup.id),
+      ),
+    );
+    _roomServers[setup.id] = node;
+    _roomSubscriptions[setup.id] = node.server!.rooms!.snapshots.listen(
+      (room) => _onRoomSnapshot(setup.id, room),
+      onError: (Object error) => _emitRoomFailure(setup.id, error),
+    );
+    for (final room in await node.server!.rooms!.getRooms()) {
+      _onRoomSnapshot(setup.id, room);
+    }
+    return node;
+  }
+
+  void _onRoomSnapshot(String setupId, RoomSnapshot room) {
+    if (room.lifecycle != RoomLifecycle.enrolling ||
+        !room.isFull ||
+        !_freezingRooms.add(setupId)) {
+      return;
+    }
+    unawaited(_freezeRoomAndStartSigner(setupId));
+  }
+
+  Future<void> _freezeRoomAndStartSigner(String setupId) async {
+    try {
+      final setup = _setups[setupId];
+      final server = _roomServers[setupId]?.server;
+      if (setup == null || server == null) return;
+      final frozen = await server.freezeRoom(setup.groupId);
+      final expected = _group(setup);
+      if (bytesToHex(frozen.groupFingerprint!) !=
+          bytesToHex(expected.fingerprint)) {
+        throw StateError('The frozen room roster does not match the setup.');
+      }
+      final snapshot = await startSetup(setup);
+      _emitSnapshotValues(setupId, snapshot);
+    } catch (error) {
+      _emitRoomFailure(setupId, error);
+    } finally {
+      _freezingRooms.remove(setupId);
+    }
+  }
+
+  void _emitRoomFailure(String setupId, Object error) {
+    if (_events.isClosed) return;
+    _events.add(
+      RoastRuntimeFailureEvent(
+        setupId,
+        message: 'ROAST room failed: $error',
+        interrupted: true,
+        operation: 'room',
+      ),
+    );
+  }
+
+  void _emitSnapshotValues(String setupId, RoastRuntimeSnapshot snapshot) {
+    if (_events.isClosed) return;
+    _events.add(
+      RoastRuntimeSnapshotEvent(
+        setupId,
+        connected: snapshot.connected,
+        signerRunning: snapshot.signerRunning,
+        onlineParticipantIds: snapshot.onlineParticipantIds,
+        coordinatorId: snapshot.coordinatorId,
+        coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
+        coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
+      ),
+    );
+  }
+
+  static Future<RoomSnapshot> _joinRoomInvite(
+    RoomInvite invite,
+    ECPrivateKey privateKey,
+  ) {
+    final endpointId = PublicKey.fromBytes(invite.coordinatorEndpointId);
+    return IrohRoomEnrollmentApi.joinRoom(
+      IrohClientTransportConfig(
+        bootstrapAddress: EndpointAddr(
+          endpointId,
+          relayUrls: [for (final url in invite.relayUrls) RelayUrl.parse(url)],
+          ipAddrs: invite.ipAddrs,
+        ),
+        pinnedServerId: endpointId,
+      ),
+      invite,
+      (_) async => privateKey,
+    );
+  }
+
+  static WorkerCoordinatorAddress _coordinator(EndpointAddr address) =>
+      WorkerCoordinatorAddress(
+        id: address.id.toString(),
+        relayUrls: [for (final relay in address.relayUrls) relay.value],
+        ipAddrs: address.ipAddrs,
+      );
 
   @override
   Future<void> requestDkg(RoastSetup setup) async {
@@ -263,7 +529,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       setup.id,
       NewDkgDetails(
         name: setup.keyName,
-        description: _keyDescription(setup),
+        description: roastKeyDescription(setup),
         threshold: setup.threshold,
         expiry: Expiry(const Duration(hours: 24)),
       ),
@@ -361,6 +627,11 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _serverSetups.remove(setupId);
     _signerSetups.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
+    await _roomSubscriptions.remove(setupId)?.cancel();
+    await _roomServers.remove(setupId)?.close();
+    _freezingRooms.remove(setupId);
+    _roomSignerTimers.remove(setupId)?.cancel();
+    _connectingRoomSigners.remove(setupId);
     final worker = _worker;
     if (worker == null || worker.isClosed) return;
     await worker.stopSetup(setupId);
@@ -490,7 +761,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   Future<void> _rememberExpectedKey(NoosphereWorkerSnapshot snapshot) async {
     final setup = _setups[snapshot.setupId];
     if (setup == null) return;
-    final expectedDescription = _keyDescription(setup);
+    final expectedDescription = roastKeyDescription(setup);
     final keys = snapshot.keys
         .where(
           (key) =>
@@ -540,7 +811,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         .where(
           (key) =>
               key.name == setup.keyName &&
-              key.description == _keyDescription(setup) &&
+              key.description == roastKeyDescription(setup) &&
               key.groupKey.hex == groupKeyHex,
         )
         .toList(growable: false);
@@ -714,7 +985,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         .where(
           (key) =>
               key.name == setup.keyName &&
-              key.description == _keyDescription(setup),
+              key.description == roastKeyDescription(setup),
         )
         .toList(growable: false);
     if (matchingKeys.length > 1) {
@@ -756,11 +1027,8 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       status.name == setup.keyName &&
       status.threshold == setup.threshold &&
       status.creator == setup.hostParticipantId &&
-      status.description == _keyDescription(setup) &&
+      status.description == roastKeyDescription(setup) &&
       status.expiry.isAfter(DateTime.now());
-
-  static String _keyDescription(RoastSetup setup) =>
-      'Sygnature ${setup.name} shared wallet';
 
   static GroupConfig _group(RoastSetup setup) => GroupConfig(
     id: setup.groupId,
@@ -768,6 +1036,16 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       for (final participant in setup.participants)
         Identifier.fromHex(participant.identifierHex):
             ECCompressedPublicKey.fromHex(participant.publicKeyHex),
+    },
+  );
+
+  static GroupConfig _bootstrapGroup(String roomId) => GroupConfig(
+    id: '$roomId:enrollment-bootstrap',
+    participants: {
+      for (var index = 1; index <= 2; index++)
+        Identifier.fromUint16(index): ECCompressedPublicKey.fromPubkey(
+          ECPrivateKey.generate().pubkey,
+        ),
     },
   );
 
@@ -781,6 +1059,20 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _emittedGroupKeys.clear();
     _serverSetups.clear();
     _signerSetups.clear();
+    for (final subscription in _roomSubscriptions.values) {
+      await subscription.cancel();
+    }
+    _roomSubscriptions.clear();
+    for (final node in _roomServers.values) {
+      await node.close();
+    }
+    _roomServers.clear();
+    _freezingRooms.clear();
+    for (final timer in _roomSignerTimers.values) {
+      timer.cancel();
+    }
+    _roomSignerTimers.clear();
+    _connectingRoomSigners.clear();
     for (final timer in _keyReadinessTimers.values) {
       timer.cancel();
     }

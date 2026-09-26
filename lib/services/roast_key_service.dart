@@ -26,6 +26,11 @@ class RoastDerivedAddress({
   required final String internalKeyHex,
 });
 
+class RoastInvitation({
+  required final RoastSetup setup,
+  required final String roomInvite,
+});
+
 class RoastKeyService {
   const RoastKeyService();
 
@@ -62,23 +67,30 @@ class RoastKeyService {
         cards.map((item) => item.publicKeyHex).toSet().length != cards.length) {
       throw ArgumentError('Participant cards must be unique.');
     }
-    for (final card in cards) {
-      ECCompressedPublicKey.fromHex(card.publicKeyHex);
-    }
+    final canonicalCards = [
+      for (final card in cards)
+        (
+          cardId: card.cardId,
+          name: card.name,
+          publicKeyHex: ECCompressedPublicKey.fromHex(card.publicKeyHex).hex,
+        ),
+    ]..sort((a, b) => a.publicKeyHex.compareTo(b.publicKeyHex));
     final participants = [
-      for (var i = 0; i < cards.length; i++)
+      for (var i = 0; i < canonicalCards.length; i++)
         RoastParticipant(
-          cardId: cards[i].cardId,
-          name: cards[i].name.trim(),
+          cardId: canonicalCards[i].cardId,
+          name: canonicalCards[i].name.trim(),
           identifierHex: Identifier.fromUint16(i + 1).toString(),
-          publicKeyHex: cards[i].publicKeyHex,
+          publicKeyHex: canonicalCards[i].publicKeyHex,
         ),
     ];
     validateRoster(
       participants: participants,
       participantCount: setup.participantCount,
       threshold: setup.threshold,
-      hostParticipantId: participants.first.identifierHex,
+      hostParticipantId: participants
+          .singleWhere((participant) => participant.cardId == setup.localCardId)
+          .identifierHex,
     );
     return participants;
   }
@@ -134,7 +146,7 @@ class RoastKeyService {
     ).fingerprint,
   );
 
-  RoastSetup applyInvitation(RoastSetup draft, String encodedInvitation) {
+  RoastInvitation applyInvitation(RoastSetup draft, String encodedInvitation) {
     final json = RoastExchangeCodec.decodeInvitation(encodedInvitation);
     final participants = (json['participants']! as List)
         .map((item) => RoastParticipant.fromJson(item as Map))
@@ -160,6 +172,16 @@ class RoastKeyService {
       threshold: threshold,
       hostParticipantId: hostParticipantId,
     );
+    if (json['participantPublicKeyHex'] !=
+        draft.localParticipant.publicKeyHex) {
+      throw const FormatException(
+        'This room invitation is bound to another participant key.',
+      );
+    }
+    final roomInvite = json['roomInvite'];
+    if (roomInvite is! String || roomInvite.trim().isEmpty) {
+      throw const FormatException('The room invitation is missing.');
+    }
     final invited = RoastSetup(
       id: draft.id,
       groupId: json['groupId']! as String,
@@ -176,6 +198,7 @@ class RoastKeyService {
       onlineParticipantIds: const [],
       keyName: json['keyName']! as String,
       createdAt: draft.createdAt,
+      usesRoomEnrollment: true,
       hostParticipantId: hostParticipantId,
       coordinatorId: json['coordinatorId']! as String,
       coordinatorRelayUrls: (json['coordinatorRelayUrls']! as List)
@@ -187,7 +210,7 @@ class RoastKeyService {
     if (invited.groupFingerprintHex != actualFingerprint) {
       throw const FormatException('The invitation fingerprint is invalid.');
     }
-    return invited;
+    return RoastInvitation(setup: invited, roomInvite: roomInvite);
   }
 
   RoastDerivedAddress deriveAddress({

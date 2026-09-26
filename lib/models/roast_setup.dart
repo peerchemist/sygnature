@@ -51,6 +51,7 @@ class RoastSetup({
   required final List<String> onlineParticipantIds,
   required final String keyName,
   required final DateTime createdAt,
+  final bool usesRoomEnrollment = false,
   final String? hostParticipantId,
   final String? coordinatorId,
   final List<String> coordinatorRelayUrls = const [],
@@ -105,6 +106,7 @@ class RoastSetup({
     onlineParticipantIds: onlineParticipantIds ?? this.onlineParticipantIds,
     keyName: keyName,
     createdAt: createdAt,
+    usesRoomEnrollment: usesRoomEnrollment,
     hostParticipantId: hostParticipantId ?? this.hostParticipantId,
     coordinatorId: coordinatorId ?? this.coordinatorId,
     coordinatorRelayUrls: coordinatorRelayUrls ?? this.coordinatorRelayUrls,
@@ -145,6 +147,7 @@ class RoastSetup({
     'onlineParticipantIds': onlineParticipantIds,
     'keyName': keyName,
     'createdAt': createdAt.toUtc().toIso8601String(),
+    'usesRoomEnrollment': usesRoomEnrollment,
     'hostParticipantId': hostParticipantId,
     'coordinatorId': coordinatorId,
     'coordinatorRelayUrls': coordinatorRelayUrls,
@@ -181,6 +184,7 @@ class RoastSetup({
           ((json['onlineParticipantIds'] as List?) ?? const []).cast<String>(),
       keyName: json['keyName']! as String,
       createdAt: DateTime.parse(json['createdAt']! as String),
+      usesRoomEnrollment: json['usesRoomEnrollment'] as bool? ?? false,
       hostParticipantId:
           json['hostParticipantId'] as String? ??
           participants.firstOrNull?.identifierHex,
@@ -202,6 +206,16 @@ class RoastSetup({
     );
   }
 }
+
+String roastKeyDescription(RoastSetup setup) => jsonEncode([
+  'sygnature-roast-wallet-v1',
+  setup.name,
+  setup.blockchainId,
+  setup.networkId,
+  setup.threshold,
+  setup.participantCount,
+  setup.groupFingerprintHex,
+]);
 
 abstract final class RoastExchangeCodec {
   static const version = 1;
@@ -230,7 +244,12 @@ abstract final class RoastExchangeCodec {
     );
   }
 
-  static String encodeInvitation(RoastSetup setup) {
+  static String encodeInvitation(
+    RoastSetup setup, {
+    required String roomInvite,
+    required String participantPublicKeyHex,
+    required DateTime expiresAt,
+  }) {
     if (!setup.isFinalized ||
         setup.coordinatorId == null ||
         setup.hostParticipantId == null) {
@@ -238,7 +257,7 @@ abstract final class RoastExchangeCodec {
     }
     return _encode({
       'version': version,
-      'type': 'invitation',
+      'type': 'room-invitation',
       'groupId': setup.groupId,
       'setupName': setup.name,
       'threshold': setup.threshold,
@@ -251,16 +270,15 @@ abstract final class RoastExchangeCodec {
       'coordinatorRelayUrls': setup.coordinatorRelayUrls,
       'coordinatorIpAddrs': setup.coordinatorIpAddrs,
       'groupFingerprintHex': setup.groupFingerprintHex,
-      'expiresAt': DateTime.now()
-          .toUtc()
-          .add(const Duration(days: 7))
-          .toIso8601String(),
+      'participantPublicKeyHex': participantPublicKeyHex,
+      'roomInvite': roomInvite,
+      'expiresAt': expiresAt.toUtc().toIso8601String(),
       'participants': setup.participants.map((item) => item.toJson()).toList(),
     });
   }
 
   static Map<String, Object?> decodeInvitation(String encoded) =>
-      _decode(encoded, expectedType: 'invitation');
+      _decode(encoded, expectedType: 'room-invitation');
 
   static String _encode(Map<String, Object?> value) {
     final encoded =

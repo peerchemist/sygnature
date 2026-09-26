@@ -165,6 +165,51 @@ extension RoastPersistenceAccess on RoastPersistence {
 
   ServerIdentityStore serverIdentity(String setupId) =>
       _SecureServerIdentityStore(_keyStore, 'sygnature_iroh_identity_$setupId');
+
+  RoomPersistence roomPersistence(String setupId) =>
+      _HiveRoomPersistence(_box, 'rooms:$setupId');
+}
+
+final class _HiveRoomPersistence(
+  final Box<dynamic> _box,
+  final String _storageKey,
+) implements RoomPersistence {
+  Future<void> _pendingWrite = Future.value();
+
+  Map<String, Uint8List> _read() {
+    final raw = _box.get(_storageKey);
+    if (raw == null) return {};
+    if (raw is! Map) throw StateError('Invalid ROAST room storage record.');
+    return {
+      for (final entry in raw.entries)
+        entry.key as String: base64Url.decode(entry.value as String),
+    };
+  }
+
+  @override
+  Future<Map<String, Uint8List>> loadAll() async {
+    await _pendingWrite;
+    return _read();
+  }
+
+  @override
+  Future<void> write(String roomId, Uint8List state) {
+    final completer = Completer<void>();
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        final records = _read();
+        records[roomId] = Uint8List.fromList(state);
+        await _box.put(_storageKey, {
+          for (final entry in records.entries)
+            entry.key: base64UrlEncode(entry.value),
+        });
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
 }
 
 final class _SecureServerIdentityStore(

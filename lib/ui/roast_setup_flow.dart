@@ -210,11 +210,11 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
             Text(
               _role == RoastSetupRole.host
                   ? 'This device must stay online while participants create '
-                        'keys or sign. The next step exchanges participant '
-                        'cards before the coordinator starts.'
+                        'keys or sign. Collect participant cards, then create '
+                        'a separate pubkey-bound invite for each signer.'
                   : 'A participant key is generated on this device. Share its '
-                        'public card with the host, then paste the finalized '
-                        'invitation.',
+                        'public card with the host, then paste the invite '
+                        'created specifically for this key.',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
             ),
             if (_error != null) ...[
@@ -418,27 +418,29 @@ class const RoastSetupPanel({
         ),
       ];
     }
-    if (setup.status == RoastSetupStatus.ready &&
-        setup.role == RoastSetupRole.host) {
+    if (setup.role == RoastSetupRole.host &&
+        (setup.status == RoastSetupStatus.connecting ||
+            setup.status == RoastSetupStatus.ready)) {
+      final invitations = controller.issuedRoastInvitations(setup.id);
       return [
-        OutlinedButton.icon(
-          onPressed: () => _copy(
-            context,
-            controller.roastInvitation(setup.id),
-            'Finalized invitation copied.',
+        if (invitations.isNotEmpty)
+          OutlinedButton.icon(
+            onPressed: () => _showIssuedInvitations(context, invitations),
+            icon: const Icon(Icons.copy_rounded),
+            label: const Text('Show participant invites'),
           ),
-          icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copy invitation'),
-        ),
-        FilledButton(
-          onPressed:
-              busy ||
-                  controller.onlineSignerCount(setup) < setup.participantCount
-              ? null
-              : () =>
-                    _perform(context, () => controller.startRoastDkg(setup.id)),
-          child: const Text('Create shared key'),
-        ),
+        if (setup.status == RoastSetupStatus.ready)
+          FilledButton(
+            onPressed:
+                busy ||
+                    controller.onlineSignerCount(setup) < setup.participantCount
+                ? null
+                : () => _perform(
+                    context,
+                    () => controller.startRoastDkg(setup.id),
+                  ),
+            child: const Text('Create shared key'),
+          ),
       ];
     }
     if (setup.status == RoastSetupStatus.error ||
@@ -460,9 +462,7 @@ class const RoastSetupPanel({
   }
 
   Future<void> _finalizeHost(BuildContext context, RoastSetup setup) async {
-    final controllers = [
-      for (var i = 1; i < setup.participantCount; i++) TextEditingController(),
-    ];
+    final cardValues = List.filled(setup.participantCount - 1, '');
     final cards = await showDialog<List<String>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -480,9 +480,9 @@ class const RoastSetupPanel({
                   'creating the shared key.',
                 ),
                 const SizedBox(height: 16),
-                for (var i = 0; i < controllers.length; i++) ...[
-                  TextField(
-                    controller: controllers[i],
+                for (var i = 0; i < cardValues.length; i++) ...[
+                  TextFormField(
+                    onChanged: (value) => cardValues[i] = value,
                     minLines: 2,
                     maxLines: 4,
                     autocorrect: false,
@@ -502,37 +502,93 @@ class const RoastSetupPanel({
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(
-              dialogContext,
-              controllers.map((item) => item.text).toList(growable: false),
-            ),
+            onPressed: () =>
+                Navigator.pop(dialogContext, List.unmodifiable(cardValues)),
             child: const Text('Start coordinator'),
           ),
         ],
       ),
     );
-    for (final item in controllers) {
-      item.dispose();
-    }
     if (cards != null && context.mounted) {
-      await _perform(
-        context,
-        () => controller.finalizeHostedRoastSetup(setup.id, cards),
-      );
+      try {
+        final invitations = await controller.finalizeHostedRoastSetup(
+          setup.id,
+          cards,
+        );
+        if (context.mounted) {
+          await _showIssuedInvitations(context, invitations);
+        }
+      } catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('$error')));
+        }
+      }
     }
   }
 
+  Future<void> _showIssuedInvitations(
+    BuildContext context,
+    List<RoastIssuedInvitation> invitations,
+  ) => showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Participant invitations'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Send each invitation only to the named participant. Each '
+                'invite works exclusively with the public key shown below.',
+              ),
+              const SizedBox(height: 16),
+              for (final invitation in invitations)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(invitation.participantName),
+                  subtitle: Text(
+                    _short(invitation.participantPublicKeyHex),
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Copy bound invitation',
+                    onPressed: () => _copy(
+                      dialogContext,
+                      invitation.encoded,
+                      'Invitation copied for ${invitation.participantName}.',
+                    ),
+                    icon: const Icon(Icons.copy_rounded),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Done'),
+        ),
+      ],
+    ),
+  );
+
   Future<void> _join(BuildContext context, RoastSetup setup) async {
-    final input = TextEditingController();
+    var input = '';
     final invitation = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Join finalized setup'),
         content: SizedBox(
           width: 540,
-          child: TextField(
+          child: TextFormField(
             key: const Key('roast-invitation-field'),
-            controller: input,
+            onChanged: (value) => input = value,
             minLines: 4,
             maxLines: 8,
             autocorrect: false,
@@ -545,13 +601,12 @@ class const RoastSetupPanel({
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, input.text),
+            onPressed: () => Navigator.pop(dialogContext, input),
             child: const Text('Verify and connect'),
           ),
         ],
       ),
     );
-    input.dispose();
     if (invitation != null && context.mounted) {
       await _perform(
         context,
@@ -590,12 +645,15 @@ class const RoastSetupPanel({
     RoastSetupStatus.draft =>
       setup.role == RoastSetupRole.host
           ? 'Waiting for participant cards'
-          : 'Waiting for a finalized invitation from the host',
+          : 'Share your participant card, then wait for your bound invite',
     RoastSetupStatus.ready =>
       setup.role == RoastSetupRole.host
-          ? 'Coordinator online · share the finalized invitation'
+          ? 'Room roster frozen · coordinator online'
           : 'Connected · waiting for the host to create the shared key',
-    RoastSetupStatus.connecting => 'Connecting through Iroh…',
+    RoastSetupStatus.connecting =>
+      setup.role == RoastSetupRole.host
+          ? 'Room open · waiting for invited participants'
+          : 'Joining room through Iroh…',
     RoastSetupStatus.awaitingDkgApproval =>
       'Review and approve shared-key creation',
     RoastSetupStatus.creatingKey => 'Creating shared key with ROAST…',
