@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import 'controllers/wallet_controller.dart';
+import 'services/app_logger.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
 import 'services/roast_runtime_manager.dart';
@@ -20,7 +21,20 @@ import 'ui/widgets/brand_mark.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadCoinlib();
-  if (_roastSupported) await NoosphereFlutter.initialize();
+  if (_roastSupported) {
+    AppLogger.info('[IROH/ROAST] Initializing Noosphere native runtime');
+    try {
+      await NoosphereFlutter.initialize();
+      AppLogger.info('[IROH/ROAST] Noosphere native runtime initialized');
+    } catch (error, stackTrace) {
+      AppLogger.fatal(
+        '[IROH/ROAST] Noosphere native runtime initialization failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
   runApp(const SygnatureApp());
 }
 
