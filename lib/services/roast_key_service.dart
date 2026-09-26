@@ -213,6 +213,14 @@ class RoastKeyService {
     if (roomInvite is! String || roomInvite.trim().isEmpty) {
       throw const FormatException('The room invitation is missing.');
     }
+    final decodedRoomInvite = RoomInvite.decode(roomInvite);
+    if (decodedRoomInvite.roomId != json['groupId'] ||
+        decodedRoomInvite.expectedParticipantPublicKey.hex !=
+            draft.localParticipant.publicKeyHex) {
+      throw const FormatException(
+        'The room invitation does not match this participant setup.',
+      );
+    }
     final invited = RoastSetup(
       id: draft.id,
       groupId: json['groupId']! as String,
@@ -231,10 +239,11 @@ class RoastKeyService {
       createdAt: draft.createdAt,
       usesRoomEnrollment: true,
       hostParticipantId: hostParticipantId,
-      coordinatorId: json['coordinatorId']! as String,
-      coordinatorRelayUrls: (json['coordinatorRelayUrls']! as List)
-          .cast<String>(),
-      coordinatorIpAddrs: (json['coordinatorIpAddrs']! as List).cast<String>(),
+      coordinatorId: PublicKey.fromBytes(
+        decodedRoomInvite.coordinatorEndpointId,
+      ).toZ32(),
+      coordinatorRelayUrls: decodedRoomInvite.relayUrls,
+      coordinatorIpAddrs: decodedRoomInvite.ipAddrs,
       groupFingerprintHex: json['groupFingerprintHex'] as String?,
     );
     final actualFingerprint = groupFingerprint(invited);

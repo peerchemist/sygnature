@@ -597,7 +597,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
 
   static WorkerCoordinatorAddress _coordinator(EndpointAddr address) =>
       WorkerCoordinatorAddress(
-        id: address.id.toString(),
+        id: address.id.toZ32(),
         relayUrls: [for (final relay in address.relayUrls) relay.value],
         ipAddrs: address.ipAddrs,
       );

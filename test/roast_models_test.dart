@@ -1,11 +1,19 @@
+import 'dart:typed_data';
+
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
+// ignore: depend_on_referenced_packages
+import 'package:iroh_flutter/iroh_flutter.dart' show Iroh;
+import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
 
 void main() {
-  setUpAll(loadCoinlib);
+  setUpAll(() async {
+    await loadCoinlib();
+    await Iroh.init();
+  });
 
   test('migrates schema 1 vaults without changing personal account data', () {
     final vault = WalletVault.fromJson({
@@ -35,63 +43,89 @@ void main() {
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
   });
 
-  test('participant cards and finalized invitations round trip', () {
+  test('participant cards and legacy invitations round trip', () {
+    final service = _InvitationTestRoastKeyService();
+    final memberKey = ECPrivateKey.generate();
+    final memberPublicKey = ECCompressedPublicKey.fromPubkey(memberKey.pubkey);
     final card = RoastExchangeCodec.encodeParticipantCard(
       cardId: 'card-b',
       name: 'Computer B',
-      publicKeyHex: '02${'11' * 32}',
+      publicKeyHex: memberPublicKey.hex,
     );
     expect(RoastExchangeCodec.decodeParticipantCard(card).name, 'Computer B');
 
+    final coordinator = PublicKey.fromHex(
+      'ae58ff8833241ac82d6ff7611046ed67b5072d142c588d0063e942d9a75502b6',
+    );
+    final expiresAt = DateTime.now().toUtc().add(const Duration(days: 1));
+    final roomInvite = RoomInvite(
+      roomId: 'group-1',
+      inviteId: 'invite-1',
+      token: Uint8List(32),
+      expectedParticipantPublicKey: memberPublicKey,
+      coordinatorEndpointId: coordinator.asBytes(),
+      ipAddrs: const ['192.168.1.251:40660'],
+      expiresAt: expiresAt,
+    );
     final setup = RoastSetup(
       id: 'local-setup',
       groupId: 'group-1',
       name: 'Family',
-      role: RoastSetupRole.host,
+      role: RoastSetupRole.member,
       status: RoastSetupStatus.ready,
       threshold: 2,
       participantCount: 2,
       blockchainId: 'peercoin',
       networkId: 'mainnet',
-      localCardId: 'card-a',
-      localParticipantPrivateKeyHex: 'private',
+      localCardId: 'card-b',
+      localParticipantPrivateKeyHex: bytesToHex(memberKey.data),
       participants: [
         RoastParticipant(
           cardId: 'card-a',
           name: 'Computer A',
           identifierHex: '01',
-          publicKeyHex: '02${'22' * 32}',
+          publicKeyHex: ECCompressedPublicKey.fromPubkey(
+            ECPrivateKey.generate().pubkey,
+          ).hex,
         ),
         RoastParticipant(
           cardId: 'card-b',
           name: 'Computer B',
           identifierHex: '02',
-          publicKeyHex: '03${'33' * 32}',
+          publicKeyHex: memberPublicKey.hex,
         ),
       ],
       onlineParticipantIds: const [],
       keyName: 'family:generation:1',
       createdAt: DateTime.utc(2026),
+      usesRoomEnrollment: true,
       hostParticipantId: '01',
-      coordinatorId: 'coordinator-id',
+      coordinatorId: coordinator.toString(),
+      coordinatorIpAddrs: roomInvite.ipAddrs,
       groupFingerprintHex: 'fingerprint',
     );
 
-    final invitation = RoastExchangeCodec.decodeInvitation(
-      RoastExchangeCodec.encodeInvitation(
-        setup,
-        roomInvite: 'noosphere-room-invite',
-        participantPublicKeyHex: setup.participants.last.publicKeyHex,
-        expiresAt: DateTime.now().add(const Duration(days: 1)),
-      ),
+    final encodedInvitation = RoastExchangeCodec.encodeInvitation(
+      setup,
+      roomInvite: roomInvite.encode(),
+      participantPublicKeyHex: memberPublicKey.hex,
+      expiresAt: expiresAt,
     );
+    final invitation = RoastExchangeCodec.decodeInvitation(encodedInvitation);
     expect(invitation['setupName'], 'Family');
     expect(invitation['threshold'], 2);
     expect(invitation['participants'], hasLength(2));
-    expect(invitation['roomInvite'], 'noosphere-room-invite');
+    expect(invitation['roomInvite'], roomInvite.encode());
+    expect(invitation['participantPublicKeyHex'], memberPublicKey.hex);
+    expect(invitation['coordinatorId'], startsWith('PublicKey('));
+
+    final decoded = service.applyInvitation(setup, encodedInvitation);
+
+    expect(decoded.setup.coordinatorId, coordinator.toZ32());
+    expect(decoded.setup.coordinatorIpAddrs, roomInvite.ipAddrs);
     expect(
-      invitation['participantPublicKeyHex'],
-      setup.participants.last.publicKeyHex,
+      () => PublicKey.fromZ32(decoded.setup.coordinatorId!),
+      returnsNormally,
     );
   });
 
@@ -191,4 +225,17 @@ void main() {
       throwsFormatException,
     );
   });
+}
+
+final class _InvitationTestRoastKeyService() extends RoastKeyService {
+  @override
+  void validateRoster({
+    required List<RoastParticipant> participants,
+    required int participantCount,
+    required int threshold,
+    required String hostParticipantId,
+  }) {}
+
+  @override
+  String groupFingerprint(RoastSetup setup) => 'fingerprint';
 }
