@@ -19,10 +19,15 @@ Future<void> showRoastSetupCreation(
     );
     return;
   }
-  await showDialog<void>(
+  final setupId = await showDialog<String>(
     context: context,
     builder: (_) => _RoastCreationDialog(controller: controller),
   );
+  if (setupId == null || !context.mounted) return;
+  final setup = controller.roastSetups.firstWhere((item) => item.id == setupId);
+  if (setup.role == RoastSetupRole.host) {
+    await _finalizeHostSetup(context, controller, setup);
+  }
 }
 
 class const _RoastCreationDialog({required final WalletController controller})
@@ -63,7 +68,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
       _error = null;
     });
     try {
-      await widget.controller.createRoastSetupDraft(
+      final setupId = await widget.controller.createRoastSetupDraft(
         role: _role,
         walletName: _walletName.text,
         participantName: _participantName.text,
@@ -71,7 +76,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
         participantCount: _participantCount,
         network: _network,
       );
-      if (mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context, setupId);
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     } finally {
@@ -224,6 +229,83 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   );
 }
 
+Future<void> _finalizeHostSetup(
+  BuildContext context,
+  WalletController controller,
+  RoastSetup setup,
+) async {
+  final invitees = await showDialog<List<({String name, String publicKeyHex})>>(
+    context: context,
+    builder: (_) => _RoastInviteWizard(controller: controller, setup: setup),
+  );
+  if (invitees == null || !context.mounted) return;
+  try {
+    final invitations = await controller.createHostedRoastInvitations(
+      setup.id,
+      invitees,
+    );
+    if (context.mounted) {
+      await _showIssuedInvitations(context, invitations);
+    }
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+}
+
+Future<void> _showIssuedInvitations(
+  BuildContext context,
+  List<RoastIssuedInvitation> invitations,
+) => showDialog<void>(
+  context: context,
+  barrierDismissible: false,
+  builder: (dialogContext) => AlertDialog(
+    title: const Text('Participant invitations'),
+    content: SizedBox(
+      width: 560,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Send each invitation only to the named participant. Each '
+              'invite works exclusively with the public key shown below.',
+            ),
+            const SizedBox(height: 16),
+            for (final invitation in invitations)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(invitation.participantName),
+                subtitle: Text(
+                  RoastSetupPanel._short(invitation.participantPublicKeyHex),
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+                trailing: IconButton(
+                  tooltip: 'Copy bound invitation',
+                  onPressed: () => RoastSetupPanel._copy(
+                    dialogContext,
+                    invitation.encoded,
+                    'Invitation copied for ${invitation.participantName}.',
+                  ),
+                  icon: const Icon(Icons.copy_rounded),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      FilledButton(
+        onPressed: () => Navigator.pop(dialogContext),
+        child: const Text('Done'),
+      ),
+    ],
+  ),
+);
+
 class const RoastSetupPanel({
   super.key,
   required final WalletController controller,
@@ -361,7 +443,9 @@ class const RoastSetupPanel({
         return [
           FilledButton.icon(
             key: const Key('create-roast-invitations'),
-            onPressed: busy ? null : () => _finalizeHost(context, setup),
+            onPressed: busy
+                ? null
+                : () => _finalizeHostSetup(context, controller, setup),
             icon: const Icon(Icons.person_add_alt_1_rounded),
             label: const Text('Create signer invitations'),
           ),
@@ -447,82 +531,6 @@ class const RoastSetupPanel({
     }
     return const [];
   }
-
-  Future<void> _finalizeHost(BuildContext context, RoastSetup setup) async {
-    final invitees =
-        await showDialog<List<({String name, String publicKeyHex})>>(
-          context: context,
-          builder: (_) =>
-              _RoastInviteWizard(controller: controller, setup: setup),
-        );
-    if (invitees != null && context.mounted) {
-      try {
-        final invitations = await controller.createHostedRoastInvitations(
-          setup.id,
-          invitees,
-        );
-        if (context.mounted) {
-          await _showIssuedInvitations(context, invitations);
-        }
-      } catch (error) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('$error')));
-        }
-      }
-    }
-  }
-
-  Future<void> _showIssuedInvitations(
-    BuildContext context,
-    List<RoastIssuedInvitation> invitations,
-  ) => showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Participant invitations'),
-      content: SizedBox(
-        width: 560,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Send each invitation only to the named participant. Each '
-                'invite works exclusively with the public key shown below.',
-              ),
-              const SizedBox(height: 16),
-              for (final invitation in invitations)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(invitation.participantName),
-                  subtitle: Text(
-                    _short(invitation.participantPublicKeyHex),
-                    style: const TextStyle(fontFamily: 'monospace'),
-                  ),
-                  trailing: IconButton(
-                    tooltip: 'Copy bound invitation',
-                    onPressed: () => _copy(
-                      dialogContext,
-                      invitation.encoded,
-                      'Invitation copied for ${invitation.participantName}.',
-                    ),
-                    icon: const Icon(Icons.copy_rounded),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Done'),
-        ),
-      ],
-    ),
-  );
 
   Future<void> _join(BuildContext context, RoastSetup setup) async {
     var input = '';

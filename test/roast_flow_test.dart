@@ -60,12 +60,10 @@ void main() {
 
     expect(find.text('Shared wallet'), findsWidgets);
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
-    expect(find.text('Create signer invitations'), findsOneWidget);
+    expect(find.text('Signer 2 of 2'), findsOneWidget);
+    expect(find.byKey(const Key('roast-signer-name-0')), findsOneWidget);
     expect(find.text('BALANCE'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('create-roast-invitations')));
-    await tester.pumpAndSettle();
-    expect(find.text('Signer 2 of 2'), findsOneWidget);
     await tester.enterText(
       find.byKey(const Key('roast-signer-name-0')),
       'Second signer',
