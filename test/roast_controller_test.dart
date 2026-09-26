@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noosphere_flutter/noosphere_flutter.dart' show HDKeyInfo;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
@@ -50,6 +51,7 @@ void main() {
         creator: '01',
         expiry: DateTime.now().add(const Duration(hours: 1)),
         description: 'Sygnature Family shared wallet',
+        stage: 'waiting',
         rejected: false,
       ),
     );
@@ -67,6 +69,7 @@ void main() {
         creator: '01',
         expiry: DateTime.now().add(const Duration(hours: 1)),
         description: 'Sygnature Family shared wallet',
+        stage: 'waiting',
         rejected: false,
       ),
     );
@@ -76,6 +79,42 @@ void main() {
     expect(setup.status, RoastSetupStatus.awaitingDkgApproval);
     expect(setup.pendingDkgProposalHex, 'valid-proposal');
     expect(setup.pendingDkgThreshold, 2);
+
+    runtime.emit(
+      RoastRuntimeDkgEvent(
+        'setup',
+        proposalHex: 'valid-proposal',
+        name: 'setup:generation:1',
+        threshold: 2,
+        creator: '01',
+        expiry: DateTime.now().add(const Duration(hours: 1)),
+        description: 'Sygnature Family shared wallet',
+        stage: 'round1',
+        rejected: false,
+      ),
+    );
+    await _flushEvents();
+    expect(controller.roastSetups.single.status, RoastSetupStatus.creatingKey);
+
+    runtime.emit(
+      RoastRuntimeDkgEvent(
+        'setup',
+        proposalHex: 'valid-proposal',
+        name: 'setup:generation:1',
+        threshold: 2,
+        creator: '02',
+        expiry: DateTime.now().add(const Duration(hours: 1)),
+        description: 'Sygnature Family shared wallet',
+        stage: 'rejected',
+        rejected: true,
+        failure: 'participantRejected',
+      ),
+    );
+    await _flushEvents();
+
+    expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
+    expect(controller.roastSetups.single.pendingDkgProposalHex, isNull);
+    expect(runtime.rejectedDkgProposalHexes, ['bad-proposal']);
 
     controller.dispose();
   });
@@ -181,11 +220,13 @@ void main() {
   test('persists signatures and signed bytes before broadcasting', () async {
     final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
     final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
-    final taproot = Taproot(internalKey: signingKey.pubkey);
-    final sourceAddress = P2TRAddress.fromTaproot(
-      taproot,
-      hrp: Network.mainnet.bech32Hrp,
-    ).toString();
+    final derived = const RoastKeyService().deriveAddress(
+      groupKeyHex: signingKey.pubkey.hex,
+      threshold: 2,
+      network: PeercoinNetworks.mainnet,
+      accountIndex: 0,
+    );
+    final sourceAddress = derived.address;
     final destinationAddress = P2TRAddress.fromTweakedKey(
       destinationKey.pubkey,
       hrp: Network.mainnet.bech32Hrp,
@@ -222,14 +263,7 @@ void main() {
       repository,
       roastRuntime: runtime,
       roastSigningOperations: operations,
-      roastKeyService: _FixedRoastKeyService(
-        RoastDerivedAddress(
-          path: const [0, 6, 0, 0, 0, 0],
-          pathLabel: 'R/0/6/0/0/0/0',
-          address: sourceAddress,
-          internalKeyHex: signingKey.pubkey.hex,
-        ),
-      ),
+      roastKeyService: const RoastKeyService(),
       networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
@@ -264,6 +298,163 @@ void main() {
 
     controller.dispose();
   });
+
+  test('signing failure completes the send without disabling setup', () async {
+    final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
+    final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
+    final sourceAddress = P2TRAddress.fromTaproot(
+      Taproot(internalKey: signingKey.pubkey),
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final destinationAddress = P2TRAddress.fromTweakedKey(
+      destinationKey.pubkey,
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final operations = MemoryRoastSigningOperationRepository();
+    final runtime = _FakeRoastRuntime()
+      ..snapshotGroupKey = 'expected-key'
+      ..failSigningRequests = true;
+    final electrumx = _FakeElectrumxService();
+    final controller = _activeController(
+      runtime: runtime,
+      operations: operations,
+      electrumx: electrumx,
+      sourceAddress: sourceAddress,
+      derived: RoastDerivedAddress(
+        path: const [0, 6, 0, 0, 0, 0],
+        pathLabel: 'R/0/6/0/0/0/0',
+        address: sourceAddress,
+        internalKeyHex: signingKey.pubkey.hex,
+      ),
+    );
+    await controller.load();
+    await _flushEvents();
+    final preview = const CoinlibWalletTransactionService().prepare(
+      accountId: 'shared',
+      network: PeercoinNetworks.mainnet,
+      sourceAddress: sourceAddress,
+      availableUtxos: [
+        ElectrumxUtxo(
+          address: sourceAddress,
+          txHash: 'd' * 64,
+          txPos: 0,
+          height: 100,
+          value: 2000000,
+        ),
+      ],
+      request: WalletSendRequest(
+        destinationAddress: destinationAddress,
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+
+    await expectLater(
+      controller.sendTransaction(preview),
+      throwsA(isA<WalletTransactionRejected>()),
+    );
+
+    expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+    expect(
+      (await operations.loadSigningOperations()).single.state,
+      RoastSigningOperationState.interrupted,
+    );
+    controller.dispose();
+  });
+
+  test(
+    'keeps broadcast UTXOs reserved until sync observes the spend',
+    () async {
+      final operations = MemoryRoastSigningOperationRepository();
+      final operation = RoastSigningOperation(
+        setupId: 'setup',
+        accountId: 'shared',
+        requestIdHex: 'request',
+        proposalHex: 'proposal',
+        expectedInternalKeyHex: 'internal-key',
+        derivationPath: const [0, 6, 0, 0, 0, 0],
+        thresholdTransaction: const {},
+        reservedOutpoints: const ['funding:0'],
+        expiry: DateTime.now().subtract(const Duration(minutes: 1)),
+        state: RoastSigningOperationState.broadcasted,
+        updatedAt: DateTime.now(),
+        rawTransactionHex: 'raw',
+        transactionId: 'txid',
+      );
+      await operations.putSigningOperation(operation);
+      final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+      final electrumx = _FakeElectrumxService();
+      final controller = _controller(
+        runtime: runtime,
+        operationRepository: operations,
+        electrumx: electrumx,
+        active: true,
+      );
+      await controller.load();
+      await _flushEvents();
+
+      electrumx.emit('pc1pshared', const [
+        ElectrumxUtxo(
+          address: 'pc1pshared',
+          txHash: 'funding',
+          txPos: 0,
+          height: 100,
+          value: 2000000,
+        ),
+      ]);
+      await _flushEvents();
+      expect(
+        (await operations.getSigningOperation(operation.storageId))
+            ?.reservationsReleased,
+        isFalse,
+      );
+
+      electrumx.emit('pc1pshared', const []);
+      await _flushEvents();
+      expect(
+        (await operations.getSigningOperation(operation.storageId))
+            ?.reservationsReleased,
+        isTrue,
+      );
+      controller.dispose();
+    },
+  );
+}
+
+WalletController _activeController({
+  required _FakeRoastRuntime runtime,
+  required RoastSigningOperationRepository operations,
+  required _FakeElectrumxService electrumx,
+  required String sourceAddress,
+  required RoastDerivedAddress derived,
+}) {
+  final repository = MemoryWalletRepository()
+    ..value = WalletVault(
+      accounts: [
+        WalletAccount(
+          id: 'shared',
+          name: 'Shared wallet',
+          accountIndex: 0,
+          blockchainId: 'peercoin',
+          networkId: 'mainnet',
+          keySource: WalletKeySource.roast,
+          sourceId: 'setup',
+          keyId: 'setup:generation:1',
+          derivationPath: derived.pathLabel,
+          address: sourceAddress,
+          createdAt: DateTime.utc(2026),
+        ),
+      ],
+      nextAccountIndex: 0,
+      roastSetups: [_setup(RoastSetupRole.host, active: true)],
+    );
+  return WalletController(
+    repository,
+    roastRuntime: runtime,
+    roastSigningOperations: operations,
+    roastKeyService: _FixedRoastKeyService(derived),
+    networkServiceFactory: (_) async => electrumx,
+  );
 }
 
 WalletController _controller({
@@ -384,6 +575,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
   final List<String> requestedDkgSetupIds = [];
   final List<String> rejectedDkgProposalHexes = [];
   String? snapshotGroupKey;
+  bool failSigningRequests = false;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -421,13 +613,28 @@ final class _FakeRoastRuntime implements RoastRuntime {
     setup,
     transaction,
     List<int> derivationPath,
-  ) => throw UnimplementedError();
+  ) => RoastSigningProposal(
+    idHex: 'aa' * 16,
+    proposalHex: 'bb',
+    expiry: DateTime.now().add(const Duration(minutes: 1)),
+  );
 
   @override
   Future<void> requestTransactionSignatures(
     setup,
     RoastSigningProposal proposal,
-  ) => throw UnimplementedError();
+  ) async {
+    if (failSigningRequests) {
+      _events.add(
+        RoastRuntimeFailureEvent(
+          setup.id,
+          message: 'Signing request failed.',
+          interrupted: false,
+          operation: 'signatures',
+        ),
+      );
+    }
+  }
 
   @override
   Future<void> acceptSignatures(String setupId, String requestIdHex) =>
@@ -446,6 +653,14 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
 final class _FakeElectrumxService implements ElectrumxService {
   final List<String> broadcasts = [];
+  final StreamController<PeercoinElectrumxUtxoSnapshot> _snapshots =
+      StreamController<PeercoinElectrumxUtxoSnapshot>.broadcast();
+
+  void emit(String address, List<ElectrumxUtxo> utxos) {
+    _snapshots.add(
+      PeercoinElectrumxUtxoSnapshot(address: address, utxos: utxos),
+    );
+  }
 
   @override
   Future<String> broadcastTransaction(String rawTransactionHex) async {
@@ -459,10 +674,12 @@ final class _FakeElectrumxService implements ElectrumxService {
   @override
   Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
     Iterable<String> addresses,
-  ) => const Stream.empty();
+  ) => _snapshots.stream.where(
+    (snapshot) => addresses.contains(snapshot.address),
+  );
 
   @override
-  Future<void> close() async {}
+  Future<void> close() => _snapshots.close();
 }
 
 final class _SigningRoastRuntime(
@@ -472,6 +689,7 @@ final class _SigningRoastRuntime(
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   ThresholdWalletTransaction? _transaction;
+  List<int>? _derivationPath;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -496,6 +714,7 @@ final class _SigningRoastRuntime(
     List<int> derivationPath,
   ) {
     _transaction = transaction;
+    _derivationPath = List.unmodifiable(derivationPath);
     return RoastSigningProposal(
       idHex: 'aa' * 16,
       proposalHex: 'bb',
@@ -509,8 +728,16 @@ final class _SigningRoastRuntime(
     RoastSigningProposal proposal,
   ) async {
     final transaction = _transaction!;
-    final tweaked = Taproot(internalKey: signingKey.pubkey)
-        .tweakPrivateKey(signingKey);
+    var privateKey = signingKey;
+    var groupKey = ECCompressedPublicKey.fromPubkey(signingKey.pubkey);
+    var hdInfo = HDKeyInfo.master;
+    for (final index in _derivationPath!) {
+      final (tweak, nextInfo) = hdInfo.deriveTweakAndInfo(groupKey, index);
+      privateKey = privateKey.tweak(tweak)!;
+      groupKey = groupKey.tweak(tweak)!;
+      hdInfo = nextInfo;
+    }
+    final tweaked = Taproot(internalKey: groupKey).tweakPrivateKey(privateKey);
     final signatures = [
       for (final hash in transaction.signatureHashes)
         SchnorrSignature.sign(tweaked, hash).data,

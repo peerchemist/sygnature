@@ -103,6 +103,7 @@ class WalletController extends ChangeNotifier {
   bool _sending = false;
   StreamSubscription<RoastRuntimeEvent>? _roastEvents;
   Future<void> _roastEventQueue = Future.value();
+  Future<void> _utxoReconciliationQueue = Future.value();
   final Set<String> _roastOperations = {};
   final Map<String, RoastSigningInboxItem> _roastSigningRequests = {};
   final Map<String, _PendingRoastSend> _pendingRoastSends = {};
@@ -685,6 +686,9 @@ class WalletController extends ChangeNotifier {
         status: snapshot.groupKeyHex == null
             ? snapshot.pendingDkgProposalHex == null
                   ? RoastSetupStatus.ready
+                  : setup.role == RoastSetupRole.host ||
+                        snapshot.pendingDkgStage != 'waiting'
+                  ? RoastSetupStatus.creatingKey
                   : RoastSetupStatus.awaitingDkgApproval
             : RoastSetupStatus.active,
         onlineParticipantIds: snapshot.onlineParticipantIds,
@@ -693,6 +697,11 @@ class WalletController extends ChangeNotifier {
         coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
         groupKeyHex: snapshot.groupKeyHex,
         pendingDkgProposalHex: snapshot.pendingDkgProposalHex,
+        pendingDkgName: snapshot.pendingDkgName,
+        pendingDkgThreshold: snapshot.pendingDkgThreshold,
+        pendingDkgCreatorId: snapshot.pendingDkgCreator,
+        pendingDkgExpiry: snapshot.pendingDkgExpiry,
+        clearPendingDkgProposal: snapshot.pendingDkgProposalHex == null,
         clearError: true,
       );
       await _replaceSetup(connected);
@@ -820,15 +829,29 @@ class WalletController extends ChangeNotifier {
           ),
         );
       case RoastRuntimeDkgEvent():
+        if (event.rejected) {
+          if (_dkgDefinitionMatchesSetup(event, setup) &&
+              (setup.pendingDkgProposalHex == null ||
+                  setup.pendingDkgProposalHex == event.proposalHex)) {
+            await _replaceSetup(
+              setup.copyWith(
+                status: RoastSetupStatus.ready,
+                clearPendingDkgProposal: true,
+                errorMessage: event.failure ?? 'The DKG proposal was rejected.',
+              ),
+            );
+          }
+          return;
+        }
         if (!_dkgMatchesSetup(event, setup)) {
           await _roastRuntime?.rejectDkg(event.setupId, event.proposalHex);
           return;
         }
         await _replaceSetup(
           setup.copyWith(
-            status: event.failure != null || event.rejected
+            status: event.failure != null
                 ? RoastSetupStatus.error
-                : setup.role == RoastSetupRole.host
+                : setup.role == RoastSetupRole.host || event.stage != 'waiting'
                 ? RoastSetupStatus.creatingKey
                 : RoastSetupStatus.awaitingDkgApproval,
             pendingDkgProposalHex: event.proposalHex,
@@ -850,7 +873,29 @@ class WalletController extends ChangeNotifier {
         await _replaceSetup(active);
         await _activateRoastAccount(active, event.groupKeyHex);
       case RoastRuntimeFailureEvent():
-        _roastPresence.remove(event.setupId);
+        if (event.operation == 'signatures' ||
+            event.operation == 'signingPersistence') {
+          final error = WalletTransactionRejected(event.message);
+          final pendingEntries = event.requestIdHex == null
+              ? _pendingRoastSends.entries.where(
+                  (entry) => entry.key.startsWith('${event.setupId}:'),
+                )
+              : _pendingRoastSends.entries.where(
+                  (entry) =>
+                      entry.key == '${event.setupId}:${event.requestIdHex}',
+                );
+          for (final entry in pendingEntries) {
+            if (!entry.value.completer.isCompleted) {
+              entry.value.completer.complete(_RoastSendOutcome(error: error));
+            }
+          }
+          if (event.requestIdHex case final requestId?) {
+            _roastSigningRequests.remove('${event.setupId}:$requestId');
+          }
+          notifyListeners();
+          return;
+        }
+        if (event.interrupted) _roastPresence.remove(event.setupId);
         await _replaceSetup(
           setup.copyWith(
             status: event.interrupted
@@ -860,6 +905,12 @@ class WalletController extends ChangeNotifier {
           ),
         );
       case RoastRuntimeSigningRequestEvent():
+        final requestKey = '${setup.id}:${event.request.idHex}';
+        if (event.request.status != 'waiting') {
+          _roastSigningRequests.remove(requestKey);
+          notifyListeners();
+          return;
+        }
         if (event.request.creator == setup.localParticipant.identifierHex) {
           return;
         }
@@ -868,16 +919,18 @@ class WalletController extends ChangeNotifier {
           final account = accounts.firstWhere(
             (item) => item.sourceId == setup.id,
           );
-          _roastSigningRequests['${setup.id}:${event.request.idHex}'] =
-              RoastSigningInboxItem(
-                setupId: setup.id,
-                walletName: account.name,
-                request: event.request,
-              );
+          _roastSigningRequests[requestKey] = RoastSigningInboxItem(
+            setupId: setup.id,
+            walletName: account.name,
+            request: event.request,
+          );
           notifyListeners();
         } on Object {
           // Unsupported or foreign proposals are deliberately not rendered.
         }
+      case RoastRuntimeSigningRequestRemovedEvent():
+        _roastSigningRequests.remove('${event.setupId}:${event.requestIdHex}');
+        notifyListeners();
       case RoastRuntimeSigningResultEvent():
         final pendingKey = '${setup.id}:${event.requestIdHex}';
         if (event.creator != setup.localParticipant.identifierHex) return;
@@ -908,11 +961,17 @@ class WalletController extends ChangeNotifier {
   }
 
   static bool _dkgMatchesSetup(RoastRuntimeDkgEvent event, RoastSetup setup) =>
+      _dkgDefinitionMatchesSetup(event, setup) &&
+      event.creator == setup.hostParticipantId &&
+      event.expiry.isAfter(DateTime.now());
+
+  static bool _dkgDefinitionMatchesSetup(
+    RoastRuntimeDkgEvent event,
+    RoastSetup setup,
+  ) =>
       event.name == setup.keyName &&
       event.threshold == setup.threshold &&
-      event.creator == setup.hostParticipantId &&
-      event.description == 'Sygnature ${setup.name} shared wallet' &&
-      event.expiry.isAfter(DateTime.now());
+      event.description == 'Sygnature ${setup.name} shared wallet';
 
   Future<void> _activateRoastAccount(
     RoastSetup setup,
@@ -1268,6 +1327,7 @@ class WalletController extends ChangeNotifier {
   ) {
     if (!request.hasTransactionMetadata ||
         !request.usesSupportedSighash ||
+        !request.usesExpectedTaprootTweak ||
         request.expiry.isBefore(DateTime.now())) {
       throw const WalletTransactionRejected(
         'The signing request is expired or has unsupported metadata.',
@@ -1304,9 +1364,21 @@ class WalletController extends ChangeNotifier {
         request.signedInputIndexes.indexed.every(
           (entry) => entry.$1 == entry.$2,
         );
+    final knownOutpoints = spendableUtxosFor(account).map(_utxoKey).toSet();
+    final reservedOutpoints = _storedRoastSigningOperations.values
+        .where((operation) => operation.reservesUtxos)
+        .expand((operation) => operation.reservedOutpoints)
+        .toSet();
+    final validOutpoints =
+        request.inputOutpoints.length == request.transactionInputCount &&
+        request.inputOutpoints.every(knownOutpoints.contains) &&
+        request.inputOutpoints.every(
+          (outpoint) => !reservedOutpoints.contains(outpoint),
+        );
     if (!validKeys ||
         !validPaths ||
         !validInputs ||
+        !validOutpoints ||
         !signsEveryInput ||
         request.outputs.isEmpty ||
         request.feeSats < 0) {
@@ -1443,6 +1515,10 @@ class WalletController extends ChangeNotifier {
               );
               _syncingAddresses.remove(snapshot.address);
               _syncErrorsByAddress.remove(snapshot.address);
+              _queueBroadcastReservationReconciliation(
+                snapshot.address,
+                snapshot.utxos,
+              );
               if (balanceIncreased) onCoinsReceived?.call();
               notifyListeners();
             },
@@ -1457,6 +1533,40 @@ class WalletController extends ChangeNotifier {
           );
     }
     notifyListeners();
+  }
+
+  void _queueBroadcastReservationReconciliation(
+    String address,
+    List<ElectrumxUtxo> utxos,
+  ) {
+    final outpoints = utxos.map(_utxoKey).toSet();
+    _utxoReconciliationQueue = _utxoReconciliationQueue
+        .then((_) async {
+          if (_disposed) return;
+          final accountIds = accounts
+              .where((account) => account.address == address)
+              .map((account) => account.id)
+              .toSet();
+          final completed = _storedRoastSigningOperations.values
+              .where(
+                (operation) =>
+                    accountIds.contains(operation.accountId) &&
+                    operation.state == RoastSigningOperationState.broadcasted &&
+                    !operation.reservationsReleased &&
+                    operation.reservedOutpoints.every(
+                      (outpoint) => !outpoints.contains(outpoint),
+                    ),
+              )
+              .toList(growable: false);
+          for (final operation in completed) {
+            await _saveRoastSigningOperation(
+              operation.copyWith(reservationsReleased: true),
+            );
+          }
+        })
+        .catchError((Object _) {
+          // A sync snapshot should keep running even if persistence is unavailable.
+        });
   }
 
   Future<void> _cancelSyncSubscriptions() async {

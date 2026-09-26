@@ -28,14 +28,15 @@ class RoastSigningOperation({
   final String? transactionId,
   final String? serverTransactionId,
   final String? errorMessage,
+  final bool reservationsReleased = false,
 }) {
   String get storageId => '$setupId:$requestIdHex';
 
-  bool get reservesUtxos =>
-      rawTransactionHex == null && expiry.isBefore(DateTime.now())
+  bool get reservesUtxos => reservationsReleased
+      ? false
+      : rawTransactionHex == null && expiry.isBefore(DateTime.now())
       ? false
       : switch (state) {
-          RoastSigningOperationState.broadcasted ||
           RoastSigningOperationState.expired ||
           RoastSigningOperationState.rejected => false,
           _ => true,
@@ -55,6 +56,7 @@ class RoastSigningOperation({
     String? transactionId,
     String? serverTransactionId,
     String? errorMessage,
+    bool? reservationsReleased,
     bool clearError = false,
   }) => RoastSigningOperation(
     setupId: setupId,
@@ -73,6 +75,7 @@ class RoastSigningOperation({
     transactionId: transactionId ?? this.transactionId,
     serverTransactionId: serverTransactionId ?? this.serverTransactionId,
     errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+    reservationsReleased: reservationsReleased ?? this.reservationsReleased,
   );
 
   Map<String, Object?> toJson() => {
@@ -92,6 +95,7 @@ class RoastSigningOperation({
     'transactionId': transactionId,
     'serverTransactionId': serverTransactionId,
     'errorMessage': errorMessage,
+    'reservationsReleased': reservationsReleased,
   };
 
   factory RoastSigningOperation.fromJson(Map<Object?, Object?> json) =>
@@ -117,5 +121,6 @@ class RoastSigningOperation({
         transactionId: json['transactionId'] as String?,
         serverTransactionId: json['serverTransactionId'] as String?,
         errorMessage: json['errorMessage'] as String?,
+        reservationsReleased: json['reservationsReleased'] as bool? ?? false,
       );
 }

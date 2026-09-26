@@ -8,7 +8,10 @@ through the preconfigured-roster flow. It also persists creator-side proposals,
 aggregate signatures, signed transaction bytes and broadcast outcomes, allowing
 an unknown broadcast to retry the exact same bytes after restart. Coordinator
 round state, cross-peer UTXO reservations and the Sygnature request-context
-extension described below are not implemented yet.
+extension described below are not implemented yet. A locally constructed DKG
+key is exposed to the wallet only after every configured participant has
+acknowledged it. Broadcast inputs remain locally reserved until a later
+ElectrumX snapshot no longer reports those outpoints.
 
 ## 1. Topology and responsibilities
 
