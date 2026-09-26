@@ -179,6 +179,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   final Set<String> _freezingRooms = {};
   final Map<String, Timer> _roomSignerTimers = {};
   final Set<String> _connectingRoomSigners = {};
+  final Set<String> _synchronizingDkgSetups = {};
   final Map<String, Timer> _keyReadinessTimers = {};
   NoosphereWorker? _worker;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
@@ -257,6 +258,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   Future<RoastRuntimeSnapshot> _startSetup(
     RoastSetup setup, {
     required bool scheduleRoomRetry,
+    bool publishDkgs = true,
   }) async {
     if (!setup.isFinalized) {
       throw StateError('Finalize the participant roster before connecting.');
@@ -364,7 +366,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     }
     _signerSetups.add(setup.id);
     AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
-    return _snapshot(snapshot, setup);
+    return _snapshot(snapshot, setup, publishDkgs: publishDkgs);
   }
 
   @override
@@ -636,9 +638,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       }
       AppLogger.warn(
         '${_roastScope(setup.id)} Coordinator already has this DKG name; '
-        'refreshing the local proposal before retrying',
+        'reloading the signer session before retrying',
       );
-      final recovered = await _waitForExistingDkg(worker, setup);
+      final recovered = await _reloadExistingDkg(worker, setup);
       if (recovered == _ExistingDkgResolution.resumed) return;
       if (recovered == _ExistingDkgResolution.cancelled) {
         await _runDkgCommand(
@@ -661,22 +663,27 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     );
   }
 
-  Future<_ExistingDkgResolution> _waitForExistingDkg(
+  Future<_ExistingDkgResolution> _reloadExistingDkg(
     NoosphereWorker worker,
     RoastSetup setup,
   ) async {
-    for (var attempt = 0; attempt < 4; attempt++) {
-      if (attempt > 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-      }
-      final resolution = await _resolveExistingDkg(
-        worker,
-        setup,
-        await worker.snapshot(setup.id),
+    AppLogger.info(
+      '${_irohScope(setup.id)} Restarting signer session to synchronize DKGs',
+    );
+    _synchronizingDkgSetups.add(setup.id);
+    try {
+      await worker.stopSetup(setup.id, roles: NoosphereWorkerRoles.signer);
+      _signerSetups.remove(setup.id);
+      await _startSetup(setup, scheduleRoomRetry: false, publishDkgs: false);
+      final snapshot = await worker.snapshot(setup.id);
+      AppLogger.info(
+        '${_irohScope(setup.id)} Signer session synchronized; '
+        '${snapshot.dkgs.length} DKG proposal(s) loaded',
       );
-      if (resolution != _ExistingDkgResolution.none) return resolution;
+      return await _resolveExistingDkg(worker, setup, snapshot);
+    } finally {
+      _synchronizingDkgSetups.remove(setup.id);
     }
-    return _ExistingDkgResolution.none;
   }
 
   Future<_ExistingDkgResolution> _resolveExistingDkg(
@@ -882,7 +889,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   void _onWorkerEvent(NoosphereWorkerEvent event) {
     switch (event) {
       case WorkerSnapshotEvent():
-        _rememberDkgs(event.snapshot);
+        if (!_synchronizingDkgSetups.contains(event.setupId)) {
+          _rememberDkgs(event.snapshot);
+        }
         _rememberSigningRequests(event.snapshot);
         _emitSnapshot(event.snapshot);
         unawaited(_rememberExpectedKeySafely(event.snapshot));
@@ -1269,9 +1278,10 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
 
   Future<RoastRuntimeSnapshot> _snapshot(
     NoosphereWorkerSnapshot snapshot,
-    RoastSetup setup,
-  ) async {
-    _rememberDkgs(snapshot);
+    RoastSetup setup, {
+    bool publishDkgs = true,
+  }) async {
+    if (publishDkgs) _rememberDkgs(snapshot);
     final coordinator = snapshot.coordinator;
     final matchingKeys = snapshot.keys
         .where(
