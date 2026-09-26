@@ -161,6 +161,8 @@ abstract interface class RoastRuntime {
   Future<void> close();
 }
 
+enum _ExistingDkgResolution { none, resumed, cancelled }
+
 final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     implements RoastRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
@@ -608,24 +610,116 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   Future<void> requestDkg(RoastSetup setup) async {
     AppLogger.info('${_roastScope(setup.id)} Requesting DKG');
     final worker = await _ensureWorker();
-    await _runDkgCommand(
-      setup.id,
-      'DKG request',
-      () => worker.requestDkg(
-        setup.id,
-        NewDkgDetails(
-          name: setup.keyName,
-          description: roastKeyDescription(setup),
-          threshold: setup.threshold,
-          expiry: Expiry(const Duration(hours: 24)),
-        ),
-      ),
+    final existing = await _resolveExistingDkg(
+      worker,
+      setup,
+      await worker.snapshot(setup.id),
     );
+    if (existing == _ExistingDkgResolution.resumed) return;
+
+    final details = NewDkgDetails(
+      name: setup.keyName,
+      description: roastKeyDescription(setup),
+      threshold: setup.threshold,
+      expiry: Expiry(const Duration(hours: 24)),
+    );
+    try {
+      await worker.requestDkg(setup.id, details);
+    } catch (error, stackTrace) {
+      if (!_isDuplicateDkgError(error)) {
+        AppLogger.error(
+          '${_roastScope(setup.id)} DKG request failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        rethrow;
+      }
+      AppLogger.warn(
+        '${_roastScope(setup.id)} Coordinator already has this DKG name; '
+        'refreshing the local proposal before retrying',
+      );
+      final recovered = await _waitForExistingDkg(worker, setup);
+      if (recovered == _ExistingDkgResolution.resumed) return;
+      if (recovered == _ExistingDkgResolution.cancelled) {
+        await _runDkgCommand(
+          setup.id,
+          'DKG retry after cancelling the conflicting proposal',
+          () => worker.requestDkg(setup.id, details),
+        );
+      } else {
+        AppLogger.error(
+          '${_roastScope(setup.id)} Existing DKG could not be recovered',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+    }
     AppLogger.info(
       '${_roastScope(setup.id)} DKG request submitted; '
       'waiting for signer approvals',
     );
   }
+
+  Future<_ExistingDkgResolution> _waitForExistingDkg(
+    NoosphereWorker worker,
+    RoastSetup setup,
+  ) async {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      final resolution = await _resolveExistingDkg(
+        worker,
+        setup,
+        await worker.snapshot(setup.id),
+      );
+      if (resolution != _ExistingDkgResolution.none) return resolution;
+    }
+    return _ExistingDkgResolution.none;
+  }
+
+  Future<_ExistingDkgResolution> _resolveExistingDkg(
+    NoosphereWorker worker,
+    RoastSetup setup,
+    NoosphereWorkerSnapshot snapshot,
+  ) async {
+    final sameName = snapshot.dkgs
+        .where((proposal) => proposal.name == setup.keyName)
+        .toList(growable: false);
+    if (sameName.isEmpty) return _ExistingDkgResolution.none;
+    if (sameName.length > 1) {
+      throw StateError('Multiple DKG proposals use the expected key name.');
+    }
+    final proposal = sameName.single;
+    final proposalHex = bytesToHex(proposal.proposalBytes);
+    if (_dkgMatchesSetup(proposal, setup)) {
+      AppLogger.info(
+        '${_roastScope(setup.id)} Resuming existing DKG '
+        '${_shortId(proposalHex)} at stage=${proposal.stage}',
+      );
+      _rememberDkgs(snapshot);
+      _emitSnapshot(snapshot);
+      return _ExistingDkgResolution.resumed;
+    }
+
+    AppLogger.warn(
+      '${_roastScope(setup.id)} Cancelling incompatible DKG '
+      '${_shortId(proposalHex)} before creating a replacement',
+    );
+    await _runDkgCommand(
+      setup.id,
+      'Conflicting DKG cancellation',
+      () => worker.rejectDkg(setup.id, proposal),
+    );
+    _dkgProposals.remove('${setup.id}:$proposalHex');
+    return _ExistingDkgResolution.cancelled;
+  }
+
+  static bool _isDuplicateDkgError(Object error) =>
+      error is NoosphereWorkerException &&
+      error.code == 'iroh_protocol_error' &&
+      error.message.contains('DKG request with same name exists');
 
   @override
   Future<void> acceptDkg(String setupId, String proposalHex) async {
