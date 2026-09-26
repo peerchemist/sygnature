@@ -35,6 +35,7 @@ final class RoastRuntimeDkgEvent(
   required final String description,
   required final String stage,
   required final bool rejected,
+  final List<String> completedParticipantIds = const [],
   final String? failure,
 }) extends RoastRuntimeEvent;
 
@@ -109,6 +110,7 @@ class RoastRuntimeSnapshot({
   required final String? groupKeyHex,
   required final String? pendingDkgProposalHex,
   final String? pendingDkgStage,
+  final List<String> pendingDkgCompletedParticipantIds = const [],
   final String? pendingDkgName,
   final int? pendingDkgThreshold,
   final String? pendingDkgCreator,
@@ -615,6 +617,10 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         expiry: Expiry(const Duration(hours: 24)),
       ),
     );
+    AppLogger.info(
+      '${_roastScope(setup.id)} DKG request submitted; '
+      'waiting for signer approvals',
+    );
   }
 
   @override
@@ -772,6 +778,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
             description: event.status.description,
             stage: event.status.stage,
             rejected: event.rejected,
+            completedParticipantIds: event.status.completedParticipants,
             failure: event.failure,
           ),
         );
@@ -994,6 +1001,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           description: proposal.description,
           stage: proposal.stage,
           rejected: false,
+          completedParticipantIds: proposal.completedParticipants,
         ),
       );
     }
@@ -1166,6 +1174,8 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           ? null
           : bytesToHex(matchingDkg.proposalBytes),
       pendingDkgStage: matchingDkg?.stage,
+      pendingDkgCompletedParticipantIds:
+          matchingDkg?.completedParticipants ?? const [],
       pendingDkgName: matchingDkg?.name,
       pendingDkgThreshold: matchingDkg?.threshold,
       pendingDkgCreator: matchingDkg?.creator,

@@ -805,6 +805,9 @@ class WalletController extends ChangeNotifier {
         coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
         groupKeyHex: snapshot.groupKeyHex,
         pendingDkgProposalHex: snapshot.pendingDkgProposalHex,
+        pendingDkgStage: snapshot.pendingDkgStage,
+        pendingDkgCompletedParticipantIds:
+            snapshot.pendingDkgCompletedParticipantIds,
         pendingDkgName: snapshot.pendingDkgName,
         pendingDkgThreshold: snapshot.pendingDkgThreshold,
         pendingDkgCreatorId: snapshot.pendingDkgCreator,
@@ -963,6 +966,8 @@ class WalletController extends ChangeNotifier {
                 ? RoastSetupStatus.creatingKey
                 : RoastSetupStatus.awaitingDkgApproval,
             pendingDkgProposalHex: event.proposalHex,
+            pendingDkgStage: event.stage,
+            pendingDkgCompletedParticipantIds: event.completedParticipantIds,
             pendingDkgName: event.name,
             pendingDkgThreshold: event.threshold,
             pendingDkgCreatorId: event.creator,

@@ -212,6 +212,46 @@ void main() {
       AppColors.success,
     );
 
+    final setup = controller.roastSetups.single;
+    runtime.emit(
+      RoastRuntimeDkgEvent(
+        setup.id,
+        proposalHex: 'proposal',
+        name: setup.keyName,
+        threshold: setup.threshold,
+        creator: setup.hostParticipantId!,
+        expiry: DateTime.now().add(const Duration(hours: 1)),
+        description: roastKeyDescription(setup),
+        stage: 'round1',
+        rejected: false,
+        completedParticipantIds: const ['02'],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Waiting for DKG approvals · 1 of 2 confirmed'), findsOne);
+
+    runtime.emit(
+      RoastRuntimeDkgEvent(
+        setup.id,
+        proposalHex: 'proposal',
+        name: setup.keyName,
+        threshold: setup.threshold,
+        creator: setup.hostParticipantId!,
+        expiry: DateTime.now().add(const Duration(hours: 1)),
+        description: roastKeyDescription(setup),
+        stage: 'round2',
+        rejected: false,
+        completedParticipantIds: const ['01', '02'],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('All signers approved · generating shared key…'),
+      findsOne,
+    );
+
     runtime.emit(
       RoastRuntimeSnapshotEvent(
         'setup',

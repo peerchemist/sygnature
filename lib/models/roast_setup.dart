@@ -59,6 +59,8 @@ class RoastSetup({
   final String? groupFingerprintHex,
   final String? groupKeyHex,
   final String? pendingDkgProposalHex,
+  final String? pendingDkgStage,
+  final List<String> pendingDkgCompletedParticipantIds = const [],
   final String? pendingDkgName,
   final int? pendingDkgThreshold,
   final String? pendingDkgCreatorId,
@@ -84,6 +86,8 @@ class RoastSetup({
     String? groupFingerprintHex,
     String? groupKeyHex,
     String? pendingDkgProposalHex,
+    String? pendingDkgStage,
+    List<String>? pendingDkgCompletedParticipantIds,
     String? pendingDkgName,
     int? pendingDkgThreshold,
     String? pendingDkgCreatorId,
@@ -117,6 +121,13 @@ class RoastSetup({
     pendingDkgProposalHex: clearPendingDkgProposal
         ? null
         : pendingDkgProposalHex ?? this.pendingDkgProposalHex,
+    pendingDkgStage: clearPendingDkgProposal
+        ? null
+        : pendingDkgStage ?? this.pendingDkgStage,
+    pendingDkgCompletedParticipantIds: clearPendingDkgProposal
+        ? const []
+        : pendingDkgCompletedParticipantIds ??
+              this.pendingDkgCompletedParticipantIds,
     pendingDkgName: clearPendingDkgProposal
         ? null
         : pendingDkgName ?? this.pendingDkgName,
@@ -156,6 +167,8 @@ class RoastSetup({
     'groupFingerprintHex': groupFingerprintHex,
     'groupKeyHex': groupKeyHex,
     'pendingDkgProposalHex': pendingDkgProposalHex,
+    'pendingDkgStage': pendingDkgStage,
+    'pendingDkgCompletedParticipantIds': pendingDkgCompletedParticipantIds,
     'pendingDkgName': pendingDkgName,
     'pendingDkgThreshold': pendingDkgThreshold,
     'pendingDkgCreatorId': pendingDkgCreatorId,
@@ -198,6 +211,10 @@ class RoastSetup({
       groupFingerprintHex: json['groupFingerprintHex'] as String?,
       groupKeyHex: json['groupKeyHex'] as String?,
       pendingDkgProposalHex: json['pendingDkgProposalHex'] as String?,
+      pendingDkgStage: json['pendingDkgStage'] as String?,
+      pendingDkgCompletedParticipantIds:
+          ((json['pendingDkgCompletedParticipantIds'] as List?) ?? const [])
+              .cast<String>(),
       pendingDkgName: json['pendingDkgName'] as String?,
       pendingDkgThreshold: json['pendingDkgThreshold'] as int?,
       pendingDkgCreatorId: json['pendingDkgCreatorId'] as String?,

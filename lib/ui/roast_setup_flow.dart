@@ -714,11 +714,29 @@ class const RoastSetupPanel({
           : 'Joining room through Iroh…',
     RoastSetupStatus.awaitingDkgApproval =>
       'Review and approve shared-key creation',
-    RoastSetupStatus.creatingKey => 'Creating shared key with ROAST…',
+    RoastSetupStatus.creatingKey => _creatingKeyStatus(setup),
     RoastSetupStatus.active => 'Shared key secured on this device',
     RoastSetupStatus.interrupted => 'ROAST operation was interrupted',
     RoastSetupStatus.error => 'ROAST setup needs attention',
   };
+
+  static String _creatingKeyStatus(RoastSetup setup) {
+    if (setup.pendingDkgProposalHex == null) {
+      return 'Submitting shared-key request…';
+    }
+    if (setup.pendingDkgStage == 'round1') {
+      final confirmed = setup.pendingDkgCompletedParticipantIds.length;
+      if (confirmed < setup.participantCount) {
+        return 'Waiting for DKG approvals · '
+            '$confirmed of ${setup.participantCount} confirmed';
+      }
+      return 'All signers approved · preparing shared key…';
+    }
+    if (setup.pendingDkgStage == 'round2') {
+      return 'All signers approved · generating shared key…';
+    }
+    return 'Creating shared key with ROAST…';
+  }
 
   static String? _displayError(RoastSetup setup) {
     final message = setup.errorMessage?.trim();
