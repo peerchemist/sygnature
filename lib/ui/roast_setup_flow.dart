@@ -534,40 +534,16 @@ class const RoastSetupPanel({
   }
 
   Future<void> _join(BuildContext context, RoastSetup setup) async {
-    var input = '';
-    final invitation = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Join finalized setup'),
-        content: SizedBox(
-          width: 540,
-          child: TextFormField(
-            key: const Key('roast-invitation-field'),
-            onChanged: (value) => input = value,
-            minLines: 4,
-            maxLines: 8,
-            autocorrect: false,
-            decoration: const InputDecoration(labelText: 'Invitation'),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Back'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, input),
-            child: const Text('Verify and connect'),
-          ),
-        ],
-      ),
-    );
-    if (invitation != null && context.mounted) {
-      await _perform(
-        context,
-        () => controller.joinRoastSetup(setup.id, invitation),
-      );
-    }
+    await _perform(context, () async {
+      final invitation = (await Clipboard.getData(Clipboard.kTextPlain))?.text
+          ?.trim();
+      if (invitation == null || invitation.isEmpty) {
+        throw const FormatException(
+          'The clipboard does not contain a ROAST invitation.',
+        );
+      }
+      await controller.joinRoastSetup(setup.id, invitation);
+    });
   }
 
   static Future<void> _perform(

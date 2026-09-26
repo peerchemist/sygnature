@@ -1,13 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
+import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
+import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
@@ -111,10 +114,60 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('pastes and validates a member invitation immediately', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final keyService = _FakeRoastKeyService();
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      roastRuntime: _FakeRoastRuntime(),
+      roastKeyService: keyService,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await controller.createRoastSetupDraft(
+      role: RoastSetupRole.member,
+      walletName: 'Member wallet',
+      participantName: 'Member',
+      threshold: 2,
+      participantCount: 2,
+      network: PeercoinNetworks.mainnet,
+    );
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async => call.method == 'Clipboard.getData'
+          ? <String, Object?>{'text': '  invalid-invite  '}
+          : null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.tap(find.text('Paste invite from clipboard'));
+    await tester.pumpAndSettle();
+
+    expect(keyService.appliedInvitation, 'invalid-invite');
+    expect(find.textContaining('Invalid test invitation'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }
 
 final class _FakeRoastKeyService extends RoastKeyService {
   int _id = 0;
+  String? appliedInvitation;
 
   @override
   RoastParticipantMaterial generateParticipant() => RoastParticipantMaterial(
@@ -128,6 +181,12 @@ final class _FakeRoastKeyService extends RoastKeyService {
 
   @override
   String normalizeParticipantPublicKey(String value) => value.trim();
+
+  @override
+  RoastInvitation applyInvitation(RoastSetup draft, String invitation) {
+    appliedInvitation = invitation;
+    throw const FormatException('Invalid test invitation.');
+  }
 }
 
 final class _FakeRoastRuntime implements RoastRuntime {
