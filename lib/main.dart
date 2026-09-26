@@ -22,13 +22,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadCoinlib();
   if (_roastSupported) {
-    AppLogger.info('[IROH/ROAST] Initializing Noosphere native runtime');
+    AppLogger.info('[NOOSPHERE] Initializing native runtime');
     try {
       await NoosphereFlutter.initialize();
-      AppLogger.info('[IROH/ROAST] Noosphere native runtime initialized');
+      AppLogger.info('[NOOSPHERE] Native runtime initialized');
     } catch (error, stackTrace) {
       AppLogger.fatal(
-        '[IROH/ROAST] Noosphere native runtime initialization failed',
+        '[NOOSPHERE] Native runtime initialization failed',
         error: error,
         stackTrace: stackTrace,
       );

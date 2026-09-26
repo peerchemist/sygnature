@@ -179,10 +179,14 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   NoosphereWorker? _worker;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
 
-  static String _logScope(String setupId) {
+  static String _scope(String subsystem, String setupId) {
     final shortId = setupId.length <= 8 ? setupId : setupId.substring(0, 8);
-    return '[IROH/ROAST $shortId]';
+    return '[$subsystem $shortId]';
   }
+
+  static String _irohScope(String setupId) => _scope('IROH', setupId);
+  static String _noosphereScope(String setupId) => _scope('NOOSPHERE', setupId);
+  static String _roastScope(String setupId) => _scope('ROAST', setupId);
 
   static String _shortId(String value) =>
       value.length <= 8 ? value : value.substring(0, 8);
@@ -193,7 +197,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   Future<NoosphereWorker> _ensureWorker() async {
     final existing = _worker;
     if (existing != null && !existing.isClosed) return existing;
-    AppLogger.info('[IROH/ROAST] Starting Noosphere worker');
+    AppLogger.info('[NOOSPHERE] Starting worker');
     await _workerEvents?.cancel();
     _workerEvents = null;
     final worker = await NoosphereWorker.start();
@@ -208,7 +212,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       _onWorkerEvent,
       onError: (Object error, StackTrace stackTrace) {
         AppLogger.error(
-          '[IROH/ROAST] Noosphere worker stream failed',
+          '[NOOSPHERE] Worker stream failed',
           error: error,
           stackTrace: stackTrace,
         );
@@ -217,13 +221,13 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         }
       },
     );
-    AppLogger.info('[IROH/ROAST] Noosphere worker started');
+    AppLogger.info('[NOOSPHERE] Worker started');
     return worker;
   }
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
-    final scope = _logScope(setup.id);
+    final scope = _roastScope(setup.id);
     AppLogger.info(
       '$scope Starting setup (${setup.role.name}, '
       '${setup.participantCount} participants, threshold ${setup.threshold})',
@@ -270,7 +274,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       roomCoordinator = _coordinator(server.server!.address);
       if (room.lifecycle != RoomLifecycle.frozen) {
         AppLogger.info(
-          '${_logScope(setup.id)} Room is waiting for enrolled participants',
+          '${_roastScope(setup.id)} Room is waiting for enrolled participants',
         );
         return RoastRuntimeSnapshot(
           connected: false,
@@ -293,10 +297,11 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         server: EmbeddedServerOptions(
           serverConfig: ServerConfig(group: group),
           identityStore: persistence.serverIdentity(setup.id),
+          serverPersistence: persistence.serverPersistence(setup.id),
         ),
       );
       _serverSetups.add(setup.id);
-      AppLogger.info('${_logScope(setup.id)} Iroh coordinator started');
+      AppLogger.info('${_irohScope(setup.id)} Coordinator started');
     } else if (_serverSetups.contains(setup.id)) {
       serverSnapshot = await worker.snapshot(setup.id);
     }
@@ -345,7 +350,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           setup.role == RoastSetupRole.member &&
           setup.usesRoomEnrollment) {
         AppLogger.info(
-          '${_logScope(setup.id)} Signer is waiting for the host to freeze '
+          '${_roastScope(setup.id)} Signer is waiting for the host to freeze '
           'the room (${error.runtimeType})',
         );
         _scheduleRoomSignerConnection(setup);
@@ -354,7 +359,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       rethrow;
     }
     _signerSetups.add(setup.id);
-    AppLogger.info('${_logScope(setup.id)} ROAST signer connected');
+    AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
     return _snapshot(snapshot, setup);
   }
 
@@ -364,7 +369,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('Only a host with a complete roster can create a room.');
     }
     AppLogger.info(
-      '${_logScope(setup.id)} Creating room for '
+      '${_roastScope(setup.id)} Creating room for '
       '${setup.participantCount} participants (threshold ${setup.threshold})',
     );
     _setups[setup.id] = setup;
@@ -401,7 +406,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     }
     final coordinator = _coordinator(server.address);
     AppLogger.info(
-      '${_logScope(setup.id)} Room created; issued ${issued.length} '
+      '${_roastScope(setup.id)} Room created; issued ${issued.length} '
       'participant-bound invites',
     );
     return RoastRoomCreation(
@@ -417,7 +422,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     RoastSetup setup,
     String encodedInvite,
   ) async {
-    AppLogger.info('${_logScope(setup.id)} Validating room invite');
+    AppLogger.info('${_roastScope(setup.id)} Validating room invite');
     final invite = RoomInvite.decode(encodedInvite);
     if (invite.roomId != setup.groupId ||
         invite.expectedParticipantPublicKey.hex !=
@@ -433,7 +438,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     );
     invite.requirePrivateKey(privateKey);
     await _joinRoomInvite(invite, privateKey);
-    AppLogger.info('${_logScope(setup.id)} Room enrollment completed');
+    AppLogger.info('${_roastScope(setup.id)} Room enrollment completed');
     _setups[setup.id] = setup;
     _scheduleRoomSignerConnection(setup);
     return _pendingRoomSnapshot(setup);
@@ -454,7 +459,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   void _scheduleRoomSignerConnection(RoastSetup setup) {
     if (_roomSignerTimers.containsKey(setup.id)) return;
     AppLogger.info(
-      '${_logScope(setup.id)} Waiting for the frozen room; signer connection '
+      '${_roastScope(setup.id)} Waiting for the frozen room; signer connection '
       'will retry in the background',
     );
     unawaited(_connectRoomSigner(setup));
@@ -469,7 +474,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     try {
       final snapshot = await _startSetup(setup, scheduleRoomRetry: false);
       _roomSignerTimers.remove(setup.id)?.cancel();
-      AppLogger.info('${_logScope(setup.id)} Background signer connected');
+      AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
       _emitSnapshotValues(setup.id, snapshot);
     } on Object {
       // The ordinary ROAST group becomes available only after the host freezes
@@ -482,12 +487,13 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   Future<NoosphereNode> _ensureRoomServer(RoastSetup setup) async {
     final existing = _roomServers[setup.id];
     if (existing != null) return existing;
-    AppLogger.info('${_logScope(setup.id)} Starting Iroh room coordinator');
+    AppLogger.info('${_irohScope(setup.id)} Starting room coordinator');
     final persistence = await _persistenceFactory.open();
     final node = await NoosphereNode.start(
       server: EmbeddedServerOptions(
         serverConfig: ServerConfig(group: _bootstrapGroup(setup.groupId)),
         identityStore: persistence.serverIdentity(setup.id),
+        serverPersistence: persistence.serverPersistence(setup.id),
         roomPersistence: persistence.roomPersistence(setup.id),
       ),
     );
@@ -499,7 +505,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     for (final room in await node.server!.rooms!.getRooms()) {
       _onRoomSnapshot(setup.id, room);
     }
-    AppLogger.info('${_logScope(setup.id)} Iroh room coordinator started');
+    AppLogger.info('${_irohScope(setup.id)} Room coordinator started');
     return node;
   }
 
@@ -509,7 +515,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         !_freezingRooms.add(setupId)) {
       return;
     }
-    AppLogger.info('${_logScope(setupId)} Room is full; freezing roster');
+    AppLogger.info('${_roastScope(setupId)} Room is full; freezing roster');
     unawaited(_freezeRoomAndStartSigner(setupId));
   }
 
@@ -524,7 +530,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           bytesToHex(expected.fingerprint)) {
         throw StateError('The frozen room roster does not match the setup.');
       }
-      AppLogger.info('${_logScope(setupId)} Room roster frozen and verified');
+      AppLogger.info('${_roastScope(setupId)} Room roster frozen and verified');
       final snapshot = await startSetup(setup);
       _emitSnapshotValues(setupId, snapshot);
     } catch (error, stackTrace) {
@@ -540,7 +546,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     StackTrace? stackTrace,
   ]) {
     AppLogger.error(
-      '${_logScope(setupId)} Room operation failed',
+      '${_roastScope(setupId)} Room operation failed',
       error: error,
       stackTrace: stackTrace,
     );
@@ -598,7 +604,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
 
   @override
   Future<void> requestDkg(RoastSetup setup) async {
-    AppLogger.info('${_logScope(setup.id)} Requesting DKG');
+    AppLogger.info('${_roastScope(setup.id)} Requesting DKG');
     final worker = await _ensureWorker();
     await worker.requestDkg(
       setup.id,
@@ -618,7 +624,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('The DKG proposal is no longer available.');
     }
     AppLogger.info(
-      '${_logScope(setupId)} Accepting DKG ${_shortId(proposalHex)}',
+      '${_roastScope(setupId)} Accepting DKG ${_shortId(proposalHex)}',
     );
     await (await _ensureWorker()).acceptDkg(setupId, proposal);
   }
@@ -630,7 +636,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('The DKG proposal is no longer available.');
     }
     AppLogger.info(
-      '${_logScope(setupId)} Rejecting DKG ${_shortId(proposalHex)}',
+      '${_roastScope(setupId)} Rejecting DKG ${_shortId(proposalHex)}',
     );
     await (await _ensureWorker()).rejectDkg(setupId, proposal);
   }
@@ -681,7 +687,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('The persisted ROAST signing proposal is invalid.');
     }
     AppLogger.info(
-      '${_logScope(setup.id)} Requesting transaction signatures '
+      '${_roastScope(setup.id)} Requesting transaction signatures '
       '${_shortId(proposal.idHex)}',
     );
     await (await _ensureWorker()).requestSignatures(setup.id, details);
@@ -694,7 +700,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('The signing request is no longer available.');
     }
     AppLogger.info(
-      '${_logScope(setupId)} Accepting signing request '
+      '${_roastScope(setupId)} Accepting signing request '
       '${_shortId(requestIdHex)}',
     );
     await (await _ensureWorker()).acceptSignatures(setupId, request);
@@ -707,7 +713,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('The signing request is no longer available.');
     }
     AppLogger.info(
-      '${_logScope(setupId)} Rejecting signing request '
+      '${_roastScope(setupId)} Rejecting signing request '
       '${_shortId(requestIdHex)}',
     );
     await (await _ensureWorker()).rejectSignatures(setupId, request);
@@ -715,7 +721,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
 
   @override
   Future<void> stopSetup(String setupId) async {
-    AppLogger.info('${_logScope(setupId)} Stopping setup');
+    AppLogger.info('${_roastScope(setupId)} Stopping setup');
     _setups.remove(setupId);
     _emittedGroupKeys.remove(setupId);
     _serverSetups.remove(setupId);
@@ -730,14 +736,14 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     if (worker != null && !worker.isClosed) {
       await worker.stopSetup(setupId);
     }
-    AppLogger.info('${_logScope(setupId)} Setup stopped');
+    AppLogger.info('${_roastScope(setupId)} Setup stopped');
   }
 
   @override
   Future<void> deleteSetup(String setupId) async {
     await stopSetup(setupId);
     await _persistenceFactory.deleteSetupData(setupId);
-    AppLogger.info('${_logScope(setupId)} Setup data deleted');
+    AppLogger.info('${_roastScope(setupId)} Setup data deleted');
   }
 
   void _onWorkerEvent(NoosphereWorkerEvent event) {
@@ -750,7 +756,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       case WorkerDkgEvent():
         final proposalHex = bytesToHex(event.status.proposalBytes);
         AppLogger.info(
-          '${_logScope(event.setupId)} DKG ${_shortId(proposalHex)} '
+          '${_roastScope(event.setupId)} DKG ${_shortId(proposalHex)} '
           'stage=${event.status.stage}, rejected=${event.rejected}',
           error: event.failure,
         );
@@ -770,11 +776,11 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           ),
         );
       case WorkerKeyUpdatedEvent():
-        AppLogger.info('${_logScope(event.setupId)} Group key updated');
+        AppLogger.info('${_roastScope(event.setupId)} Group key updated');
         unawaited(_refresh(event.setupId));
       case WorkerFailureEvent():
         AppLogger.error(
-          '${_logScope(event.setupId)} Worker operation '
+          '${_noosphereScope(event.setupId)} Worker operation '
           '${event.operation} failed: ${event.message}',
         );
         _events.add(
@@ -788,23 +794,25 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         unawaited(_refresh(event.setupId));
       case WorkerParticipantEvent():
         AppLogger.info(
-          '${_logScope(event.setupId)} Participant is '
+          '${_irohScope(event.setupId)} Participant is '
           '${event.online ? 'online' : 'offline'}',
         );
         unawaited(_refresh(event.setupId));
       case WorkerSessionReplacedEvent():
-        AppLogger.warn('${_logScope(event.setupId)} Worker session replaced');
+        AppLogger.warn(
+          '${_noosphereScope(event.setupId)} Worker session replaced',
+        );
         unawaited(_refresh(event.setupId));
       case WorkerSigningRequestEvent():
         AppLogger.info(
-          '${_logScope(event.setupId)} Signing request '
+          '${_roastScope(event.setupId)} Signing request '
           '${_shortId(bytesToHex(event.request.id))} '
           'status=${event.request.status}',
         );
         _emitSigningRequest(event.setupId, event.request);
       case WorkerSigningResultEvent():
         AppLogger.info(
-          '${_logScope(event.setupId)} Signing completed for '
+          '${_roastScope(event.setupId)} Signing completed for '
           '${_shortId(bytesToHex(event.requestId))}; '
           '${event.signatures.length} signatures',
         );
@@ -842,7 +850,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       }
     } catch (error, stackTrace) {
       AppLogger.error(
-        '${_logScope(event.setupId)} Failed to persist signing result '
+        '${_roastScope(event.setupId)} Failed to persist signing result '
         '${_shortId(requestIdHex)}',
         error: error,
         stackTrace: stackTrace,
@@ -882,7 +890,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       await _rememberExpectedKey(snapshot);
     } on Object catch (error, stackTrace) {
       AppLogger.error(
-        '${_logScope(snapshot.setupId)} Unable to verify key readiness',
+        '${_roastScope(snapshot.setupId)} Unable to verify key readiness',
         error: error,
         stackTrace: stackTrace,
       );
@@ -932,7 +940,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     }
     _keyReadinessTimers.remove(setup.id)?.cancel();
     _emittedGroupKeys[snapshot.setupId] = key.groupKeyHex;
-    AppLogger.info('${_logScope(snapshot.setupId)} Group key is ready');
+    AppLogger.info('${_roastScope(snapshot.setupId)} Group key is ready');
     _events.add(
       RoastRuntimeKeyEvent(
         snapshot.setupId,
@@ -948,7 +956,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     String groupKeyHex,
   ) async {
     final persistence = await _persistenceFactory.open();
-    final keys = await persistence.clientStorage(setup.id).loadKeys();
+    final keys = (await persistence.clientStorage(setup.id).loadState()).keys;
     final matching = keys
         .where(
           (key) =>
@@ -1193,7 +1201,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
 
   @override
   Future<void> close() async {
-    AppLogger.info('[IROH/ROAST] Closing runtime');
+    AppLogger.info('[NOOSPHERE] Closing runtime');
     await _workerEvents?.cancel();
     _workerEvents = null;
     await _worker?.close();
@@ -1221,6 +1229,6 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     }
     _keyReadinessTimers.clear();
     await _events.close();
-    AppLogger.info('[IROH/ROAST] Runtime closed');
+    AppLogger.info('[NOOSPHERE] Runtime closed');
   }
 }

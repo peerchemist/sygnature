@@ -12,7 +12,12 @@ import 'wallet_repository.dart';
 class RoastPersistence._(
   final Box<dynamic> _box,
   final SecureKeyStore _keyStore,
-);
+) {
+  final Map<String, ClientStorageInterface> _clientStores = {};
+  final Map<String, ServerIdentityStore> _identityStores = {};
+  final Map<String, ServerPersistence> _serverStores = {};
+  final Map<String, RoomPersistence> _roomStores = {};
+}
 
 abstract interface class RoastSigningOperationRepository {
   Future<List<RoastSigningOperation>> loadSigningOperations();
@@ -136,8 +141,16 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   Future<void> deleteSetupData(String setupId) async {
     await _operationWrites;
     final persistence = await open();
-    await persistence._box.deleteAll(['client:$setupId', 'rooms:$setupId']);
+    await persistence._box.deleteAll([
+      'client:$setupId',
+      'server:$setupId',
+      'rooms:$setupId',
+    ]);
     await _keyStore.delete('sygnature_iroh_identity_$setupId');
+    persistence._clientStores.remove(setupId);
+    persistence._identityStores.remove(setupId);
+    persistence._serverStores.remove(setupId);
+    persistence._roomStores.remove(setupId);
   }
 }
 
@@ -182,13 +195,69 @@ final class MemoryRoastSigningOperationRepository
 
 extension RoastPersistenceAccess on RoastPersistence {
   ClientStorageInterface clientStorage(String setupId) =>
-      _HiveRoastClientStorage(_box, 'client:$setupId');
+      _clientStores.putIfAbsent(
+        setupId,
+        () => _HiveRoastClientStorage(_box, 'client:$setupId'),
+      );
 
   ServerIdentityStore serverIdentity(String setupId) =>
-      _SecureServerIdentityStore(_keyStore, 'sygnature_iroh_identity_$setupId');
+      _identityStores.putIfAbsent(
+        setupId,
+        () => _SecureServerIdentityStore(
+          _keyStore,
+          'sygnature_iroh_identity_$setupId',
+        ),
+      );
 
-  RoomPersistence roomPersistence(String setupId) =>
-      _HiveRoomPersistence(_box, 'rooms:$setupId');
+  ServerPersistence serverPersistence(String setupId) =>
+      _serverStores.putIfAbsent(
+        setupId,
+        () => _HiveServerPersistence(_box, 'server:$setupId'),
+      );
+
+  RoomPersistence roomPersistence(String setupId) => _roomStores.putIfAbsent(
+    setupId,
+    () => _HiveRoomPersistence(_box, 'rooms:$setupId'),
+  );
+}
+
+final class _HiveServerPersistence(
+  final Box<dynamic> _box,
+  final String _storageKey,
+) implements ServerPersistence {
+  Future<void> _pendingWrite = Future.value();
+
+  Map<String, String> _read() {
+    final raw = _box.get(_storageKey);
+    if (raw == null) return {};
+    if (raw is! Map) throw StateError('Invalid ROAST server storage record.');
+    return Map<String, String>.from(raw);
+  }
+
+  @override
+  Future<ServerStateSnapshot?> load(String groupId) async {
+    await _pendingWrite;
+    final encoded = _read()[groupId];
+    return encoded == null
+        ? null
+        : ServerStateSnapshot.fromBytes(base64Url.decode(encoded));
+  }
+
+  @override
+  Future<void> write(String groupId, ServerStateSnapshot state) {
+    final completer = Completer<void>();
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        final records = _read();
+        records[groupId] = base64UrlEncode(state.toBytes());
+        await _box.put(_storageKey, records);
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
 }
 
 final class _HiveRoomPersistence(
@@ -286,6 +355,47 @@ final class _HiveRoastClientStorage(
   static String _id(SignaturesRequestId id) => base64UrlEncode(id.toBytes());
   static String _bytes(Uint8List bytes) => base64UrlEncode(bytes);
   static Uint8List _decode(String value) => base64Url.decode(value);
+
+  @override
+  Future<ClientStorageSnapshot> loadState() async {
+    await _pendingWrite;
+    final data = await _read();
+    final nonces = <SignaturesRequestId, SignaturesNonces>{};
+    for (final entry in (data['nonces'] as Map).entries) {
+      final value = Map<String, dynamic>.from(entry.value as Map);
+      final expiry = Expiry.fromTime(DateTime.parse(value['expiry'] as String));
+      if (expiry.isExpired) continue;
+      nonces[SignaturesRequestId.fromBytes(
+        _decode(entry.key as String),
+      )] = SignaturesNonces({
+        for (final item in (value['values'] as Map).entries)
+          int.parse(item.key as String): SigningNonces.fromBytes(
+            _decode(item.value as String),
+          ),
+      }, expiry);
+    }
+    final prepared = <SignaturesRequestId, PreparedSignaturesOperation>{};
+    for (final encoded in (data['prepared'] as Map).values.cast<String>()) {
+      final operation = PreparedSignaturesOperation.fromBytes(_decode(encoded));
+      if (!operation.expiry.isExpired) prepared[operation.id] = operation;
+    }
+    final rejected = <SignaturesRequestId, FinalExpirable>{};
+    for (final entry in (data['rejected'] as Map).entries) {
+      final expiry = Expiry.fromTime(DateTime.parse(entry.value as String));
+      if (!expiry.isExpired) {
+        rejected[SignaturesRequestId.fromBytes(_decode(entry.key as String))] =
+            FinalExpirable(expiry);
+      }
+    }
+    return ClientStorageSnapshot(
+      keys: (data['keys'] as List).cast<String>().map(
+        (value) => FrostKeyWithDetails.fromBytes(_decode(value)),
+      ),
+      sigNonces: nonces,
+      preparedOperations: prepared,
+      rejectedRequests: rejected,
+    );
+  }
 
   @override
   Future<void> addOrReplaceFrostKey(FrostKeyWithDetails newKey) =>
@@ -394,61 +504,4 @@ final class _HiveRoastClientStorage(
       data[field] = values;
     }
   });
-
-  @override
-  Future<Set<FrostKeyWithDetails>> loadKeys() async {
-    final data = await _read();
-    return (data['keys'] as List)
-        .cast<String>()
-        .map((value) => FrostKeyWithDetails.fromBytes(_decode(value)))
-        .toSet();
-  }
-
-  @override
-  Future<Map<SignaturesRequestId, SignaturesNonces>> loadSigNonces() async {
-    final data = await _read();
-    final all = Map<String, dynamic>.from(data['nonces'] as Map);
-    final result = <SignaturesRequestId, SignaturesNonces>{};
-    for (final entry in all.entries) {
-      final value = Map<String, dynamic>.from(entry.value as Map);
-      final expiry = Expiry.fromTime(DateTime.parse(value['expiry'] as String));
-      if (expiry.isExpired) continue;
-      final nonces = <int, SigningNonces>{};
-      for (final item in (value['values'] as Map).entries) {
-        nonces[int.parse(item.key as String)] = SigningNonces.fromBytes(
-          _decode(item.value as String),
-        );
-      }
-      result[SignaturesRequestId.fromBytes(_decode(entry.key))] =
-          SignaturesNonces(nonces, expiry);
-    }
-    return result;
-  }
-
-  @override
-  Future<Map<SignaturesRequestId, PreparedSignaturesOperation>>
-  loadPreparedSignaturesOperations() async {
-    final data = await _read();
-    final result = <SignaturesRequestId, PreparedSignaturesOperation>{};
-    for (final encoded in (data['prepared'] as Map).values.cast<String>()) {
-      final operation = PreparedSignaturesOperation.fromBytes(_decode(encoded));
-      if (!operation.expiry.isExpired) result[operation.id] = operation;
-    }
-    return result;
-  }
-
-  @override
-  Future<Map<SignaturesRequestId, FinalExpirable>>
-  loadRejectedSigsRequests() async {
-    final data = await _read();
-    final result = <SignaturesRequestId, FinalExpirable>{};
-    for (final entry in (data['rejected'] as Map).entries) {
-      final expiry = Expiry.fromTime(DateTime.parse(entry.value as String));
-      if (!expiry.isExpired) {
-        result[SignaturesRequestId.fromBytes(_decode(entry.key as String))] =
-            FinalExpirable(expiry);
-      }
-    }
-    return result;
-  }
 }
