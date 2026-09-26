@@ -217,8 +217,9 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
     ),
     actions: [
       TextButton(
+        key: const Key('roast-setup-back'),
         onPressed: _busy ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
+        child: const Text('Back'),
       ),
       FilledButton(
         key: const Key('create-roast-draft'),
@@ -300,7 +301,7 @@ Future<void> _showIssuedInvitations(
     actions: [
       FilledButton(
         onPressed: () => Navigator.pop(dialogContext),
-        child: const Text('Done'),
+        child: const Text('Back to wallet'),
       ),
     ],
   ),
@@ -552,7 +553,7 @@ class const RoastSetupPanel({
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
+            child: const Text('Back'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, input),
@@ -666,15 +667,21 @@ class _RoastInviteWizardState extends State<_RoastInviteWizard> {
     });
   }
 
-  void _back() => setState(() {
-    _error = null;
-    if (_reviewing) {
-      _reviewing = false;
-      _signerIndex = _names.length - 1;
-    } else if (_signerIndex > 0) {
-      _signerIndex--;
+  void _back() {
+    if (!_reviewing && _signerIndex == 0) {
+      Navigator.pop(context);
+      return;
     }
-  });
+    setState(() {
+      _error = null;
+      if (_reviewing) {
+        _reviewing = false;
+        _signerIndex = _names.length - 1;
+      } else {
+        _signerIndex--;
+      }
+    });
+  }
 
   void _finish() => Navigator.pop(context, [
     for (var i = 0; i < _names.length; i++)
@@ -743,11 +750,10 @@ class _RoastInviteWizardState extends State<_RoastInviteWizard> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          key: const Key('roast-invite-wizard-back'),
+          onPressed: _back,
+          child: const Text('Back'),
         ),
-        if (_reviewing || _signerIndex > 0)
-          TextButton(onPressed: _back, child: const Text('Back')),
         FilledButton(
           key: const Key('roast-invite-wizard-continue'),
           onPressed: _reviewing ? _finish : _continue,

@@ -54,6 +54,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Host coordinator'), findsOneWidget);
     expect(find.textContaining('This device must stay online'), findsOneWidget);
+    expect(find.byKey(const Key('roast-setup-back')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('create-roast-draft')));
     await tester.pumpAndSettle();
@@ -62,7 +63,14 @@ void main() {
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
     expect(find.text('Signer 2 of 2'), findsOneWidget);
     expect(find.byKey(const Key('roast-signer-name-0')), findsOneWidget);
+    expect(find.byKey(const Key('roast-invite-wizard-back')), findsOneWidget);
     expect(find.text('BALANCE'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('roast-invite-wizard-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('create-roast-invitations')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('create-roast-invitations')));
+    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byKey(const Key('roast-signer-name-0')),
@@ -75,8 +83,12 @@ void main() {
     await tester.tap(find.byKey(const Key('roast-invite-wizard-continue')));
     await tester.pumpAndSettle();
     expect(find.text('Create invitations'), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byKey(const Key('roast-invite-wizard-back')));
     await tester.pumpAndSettle();
+    expect(find.text('Second signer'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('roast-invite-wizard-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('create-roast-invitations')), findsOneWidget);
 
     expect(tester.takeException(), isNull);
 
