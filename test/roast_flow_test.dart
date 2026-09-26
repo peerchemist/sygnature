@@ -4,19 +4,42 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
+import 'package:sygnature_ng/models/wallet_account.dart';
+import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
-  testWidgets('creates a pending ROAST wallet from first launch', (
+  testWidgets('adds a pending ROAST wallet after personal wallet setup', (
     tester,
   ) async {
     final runtime = _FakeRoastRuntime();
+    final repository = MemoryWalletRepository()
+      ..value = WalletVault(
+        mnemonic: 'local recovery phrase',
+        languageId: 'english',
+        mnemonicWordCount: 12,
+        accounts: [
+          WalletAccount(
+            id: 'wallet-0',
+            name: 'Main wallet',
+            accountIndex: 0,
+            blockchainId: 'peercoin',
+            networkId: 'mainnet',
+            derivationPath: "m/86'/6'/0'/0/0",
+            address: 'pc1ppersonal',
+            privateKeyHex: 'personal-private-key',
+            createdAt: DateTime.utc(2026),
+          ),
+        ],
+        nextAccountIndex: 1,
+      );
     final controller = WalletController(
-      MemoryWalletRepository(),
+      repository,
       roastRuntime: runtime,
       roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
     );
     await controller.load();
 
@@ -25,6 +48,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byTooltip('Add sub-wallet'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('ROAST shared wallet'));
     await tester.pumpAndSettle();
     expect(find.text('Host coordinator'), findsOneWidget);

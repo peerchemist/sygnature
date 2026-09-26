@@ -28,10 +28,6 @@ void main() {
     await tester.pumpWidget(SygnatureApp(controllerFactory: createController));
     await tester.pumpAndSettle();
 
-    expect(find.text('Choose your wallet'), findsOneWidget);
-    await tester.tap(find.text('Personal wallet'));
-    await tester.pumpAndSettle();
-
     expect(find.text('Mnemonic'), findsOneWidget);
     expect(find.text('English'), findsOneWidget);
     expect(find.text('Peercoin mainnet'), findsOneWidget);

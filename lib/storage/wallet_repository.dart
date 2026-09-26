@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
@@ -20,7 +21,11 @@ abstract interface class SecureKeyStore {
 
 class PlatformSecureKeyStore implements SecureKeyStore {
   PlatformSecureKeyStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            mOptions: MacOsOptions(usesDataProtectionKeychain: !kDebugMode),
+          );
 
   final FlutterSecureStorage _storage;
 

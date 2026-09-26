@@ -5,10 +5,8 @@ import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/mnemonic_seed.dart';
-import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import 'app_theme.dart';
-import 'roast_setup_flow.dart';
 import 'widgets/brand_mark.dart';
 
 enum _SetupStep { mnemonic, backup }
@@ -39,7 +37,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String? _importError;
   String? _creationError;
   bool _loadingWordlist = false;
-  WalletKeySource? _walletType;
 
   @override
   void initState() {
@@ -165,7 +162,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_walletType == null) return _buildTypeChooser(context);
     final stepNumber = _step.index + 1;
     return Scaffold(
       body: SafeArea(
@@ -276,132 +272,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
     );
   }
-
-  Widget _buildTypeChooser(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const BrandMark(),
-                    const SizedBox(height: 28),
-                    Text(
-                      'Choose your wallet',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'You can add the other wallet type later without '
-                      'replacing this one.',
-                      style: TextStyle(color: AppColors.inkMuted),
-                    ),
-                    const SizedBox(height: 22),
-                    _WalletTypeCard(
-                      icon: Icons.key_outlined,
-                      title: 'Personal wallet',
-                      description:
-                          'A local BIP-39 recovery phrase controls BIP-86 '
-                          'Peercoin accounts.',
-                      onTap: () => setState(
-                        () => _walletType = WalletKeySource.personal,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _WalletTypeCard(
-                      icon: Icons.hub_outlined,
-                      title: 'ROAST shared wallet',
-                      description: widget.controller.roastAvailable
-                          ? 'A threshold of authenticated participants signs '
-                                'through an Iroh coordinator.'
-                          : 'ROAST is currently available on Linux and macOS.',
-                      onTap: widget.controller.roastAvailable
-                          ? () => showRoastSetupCreation(
-                              context,
-                              widget.controller,
-                            )
-                          : null,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _WalletTypeCard extends StatelessWidget {
-  const _WalletTypeCard({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: AppColors.canvas,
-    borderRadius: BorderRadius.circular(4),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          border: Border.all(color: AppColors.line),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 30, color: AppColors.greenDark),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: onTap == null ? AppColors.line : AppColors.inkMuted,
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
 }
 
 class _MnemonicStep extends StatelessWidget {
