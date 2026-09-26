@@ -63,11 +63,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Host coordinator'), findsOneWidget);
     expect(find.textContaining('This device must stay online'), findsOneWidget);
+    expect(find.byKey(const Key('roast-participant-name')), findsNothing);
     expect(find.byKey(const Key('roast-setup-back')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('create-roast-draft')));
     await tester.pumpAndSettle();
 
+    expect(controller.roastSetups.single.localParticipant.name, 'This device');
     expect(find.text('Shared wallet'), findsWidgets);
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
     expect(find.text('LOCAL'), findsOneWidget);

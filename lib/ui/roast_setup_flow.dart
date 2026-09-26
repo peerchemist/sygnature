@@ -40,9 +40,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   late final TextEditingController _walletName = TextEditingController(
     text: 'Shared wallet',
   );
-  late final TextEditingController _participantName = TextEditingController(
-    text: 'This device',
-  );
   late WalletNetwork _network = widget.controller.supportedNetworks.first;
   RoastSetupRole _role = RoastSetupRole.host;
   int _participantCount = 2;
@@ -53,14 +50,12 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   @override
   void dispose() {
     _walletName.dispose();
-    _participantName.dispose();
     super.dispose();
   }
 
   Future<void> _create() async {
-    if (_participantName.text.trim().isEmpty ||
-        _walletName.text.trim().isEmpty) {
-      setState(() => _error = 'Complete all names before continuing.');
+    if (_walletName.text.trim().isEmpty) {
+      setState(() => _error = 'Enter a wallet name before continuing.');
       return;
     }
     setState(() {
@@ -71,7 +66,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
       final setupId = await widget.controller.createRoastSetupDraft(
         role: _role,
         walletName: _walletName.text,
-        participantName: _participantName.text,
+        participantName: 'This device',
         threshold: _threshold,
         participantCount: _participantCount,
         network: _network,
@@ -124,15 +119,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
               controller: _walletName,
               maxLength: 32,
               decoration: const InputDecoration(labelText: 'Wallet name'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              key: const Key('roast-participant-name'),
-              controller: _participantName,
-              maxLength: 32,
-              decoration: const InputDecoration(
-                labelText: 'Your participant name',
-              ),
             ),
             if (_role == RoastSetupRole.host) ...[
               const SizedBox(height: 10),
