@@ -1,9 +1,12 @@
+import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
 
 void main() {
+  setUpAll(loadCoinlib);
+
   test('migrates schema 1 vaults without changing personal account data', () {
     final vault = WalletVault.fromJson({
       'schemaVersion': 1,
@@ -89,6 +92,29 @@ void main() {
     expect(
       invitation['participantPublicKeyHex'],
       setup.participants.last.publicKeyHex,
+    );
+  });
+
+  test('builds participant cards from signer public keys, not addresses', () {
+    const publicKey =
+        '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+    final service = const RoastKeyService();
+    final card = RoastExchangeCodec.decodeParticipantCard(
+      service.participantCardFromPublicKey(
+        name: 'Alice laptop',
+        publicKeyHex: publicKey.toUpperCase(),
+      ),
+    );
+
+    expect(card.name, 'Alice laptop');
+    expect(card.publicKeyHex, publicKey);
+    expect(card.cardId, isNotEmpty);
+    expect(
+      () => service.participantCardFromPublicKey(
+        name: 'Alice laptop',
+        publicKeyHex: 'pc1pnot-a-signer-public-key',
+      ),
+      throwsFormatException,
     );
   });
 

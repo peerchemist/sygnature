@@ -154,6 +154,7 @@ abstract interface class RoastRuntime {
   Future<void> acceptSignatures(String setupId, String requestIdHex);
   Future<void> rejectSignatures(String setupId, String requestIdHex);
   Future<void> stopSetup(String setupId);
+  Future<void> deleteSetup(String setupId);
   Future<void> close();
 }
 
@@ -635,6 +636,12 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     final worker = _worker;
     if (worker == null || worker.isClosed) return;
     await worker.stopSetup(setupId);
+  }
+
+  @override
+  Future<void> deleteSetup(String setupId) async {
+    await stopSetup(setupId);
+    await _persistenceFactory.deleteSetupData(setupId);
   }
 
   void _onWorkerEvent(NoosphereWorkerEvent event) {

@@ -93,10 +93,9 @@ void main() {
     );
     await controller.load();
 
-    final invitations = await controller.finalizeHostedRoastSetup(
-      'setup',
-      const ['participant-card'],
-    );
+    final invitations = await controller.createHostedRoastInvitations('setup', [
+      (name: 'Member', publicKeyHex: participants.first.publicKeyHex),
+    ]);
 
     expect(invitations, hasLength(1));
     expect(invitations.single.participantName, 'Member');
@@ -107,6 +106,43 @@ void main() {
     expect(payload['participantPublicKeyHex'], participants.first.publicKeyHex);
     expect(runtime.createdRoomSetup?.hostParticipantId, '02');
     expect(controller.issuedRoastInvitations('setup'), invitations);
+    controller.dispose();
+  });
+
+  test('deletes the last ROAST wallet and its local setup data', () async {
+    final runtime = _FakeRoastRuntime();
+    final operations = MemoryRoastSigningOperationRepository();
+    await operations.putSigningOperation(
+      RoastSigningOperation(
+        setupId: 'setup',
+        accountId: 'shared',
+        requestIdHex: 'request',
+        proposalHex: 'proposal',
+        expectedInternalKeyHex: 'internal-key',
+        derivationPath: const [0, 6, 0, 0, 0, 0],
+        thresholdTransaction: const {},
+        reservedOutpoints: const ['funding:0'],
+        expiry: DateTime.now().add(const Duration(minutes: 1)),
+        state: RoastSigningOperationState.broadcasted,
+        updatedAt: DateTime.now(),
+        rawTransactionHex: 'raw',
+        transactionId: 'txid',
+      ),
+    );
+    final controller = _controller(
+      runtime: runtime,
+      operationRepository: operations,
+      active: true,
+    );
+    await controller.load();
+    await _flushEvents();
+
+    await controller.deleteAccount('shared');
+
+    expect(controller.accounts, isEmpty);
+    expect(controller.roastSetups, isEmpty);
+    expect(runtime.deletedSetupIds, ['setup']);
+    expect(await operations.loadSigningOperations(), isEmpty);
     controller.dispose();
   });
 
@@ -650,6 +686,12 @@ final class _FakeRoastKeyService extends RoastKeyService {
 final class _RoomRoastKeyService(final List<RoastParticipant> roster)
     extends RoastKeyService {
   @override
+  String participantCardFromPublicKey({
+    required String name,
+    required String publicKeyHex,
+  }) => 'participant-card';
+
+  @override
   List<RoastParticipant> finalizeRoster(setup, encodedCards) => roster;
 
   @override
@@ -672,6 +714,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
       StreamController<RoastRuntimeEvent>.broadcast();
   final List<String> requestedDkgSetupIds = [];
   final List<String> rejectedDkgProposalHexes = [];
+  final List<String> deletedSetupIds = [];
   String? snapshotGroupKey;
   bool failSigningRequests = false;
   RoastRoomCreation? roomCreation;
@@ -756,6 +799,11 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<void> stopSetup(String setupId) async {}
+
+  @override
+  Future<void> deleteSetup(String setupId) async {
+    deletedSetupIds.add(setupId);
+  }
 
   @override
   Future<void> close() => _events.close();
@@ -894,6 +942,9 @@ final class _SigningRoastRuntime(
 
   @override
   Future<void> stopSetup(String setupId) async {}
+
+  @override
+  Future<void> deleteSetup(String setupId) async {}
 
   @override
   Future<void> close() => _events.close();

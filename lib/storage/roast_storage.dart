@@ -23,6 +23,7 @@ abstract interface class RoastSigningOperationRepository {
     required String proposalHex,
     required List<String> signaturesHex,
   });
+  Future<void> deleteSigningOperationsForSetup(String setupId);
 }
 
 class RoastPersistenceFactory implements RoastSigningOperationRepository {
@@ -123,6 +124,21 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
       clearError: true,
     );
   });
+
+  @override
+  Future<void> deleteSigningOperationsForSetup(String setupId) =>
+      _mutateOperations(
+        (operations) => operations.removeWhere(
+          (_, operation) => operation.setupId == setupId,
+        ),
+      );
+
+  Future<void> deleteSetupData(String setupId) async {
+    await _operationWrites;
+    final persistence = await open();
+    await persistence._box.deleteAll(['client:$setupId', 'rooms:$setupId']);
+    await _keyStore.delete('sygnature_iroh_identity_$setupId');
+  }
 }
 
 final class MemoryRoastSigningOperationRepository
@@ -156,6 +172,11 @@ final class MemoryRoastSigningOperationRepository
       signaturesHex: signaturesHex,
       clearError: true,
     );
+  }
+
+  @override
+  Future<void> deleteSigningOperationsForSetup(String setupId) async {
+    _operations.removeWhere((_, operation) => operation.setupId == setupId);
   }
 }
 

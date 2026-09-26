@@ -372,27 +372,29 @@ class const RoastSetupPanel({
       ];
     }
     if (setup.status == RoastSetupStatus.draft) {
+      if (setup.role == RoastSetupRole.host) {
+        return [
+          FilledButton.icon(
+            key: const Key('create-roast-invitations'),
+            onPressed: busy ? null : () => _finalizeHost(context, setup),
+            icon: const Icon(Icons.person_add_alt_1_rounded),
+            label: const Text('Create signer invitations'),
+          ),
+        ];
+      }
       return [
         OutlinedButton.icon(
           onPressed: () => _copy(
             context,
-            controller.participantCard(setup.id),
-            'Participant card copied.',
+            controller.participantPublicKey(setup.id),
+            'Signer public key copied.',
           ),
           icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copy participant card'),
+          label: const Text('Copy signer public key'),
         ),
         FilledButton(
-          onPressed: busy
-              ? null
-              : setup.role == RoastSetupRole.host
-              ? () => _finalizeHost(context, setup)
-              : () => _join(context, setup),
-          child: Text(
-            setup.role == RoastSetupRole.host
-                ? 'Enter participant cards'
-                : 'Paste invitation',
-          ),
+          onPressed: busy ? null : () => _join(context, setup),
+          child: const Text('Paste invitation'),
         ),
       ];
     }
@@ -462,58 +464,17 @@ class const RoastSetupPanel({
   }
 
   Future<void> _finalizeHost(BuildContext context, RoastSetup setup) async {
-    final cardValues = List.filled(setup.participantCount - 1, '');
-    final cards = await showDialog<List<String>>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Finalize participant roster'),
-        content: SizedBox(
-          width: 540,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Paste each participant card received through a trusted '
-                  'channel. Verify names and key fingerprints together before '
-                  'creating the shared key.',
-                ),
-                const SizedBox(height: 16),
-                for (var i = 0; i < cardValues.length; i++) ...[
-                  TextFormField(
-                    onChanged: (value) => cardValues[i] = value,
-                    minLines: 2,
-                    maxLines: 4,
-                    autocorrect: false,
-                    decoration: InputDecoration(
-                      labelText: 'Participant ${i + 2} card',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, List.unmodifiable(cardValues)),
-            child: const Text('Start coordinator'),
-          ),
-        ],
-      ),
-    );
-    if (cards != null && context.mounted) {
+    final invitees =
+        await showDialog<List<({String name, String publicKeyHex})>>(
+          context: context,
+          builder: (_) =>
+              _RoastInviteWizard(controller: controller, setup: setup),
+        );
+    if (invitees != null && context.mounted) {
       try {
-        final invitations = await controller.finalizeHostedRoastSetup(
+        final invitations = await controller.createHostedRoastInvitations(
           setup.id,
-          cards,
+          invitees,
         );
         if (context.mounted) {
           await _showIssuedInvitations(context, invitations);
@@ -644,8 +605,8 @@ class const RoastSetupPanel({
   static String _statusText(RoastSetup setup) => switch (setup.status) {
     RoastSetupStatus.draft =>
       setup.role == RoastSetupRole.host
-          ? 'Waiting for participant cards'
-          : 'Share your participant card, then wait for your bound invite',
+          ? 'Add signers and create their invitations'
+          : 'Share your signer public key, then wait for your bound invite',
     RoastSetupStatus.ready =>
       setup.role == RoastSetupRole.host
           ? 'Room roster frozen · coordinator online'
@@ -665,6 +626,168 @@ class const RoastSetupPanel({
   static String _short(String value) => value.length <= 18
       ? value
       : '${value.substring(0, 8)}…${value.substring(value.length - 8)}';
+}
+
+class const _RoastInviteWizard({
+  required final WalletController controller,
+  required final RoastSetup setup,
+}) extends StatefulWidget {
+  @override
+  State<_RoastInviteWizard> createState() => _RoastInviteWizardState();
+}
+
+class _RoastInviteWizardState extends State<_RoastInviteWizard> {
+  late final List<String> _names = List.filled(
+    widget.setup.participantCount - 1,
+    '',
+  );
+  late final List<String> _publicKeys = List.filled(
+    widget.setup.participantCount - 1,
+    '',
+  );
+  int _signerIndex = 0;
+  bool _reviewing = false;
+  String? _error;
+
+  void _continue() {
+    final name = _names[_signerIndex].trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a name for this signer.');
+      return;
+    }
+    try {
+      _publicKeys[_signerIndex] = widget.controller
+          .normalizeRoastParticipantPublicKey(_publicKeys[_signerIndex]);
+    } on Object catch (error) {
+      setState(() => _error = _message(error));
+      return;
+    }
+    setState(() {
+      _names[_signerIndex] = name;
+      _error = null;
+      if (_signerIndex == _names.length - 1) {
+        _reviewing = true;
+      } else {
+        _signerIndex++;
+      }
+    });
+  }
+
+  void _back() => setState(() {
+    _error = null;
+    if (_reviewing) {
+      _reviewing = false;
+      _signerIndex = _names.length - 1;
+    } else if (_signerIndex > 0) {
+      _signerIndex--;
+    }
+  });
+
+  void _finish() => Navigator.pop(context, [
+    for (var i = 0; i < _names.length; i++)
+      (name: _names[i], publicKeyHex: _publicKeys[i]),
+  ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final signerIndex = _signerIndex;
+    return AlertDialog(
+      title: const Text('Create signer invitations'),
+      content: SizedBox(
+        width: 580,
+        child: SingleChildScrollView(
+          child: _reviewing
+              ? _review()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Signer ${signerIndex + 2} of '
+                      '${widget.setup.participantCount}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: (signerIndex + 1) / _names.length,
+                    ),
+                    const SizedBox(height: 18),
+                    TextFormField(
+                      key: Key('roast-signer-name-$signerIndex'),
+                      initialValue: _names[signerIndex],
+                      maxLength: 32,
+                      textInputAction: TextInputAction.next,
+                      onChanged: (value) => _names[signerIndex] = value,
+                      decoration: const InputDecoration(
+                        labelText: 'Signer name',
+                        hintText: 'For example: Alice laptop',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      key: Key('roast-signer-public-key-$signerIndex'),
+                      initialValue: _publicKeys[signerIndex],
+                      minLines: 2,
+                      maxLines: 3,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      onChanged: (value) => _publicKeys[signerIndex] = value,
+                      decoration: const InputDecoration(
+                        labelText: 'Signer public key',
+                        hintText: '02… or 03…',
+                        helperText:
+                            'Paste the key copied from the signer wallet. '
+                            'A Peercoin payment address cannot be used here.',
+                      ),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_error!, style: const TextStyle(color: Colors.red)),
+                    ],
+                  ],
+                ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        if (_reviewing || _signerIndex > 0)
+          TextButton(onPressed: _back, child: const Text('Back')),
+        FilledButton(
+          key: const Key('roast-invite-wizard-continue'),
+          onPressed: _reviewing ? _finish : _continue,
+          child: Text(_reviewing ? 'Create invitations' : 'Continue'),
+        ),
+      ],
+    );
+  }
+
+  Widget _review() => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Verify each signer and key fingerprint through the trusted channel '
+        'you used to receive it. Creating the invitations freezes the roster.',
+      ),
+      const SizedBox(height: 16),
+      for (var i = 0; i < _names.length; i++)
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.key_rounded),
+          title: Text(_names[i]),
+          subtitle: Text(
+            RoastSetupPanel._short(_publicKeys[i]),
+            style: const TextStyle(fontFamily: 'monospace'),
+          ),
+        ),
+    ],
+  );
+
+  static String _message(Object error) =>
+      '$error'.replaceFirst(RegExp(r'^(FormatException|ArgumentError): '), '');
 }
 
 class const _RoastBadge({required final RoastSetup setup})

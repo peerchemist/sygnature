@@ -497,17 +497,16 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (account.keySource == WalletKeySource.personal)
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete_outline_rounded, color: Colors.red),
-                        SizedBox(width: 10),
-                        Text('Delete wallet'),
-                      ],
-                    ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline_rounded, color: Colors.red),
+                      SizedBox(width: 10),
+                      Text('Delete wallet'),
+                    ],
                   ),
+                ),
               ],
             ),
           ],
@@ -1369,13 +1368,18 @@ Future<void> _confirmDeleteWallet(
   WalletController controller,
   WalletAccount account,
 ) async {
+  final isRoast = account.keySource == WalletKeySource.roast;
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: Text('Delete ${account.name}?'),
-      content: const Text(
-        'This wallet will be removed from this device. Its account index will '
-        'not be reused.',
+      content: Text(
+        isRoast
+            ? 'This wallet, its local signer identity and key share will be '
+                  'permanently removed from this device. You may lose the '
+                  'ability to approve transactions for the shared wallet.'
+            : 'This wallet will be removed from this device. Its account '
+                  'index will not be reused.',
       ),
       actions: [
         TextButton(
@@ -1390,7 +1394,15 @@ Future<void> _confirmDeleteWallet(
       ],
     ),
   );
-  if (confirmed == true) await controller.deleteAccount(account.id);
+  if (confirmed != true) return;
+  try {
+    await controller.deleteAccount(account.id);
+  } on Object catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
 }
 
 Future<void> _showRenameWallet(

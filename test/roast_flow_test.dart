@@ -35,16 +35,36 @@ void main() {
 
     expect(find.text('Shared wallet'), findsWidgets);
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
-    expect(find.text('Copy participant card'), findsOneWidget);
+    expect(find.text('Create signer invitations'), findsOneWidget);
     expect(find.text('BALANCE'), findsNothing);
 
-    await tester.tap(find.text('Enter participant cards'));
+    await tester.tap(find.byKey(const Key('create-roast-invitations')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'participant-card');
+    expect(find.text('Signer 2 of 2'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('roast-signer-name-0')),
+      'Second signer',
+    );
+    await tester.enterText(
+      find.byKey(const Key('roast-signer-public-key-0')),
+      '02${'33' * 32}',
+    );
+    await tester.tap(find.byKey(const Key('roast-invite-wizard-continue')));
+    await tester.pumpAndSettle();
+    expect(find.text('Create invitations'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip('Wallet settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete wallet'), findsOneWidget);
+    await tester.tap(find.text('Delete wallet'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('local signer identity'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -62,6 +82,9 @@ final class _FakeRoastKeyService extends RoastKeyService {
 
   @override
   String newSetupId() => 'setup-${_id++}';
+
+  @override
+  String normalizeParticipantPublicKey(String value) => value.trim();
 }
 
 final class _FakeRoastRuntime implements RoastRuntime {
@@ -115,6 +138,9 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<void> stopSetup(String setupId) async {}
+
+  @override
+  Future<void> deleteSetup(String setupId) async {}
 
   @override
   Future<void> close() => _events.close();

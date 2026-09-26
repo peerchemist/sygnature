@@ -530,6 +530,23 @@ class WalletController extends ChangeNotifier {
     );
   }
 
+  String participantPublicKey(String setupId) =>
+      _setupById(setupId).localParticipant.publicKeyHex;
+
+  String normalizeRoastParticipantPublicKey(String value) =>
+      _roastKeyService.normalizeParticipantPublicKey(value);
+
+  Future<List<RoastIssuedInvitation>> createHostedRoastInvitations(
+    String setupId,
+    List<({String name, String publicKeyHex})> invitees,
+  ) => finalizeHostedRoastSetup(setupId, [
+    for (final invitee in invitees)
+      _roastKeyService.participantCardFromPublicKey(
+        name: invitee.name,
+        publicKeyHex: invitee.publicKeyHex,
+      ),
+  ]);
+
   Future<List<RoastIssuedInvitation>> finalizeHostedRoastSetup(
     String setupId,
     List<String> participantCards,
@@ -1096,12 +1113,65 @@ class WalletController extends ChangeNotifier {
     if (accountIndex == -1) {
       throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
     }
+    final removedAccount = current.accounts[accountIndex];
+    final remainingAccounts = [...current.accounts]..removeAt(accountIndex);
+    final roastSetupId =
+        removedAccount.keySource == WalletKeySource.roast &&
+            !remainingAccounts.any(
+              (account) => account.sourceId == removedAccount.sourceId,
+            )
+        ? removedAccount.sourceId
+        : null;
+    if (roastSetupId != null &&
+        (_roastOperations.contains(roastSetupId) ||
+            _pendingRoastSends.keys.any(
+              (key) => key.startsWith('$roastSetupId:'),
+            ))) {
+      throw StateError(
+        'Finish the active ROAST operation before deleting this wallet.',
+      );
+    }
     final selectedId = selectedAccount?.id;
     await _guard(() async {
-      final remainingAccounts = [...current.accounts]..removeAt(accountIndex);
-      final next = current.copyWith(accounts: remainingAccounts);
+      final next = current.copyWith(
+        accounts: remainingAccounts,
+        roastSetups: roastSetupId == null
+            ? current.roastSetups
+            : [
+                for (final setup in current.roastSetups)
+                  if (setup.id != roastSetupId) setup,
+              ],
+      );
       await _repository.save(next);
       _vault = next;
+
+      Object? cleanupError;
+      StackTrace? cleanupStack;
+      if (roastSetupId != null) {
+        try {
+          await _roastRuntime?.deleteSetup(roastSetupId);
+        } on Object catch (error, stackTrace) {
+          cleanupError = error;
+          cleanupStack = stackTrace;
+        }
+        try {
+          await _roastSigningOperations.deleteSigningOperationsForSetup(
+            roastSetupId,
+          );
+        } on Object catch (error, stackTrace) {
+          cleanupError ??= error;
+          cleanupStack ??= stackTrace;
+        }
+        _roastPresence.remove(roastSetupId);
+        _issuedRoastInvitations.remove(roastSetupId);
+        _roastOperations.remove(roastSetupId);
+        _roastSigningRequests.removeWhere(
+          (_, item) => item.setupId == roastSetupId,
+        );
+        _storedRoastSigningOperations.removeWhere(
+          (_, operation) => operation.setupId == roastSetupId,
+        );
+      }
 
       final previousSelection = remainingAccounts.indexWhere(
         (account) => account.id == selectedId,
@@ -1116,6 +1186,9 @@ class WalletController extends ChangeNotifier {
 
       await _restartElectrumxSync();
       await _closeUnusedNetworkServices();
+      if (cleanupError != null) {
+        Error.throwWithStackTrace(cleanupError, cleanupStack!);
+      }
     });
   }
 

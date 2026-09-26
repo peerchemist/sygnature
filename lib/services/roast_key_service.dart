@@ -45,6 +45,37 @@ class RoastKeyService {
 
   String newSetupId() => bytesToHex(generateRandomBytes(16));
 
+  String normalizeParticipantPublicKey(String value) {
+    final publicKeyHex = value.trim();
+    if (publicKeyHex.length != 66 ||
+        !(publicKeyHex.startsWith('02') || publicKeyHex.startsWith('03'))) {
+      throw const FormatException(
+        'Enter a compressed signer public key (66 hex characters starting '
+        'with 02 or 03), not a Peercoin address.',
+      );
+    }
+    try {
+      return ECCompressedPublicKey.fromHex(publicKeyHex).hex;
+    } on Object {
+      throw const FormatException('The signer public key is invalid.');
+    }
+  }
+
+  String participantCardFromPublicKey({
+    required String name,
+    required String publicKeyHex,
+  }) {
+    final participantName = name.trim();
+    if (participantName.isEmpty) {
+      throw const FormatException('Enter a name for this signer.');
+    }
+    return RoastExchangeCodec.encodeParticipantCard(
+      cardId: newSetupId(),
+      name: participantName,
+      publicKeyHex: normalizeParticipantPublicKey(publicKeyHex),
+    );
+  }
+
   List<RoastParticipant> finalizeRoster(
     RoastSetup setup,
     List<String> encodedCards,
