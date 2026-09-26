@@ -21,6 +21,37 @@ import 'package:sygnature_ng/storage/roast_storage.dart';
 void main() {
   setUpAll(loadCoinlib);
 
+  test(
+    'uses the wallet name for setup and keeps later renames local',
+    () async {
+      final repository = MemoryWalletRepository();
+      final controller = WalletController(
+        repository,
+        roastRuntime: _FakeRoastRuntime(),
+      );
+      await controller.load();
+
+      await controller.createRoastSetupDraft(
+        role: RoastSetupRole.host,
+        walletName: 'Family treasury',
+        participantName: 'This device',
+        threshold: 2,
+        participantCount: 2,
+        network: PeercoinNetworks.mainnet,
+      );
+
+      final account = controller.accounts.single;
+      expect(account.name, 'Family treasury');
+      expect(controller.roastSetups.single.name, 'Family treasury');
+
+      await controller.renameAccount(account.id, 'My local wallet');
+
+      expect(controller.accounts.single.name, 'My local wallet');
+      expect(controller.roastSetups.single.name, 'Family treasury');
+      controller.dispose();
+    },
+  );
+
   test('creates a separate room invite bound to each remote signer', () async {
     final participants = [
       RoastParticipant(

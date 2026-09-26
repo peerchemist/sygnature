@@ -32,9 +32,6 @@ class const _RoastCreationDialog({required final WalletController controller})
 }
 
 class _RoastCreationDialogState extends State<_RoastCreationDialog> {
-  late final TextEditingController _setupName = TextEditingController(
-    text: 'Shared setup',
-  );
   late final TextEditingController _walletName = TextEditingController(
     text: 'Shared wallet',
   );
@@ -50,7 +47,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
 
   @override
   void dispose() {
-    _setupName.dispose();
     _walletName.dispose();
     _participantName.dispose();
     super.dispose();
@@ -58,8 +54,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
 
   Future<void> _create() async {
     if (_participantName.text.trim().isEmpty ||
-        _walletName.text.trim().isEmpty ||
-        (_role == RoastSetupRole.host && _setupName.text.trim().isEmpty)) {
+        _walletName.text.trim().isEmpty) {
       setState(() => _error = 'Complete all names before continuing.');
       return;
     }
@@ -70,7 +65,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
     try {
       await widget.controller.createRoastSetupDraft(
         role: _role,
-        setupName: _setupName.text,
         walletName: _walletName.text,
         participantName: _participantName.text,
         threshold: _threshold,
@@ -120,15 +114,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
               }),
             ),
             const SizedBox(height: 18),
-            if (_role == RoastSetupRole.host) ...[
-              TextField(
-                key: const Key('roast-setup-name'),
-                controller: _setupName,
-                maxLength: 40,
-                decoration: const InputDecoration(labelText: 'Setup name'),
-              ),
-              const SizedBox(height: 10),
-            ],
             TextField(
               key: const Key('roast-wallet-name'),
               controller: _walletName,

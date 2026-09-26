@@ -440,7 +440,6 @@ class WalletController extends ChangeNotifier {
 
   Future<String> createRoastSetupDraft({
     required RoastSetupRole role,
-    required String setupName,
     required String walletName,
     required String participantName,
     required int threshold,
@@ -459,6 +458,9 @@ class WalletController extends ChangeNotifier {
     if (threshold < 2 || threshold > participantCount) {
       throw ArgumentError('Threshold must be between 2 and participant count.');
     }
+    final cleanWalletName = walletName.trim().isEmpty
+        ? 'Shared wallet'
+        : walletName.trim();
     final material = _roastKeyService.generateParticipant();
     final setupId = _roastKeyService.newSetupId();
     final groupId = _roastKeyService.newSetupId();
@@ -469,7 +471,7 @@ class WalletController extends ChangeNotifier {
     final setup = RoastSetup(
       id: setupId,
       groupId: groupId,
-      name: setupName.trim().isEmpty ? 'Shared setup' : setupName.trim(),
+      name: cleanWalletName,
       role: role,
       status: RoastSetupStatus.draft,
       threshold: threshold,
@@ -493,7 +495,7 @@ class WalletController extends ChangeNotifier {
     );
     final account = WalletAccount(
       id: 'roast-$setupId-${selectedNetwork.storageId}-0',
-      name: walletName.trim().isEmpty ? 'Shared wallet' : walletName.trim(),
+      name: cleanWalletName,
       accountIndex: 0,
       blockchainId: selectedNetwork.blockchainId,
       networkId: selectedNetwork.networkId,
