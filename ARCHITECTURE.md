@@ -2,9 +2,16 @@
 
 Status: design documentation based on the local Sygnature,
 `noosphere_flutter`, `noosphere_roast_client` and `noosphere_roast_server`
-sources inspected on 2026-09-25. Sygnature does not implement this integration
-yet. This document describes the current Noosphere transport and the required
-Sygnature request-context extension.
+sources inspected on 2026-09-25. Sygnature now integrates the transport,
+runtime, durable client storage, DKG and Taproot transaction approval/signing
+through the preconfigured-roster flow. It also persists creator-side proposals,
+aggregate signatures, signed transaction bytes and broadcast outcomes, allowing
+an unknown broadcast to retry the exact same bytes after restart. Coordinator
+round state, cross-peer UTXO reservations and the Sygnature request-context
+extension described below are not implemented yet. A locally constructed DKG
+key is exposed to the wallet only after every configured participant has
+acknowledged it. Broadcast inputs remain locally reserved until a later
+ElectrumX snapshot no longer reports those outpoints.
 
 ## 1. Topology and responsibilities
 

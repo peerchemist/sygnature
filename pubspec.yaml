@@ -41,6 +41,16 @@ dependencies:
   unorm_dart: ^0.3.2
   logger: ^2.8.0
   web_socket_channel: ^3.0.3
+  noosphere_flutter:
+    path: ../noosphere
+
+dependency_overrides:
+  noosphere:
+    path: ../noosphere/packages/noosphere
+  noosphere_client:
+    path: ../noosphere/packages/noosphere_client
+  noosphere_server:
+    path: ../noosphere/packages/noosphere_server
 
 dev_dependencies:
   flutter_test:

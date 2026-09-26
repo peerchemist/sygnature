@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
@@ -100,6 +102,67 @@ void main() {
         ),
       ),
       throwsA(isA<InvalidDestinationAddress>()),
+    );
+  });
+
+  test('assembles and verifies externally produced threshold signatures', () {
+    final taproot = Taproot(internalKey: sourceKey.pubkey);
+    final thresholdAddress = P2TRAddress.fromTaproot(
+      taproot,
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final preview = service.prepare(
+      accountId: 'shared-wallet-0',
+      network: PeercoinNetworks.mainnet,
+      sourceAddress: thresholdAddress,
+      availableUtxos: [
+        ElectrumxUtxo(
+          address: thresholdAddress,
+          txHash: List.filled(64, 'd').join(),
+          txPos: 0,
+          height: 100,
+          value: 2000000,
+        ),
+      ],
+      request: WalletSendRequest(
+        destinationAddress: destinationAddress,
+        amountSats: 1000000,
+        feeRateSatsPerKb: Network.mainnet.feePerKb.toInt(),
+      ),
+    );
+    final unsigned = service.prepareThresholdSigning(
+      network: PeercoinNetworks.mainnet,
+      preview: preview,
+    );
+    final restored = ThresholdWalletTransaction.fromJson(unsigned.toJson());
+    expect(
+      bytesToHex(restored.transaction.toBytes()),
+      bytesToHex(unsigned.transaction.toBytes()),
+    );
+    expect(
+      restored.signatureHashes.map(bytesToHex),
+      unsigned.signatureHashes.map(bytesToHex),
+    );
+    final tweakedPrivateKey = taproot.tweakPrivateKey(sourceKey);
+    final signatures = [
+      for (final hash in unsigned.signatureHashes)
+        SchnorrSignature.sign(tweakedPrivateKey, hash).data,
+    ];
+
+    final signed = service.completeThresholdSigning(
+      transaction: restored,
+      signatures: signatures,
+      expectedInternalKeyHex: sourceKey.pubkey.hex,
+    );
+
+    expect(Transaction.fromHex(signed.rawTransactionHex).complete, isTrue);
+    expect(
+      () => service.completeThresholdSigning(
+        transaction: unsigned,
+        signatures: [SchnorrSignature.sign(destinationKey, Uint8List(32)).data],
+        expectedInternalKeyHex: sourceKey.pubkey.hex,
+      ),
+      throwsA(isA<WalletTransactionRejected>()),
     );
   });
 

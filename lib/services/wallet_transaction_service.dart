@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:coinlib/coinlib.dart';
 
 import '../models/electrumx_utxo.dart';
@@ -55,6 +57,67 @@ abstract interface class WalletTransactionService {
     required WalletTransactionPreview preview,
     required String privateKeyHex,
   });
+
+  ThresholdWalletTransaction prepareThresholdSigning({
+    required WalletNetwork network,
+    required WalletTransactionPreview preview,
+  });
+
+  SignedWalletTransaction completeThresholdSigning({
+    required ThresholdWalletTransaction transaction,
+    required List<Uint8List> signatures,
+    required String expectedInternalKeyHex,
+  });
+}
+
+class ThresholdWalletTransaction({
+  required final Transaction transaction,
+  required final List<TaprootKeySignDetails> signDetails,
+}) {
+  List<Uint8List> get signatureHashes => [
+    for (final details in signDetails) TaprootSignatureHasher(details).hash,
+  ];
+
+  Map<String, Object?> toJson() => {
+    'transactionHex': bytesToHex(transaction.toBytes()),
+    'previousOutputs': [
+      for (final output in signDetails.first.prevOuts)
+        {
+          'value': output.value.toString(),
+          'scriptHex': bytesToHex(output.scriptPubKey),
+        },
+    ],
+    'inputIndexes': [for (final details in signDetails) details.inputN],
+  };
+
+  factory ThresholdWalletTransaction.fromJson(Map<Object?, Object?> json) {
+    final transaction = Transaction.fromHex(json['transactionHex']! as String);
+    final previousOutputs = (json['previousOutputs']! as List)
+        .map((raw) {
+          final output = raw as Map;
+          return Output.fromScriptBytes(
+            BigInt.parse(output['value']! as String),
+            hexToBytes(output['scriptHex']! as String),
+          );
+        })
+        .toList(growable: false);
+    final inputIndexes = (json['inputIndexes']! as List).cast<int>();
+    if (inputIndexes.length != transaction.inputs.length ||
+        previousOutputs.length != transaction.inputs.length) {
+      throw const FormatException('Invalid stored threshold transaction.');
+    }
+    return ThresholdWalletTransaction(
+      transaction: transaction,
+      signDetails: [
+        for (final inputIndex in inputIndexes)
+          TaprootKeySignDetails(
+            tx: transaction,
+            inputN: inputIndex,
+            prevOuts: previousOutputs,
+          ),
+      ],
+    );
+  }
 }
 
 class CoinlibWalletTransactionService implements WalletTransactionService {
@@ -146,6 +209,99 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     required WalletTransactionPreview preview,
     required String privateKeyHex,
   }) {
+    final built = _buildTransaction(network: network, preview: preview);
+    var transaction = built.transaction;
+    for (
+      var inputIndex = 0;
+      inputIndex < transaction.inputs.length;
+      inputIndex++
+    ) {
+      transaction = transaction.signTaproot(
+        inputN: inputIndex,
+        key: ECPrivateKey.fromHex(privateKeyHex),
+        prevOuts: built.previousOutputs,
+      );
+    }
+    if (!transaction.complete) {
+      throw const WalletTransactionRejected('Unable to sign the transaction.');
+    }
+    return SignedWalletTransaction(
+      transactionId: transaction.txid,
+      rawTransactionHex: bytesToHex(transaction.toBytes()),
+    );
+  }
+
+  @override
+  ThresholdWalletTransaction prepareThresholdSigning({
+    required WalletNetwork network,
+    required WalletTransactionPreview preview,
+  }) {
+    final built = _buildTransaction(network: network, preview: preview);
+    return ThresholdWalletTransaction(
+      transaction: built.transaction,
+      signDetails: [
+        for (
+          var inputIndex = 0;
+          inputIndex < built.transaction.inputs.length;
+          inputIndex++
+        )
+          TaprootKeySignDetails(
+            tx: built.transaction,
+            inputN: inputIndex,
+            prevOuts: built.previousOutputs,
+          ),
+      ],
+    );
+  }
+
+  @override
+  SignedWalletTransaction completeThresholdSigning({
+    required ThresholdWalletTransaction transaction,
+    required List<Uint8List> signatures,
+    required String expectedInternalKeyHex,
+  }) {
+    if (signatures.length != transaction.signDetails.length) {
+      throw const WalletTransactionRejected(
+        'The coordinator returned an unexpected signature count.',
+      );
+    }
+    final outputKey = Taproot(
+      internalKey: ECCompressedPublicKey.fromHex(expectedInternalKeyHex),
+    ).tweakedKey;
+    var signed = transaction.transaction;
+    for (var index = 0; index < signatures.length; index++) {
+      final signature = SchnorrSignature(signatures[index]);
+      final hash = TaprootSignatureHasher(transaction.signDetails[index]).hash;
+      if (!signature.verify(outputKey, hash)) {
+        throw const WalletTransactionRejected(
+          'The coordinator returned an invalid threshold signature.',
+        );
+      }
+      final input = signed.inputs[index];
+      if (input is! TaprootKeyInput) {
+        throw const WalletTransactionRejected(
+          'The threshold signature does not match a Taproot key input.',
+        );
+      }
+      signed = signed.replaceInput(
+        input.addSignature(SchnorrInputSignature(signature)),
+        index,
+      );
+    }
+    if (!signed.complete) {
+      throw const WalletTransactionRejected('Unable to sign the transaction.');
+    }
+    return SignedWalletTransaction(
+      transactionId: signed.txid,
+      rawTransactionHex: bytesToHex(signed.toBytes()),
+    );
+  }
+
+  static ({Transaction transaction, List<Output> previousOutputs})
+  _buildTransaction({
+    required WalletNetwork network,
+    required WalletTransactionPreview preview,
+  }) {
     final preset = PeercoinNetworks.fromWalletNetwork(network);
     final source = _taprootAddress(preview.sourceAddress, preset.network);
     final destination = _taprootAddress(
@@ -170,28 +326,11 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
         'The transaction preview is no longer valid.',
       );
     }
-
-    final previousOutputs = preview.selectedUtxos
-        .map((utxo) => Output.fromAddress(BigInt.from(utxo.value), source))
-        .toList(growable: false);
-    var transaction = selection.transaction;
-    for (
-      var inputIndex = 0;
-      inputIndex < transaction.inputs.length;
-      inputIndex++
-    ) {
-      transaction = transaction.signTaproot(
-        inputN: inputIndex,
-        key: ECPrivateKey.fromHex(privateKeyHex),
-        prevOuts: previousOutputs,
-      );
-    }
-    if (!transaction.complete) {
-      throw const WalletTransactionRejected('Unable to sign the transaction.');
-    }
-    return SignedWalletTransaction(
-      transactionId: transaction.txid,
-      rawTransactionHex: bytesToHex(transaction.toBytes()),
+    return (
+      transaction: selection.transaction,
+      previousOutputs: preview.selectedUtxos
+          .map((utxo) => Output.fromAddress(BigInt.from(utxo.value), source))
+          .toList(growable: false),
     );
   }
 

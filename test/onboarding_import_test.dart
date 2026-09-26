@@ -20,6 +20,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Personal wallet'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Import existing'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('recovery-phrase-field')), findsOneWidget);
