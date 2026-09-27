@@ -225,6 +225,27 @@ void main() {
         creator: setup.hostParticipantId!,
         expiry: DateTime.now().add(const Duration(hours: 1)),
         description: roastKeyDescription(setup),
+        stage: 'waiting',
+        rejected: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('creator This device (you)'), findsOneWidget);
+    expect(
+      find.textContaining('creator ${setup.hostParticipantId}'),
+      findsNothing,
+    );
+
+    runtime.emit(
+      RoastRuntimeDkgEvent(
+        setup.id,
+        proposalHex: 'proposal',
+        name: setup.keyName,
+        threshold: setup.threshold,
+        creator: setup.hostParticipantId!,
+        expiry: DateTime.now().add(const Duration(hours: 1)),
+        description: roastKeyDescription(setup),
         stage: 'round1',
         rejected: false,
         completedParticipantIds: const ['02'],

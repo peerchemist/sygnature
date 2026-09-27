@@ -533,7 +533,7 @@ class const RoastSetupPanel({
                 child: Text(
                   'Proposal ${setup.pendingDkgName ?? 'unknown'} · '
                   '${setup.pendingDkgThreshold ?? 0} required · creator '
-                  '${_short(setup.pendingDkgCreatorId ?? 'unknown')} · expires '
+                  '${_creatorLabel(setup)} · expires '
                   '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
                   style: const TextStyle(
                     color: AppColors.ink,
@@ -766,6 +766,18 @@ class const RoastSetupPanel({
   static String _short(String value) => value.length <= 18
       ? value
       : '${value.substring(0, 8)}…${value.substring(value.length - 8)}';
+
+  static String _creatorLabel(RoastSetup setup) {
+    final creatorId = setup.pendingDkgCreatorId;
+    if (creatorId == null) return 'unknown';
+    for (final participant in setup.participants) {
+      if (participant.identifierHex != creatorId) continue;
+      return participant.cardId == setup.localCardId
+          ? '${participant.name} (you)'
+          : participant.name;
+    }
+    return _short(creatorId);
+  }
 }
 
 class const _SwarmHealth({
