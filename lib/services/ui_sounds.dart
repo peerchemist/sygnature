@@ -27,7 +27,14 @@ class UiSounds {
   Future<void> _initialize() async {
     try {
       _ownsEngine = !_audio.isInitialized;
-      if (_ownsEngine) await _audio.init();
+      if (_ownsEngine) {
+        await _audio.init(
+          linuxAudioBackend:
+              !kIsWeb && defaultTargetPlatform == TargetPlatform.linux
+              ? LinuxAudioBackend.pulseAudio
+              : LinuxAudioBackend.auto,
+        );
+      }
       if (_disposed) return;
 
       _low = await _audio.loadWaveform(WaveForm.sin, false, 1, 0);
