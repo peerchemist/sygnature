@@ -8,6 +8,28 @@ import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import 'app_theme.dart';
 
+final _participantAliasGenerator = UniqueNamesGenerator(
+  config: Config(
+    length: 2,
+    dictionaries: [adjectives, animals],
+    separator: ' ',
+    style: Style.capital,
+  ),
+);
+
+List<String> _newParticipantAliases(
+  int count, {
+  Iterable<String> excluding = const [],
+}) {
+  final used = excluding.toSet();
+  final aliases = <String>[];
+  while (aliases.length < count) {
+    final alias = _participantAliasGenerator.generate();
+    if (used.add(alias)) aliases.add(alias);
+  }
+  return aliases;
+}
+
 Future<void> showRoastSetupCreation(
   BuildContext context,
   WalletController controller,
@@ -41,14 +63,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   late final TextEditingController _walletName = TextEditingController(
     text: 'Shared wallet',
   );
-  late final String _participantAlias = UniqueNamesGenerator(
-    config: Config(
-      length: 2,
-      dictionaries: [adjectives, animals],
-      separator: ' ',
-      style: Style.capital,
-    ),
-  ).generate();
+  late final String _participantAlias = _newParticipantAliases(1).single;
   late WalletNetwork _network = widget.controller.supportedNetworks.first;
   RoastSetupRole _role = RoastSetupRole.host;
   int _participantCount = 2;
@@ -1049,9 +1064,9 @@ class const _RoastInviteWizard({
 }
 
 class _RoastInviteWizardState extends State<_RoastInviteWizard> {
-  late final List<String> _names = List.filled(
+  late final List<String> _names = _newParticipantAliases(
     widget.setup.participantCount - 1,
-    '',
+    excluding: [widget.setup.localParticipant.name],
   );
   late final List<String> _publicKeys = List.filled(
     widget.setup.participantCount - 1,

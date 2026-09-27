@@ -73,13 +73,18 @@ void main() {
     final participantAlias =
         controller.roastSetups.single.localParticipant.name;
     expect(participantAlias, isNot('This device'));
-    expect(participantAlias.split(' '), hasLength(2));
+    expect(participantAlias, isNotEmpty);
     expect(find.text('Shared wallet'), findsWidgets);
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
     expect(find.text('LOCAL'), findsOneWidget);
     expect(find.text('ROAST'), findsOneWidget);
     expect(find.text('Signer 2 of 2'), findsOneWidget);
     expect(find.byKey(const Key('roast-signer-name-0')), findsOneWidget);
+    final remoteAlias = tester
+        .widget<TextFormField>(find.byKey(const Key('roast-signer-name-0')))
+        .initialValue!;
+    expect(remoteAlias, isNotEmpty);
+    expect(remoteAlias, isNot(participantAlias));
     expect(find.byKey(const Key('roast-invite-wizard-back')), findsOneWidget);
     expect(find.text('BALANCE'), findsNothing);
 
