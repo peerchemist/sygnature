@@ -124,6 +124,32 @@ void main() {
     expect(proposal.expiry.microsecond % 1000, 0);
     expect(proposal.idHex, bytesToHex(persisted.id.toBytes()));
     expect(persisted.message, 'Quarterly hosting bill');
+
+    final proposalWithoutMessage = runtime.createTransactionSigningProposal(
+      _setup(
+        RoastSetupRole.host,
+        active: true,
+      ).copyWith(groupKeyHex: signingKey.pubkey.hex),
+      transaction,
+      const [0, 6, 0, 0, 0, 0],
+    );
+    expect(
+      SignaturesRequestDetails.fromHex(proposalWithoutMessage.proposalHex)
+          .message,
+      isEmpty,
+    );
+    expect(
+      () => runtime.createTransactionSigningProposal(
+        _setup(
+          RoastSetupRole.host,
+          active: true,
+        ).copyWith(groupKeyHex: signingKey.pubkey.hex),
+        transaction,
+        const [0, 6, 0, 0, 0, 0],
+        message: 'è' * (maxRoastSigningMessageBytes ~/ 2 + 1),
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
