@@ -47,12 +47,13 @@ void main() {
       expect(setup.name, 'Family treasury');
       expect(setup.keyName, roastKeyName(setup.groupId));
       expect(setup.keyName.length, lessThanOrEqualTo(maxRoastKeyNameLength));
+      expect(roastDkgAttemptTtl, const Duration(hours: 1));
       expect(
         () => NewDkgDetails(
           name: setup.keyName,
           description: 'ROAST wallet',
           threshold: setup.threshold,
-          expiry: Expiry(const Duration(hours: 1)),
+          expiry: Expiry(roastDkgAttemptTtl),
         ),
         returnsNormally,
       );

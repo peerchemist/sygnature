@@ -9,6 +9,8 @@ import '../storage/roast_storage.dart';
 import 'app_logger.dart';
 import 'wallet_transaction_service.dart';
 
+const roastDkgAttemptTtl = Duration(hours: 1);
+
 sealed class RoastRuntimeEvent {
   const RoastRuntimeEvent(this.setupId);
 
@@ -623,7 +625,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       name: setup.keyName,
       description: roastKeyDescription(setup),
       threshold: setup.threshold,
-      expiry: Expiry(const Duration(hours: 24)),
+      expiry: Expiry(roastDkgAttemptTtl),
     );
     try {
       await worker.requestDkg(setup.id, details);
