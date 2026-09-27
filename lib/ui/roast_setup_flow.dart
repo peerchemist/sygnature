@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:unique_names_generator/unique_names_generator.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/roast_setup.dart';
@@ -40,6 +41,14 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   late final TextEditingController _walletName = TextEditingController(
     text: 'Shared wallet',
   );
+  late final String _participantAlias = UniqueNamesGenerator(
+    config: Config(
+      length: 2,
+      dictionaries: [adjectives, animals],
+      separator: ' ',
+      style: Style.capital,
+    ),
+  ).generate();
   late WalletNetwork _network = widget.controller.supportedNetworks.first;
   RoastSetupRole _role = RoastSetupRole.host;
   int _participantCount = 2;
@@ -66,7 +75,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
       final setupId = await widget.controller.createRoastSetupDraft(
         role: _role,
         walletName: _walletName.text,
-        participantName: 'This device',
+        participantName: _participantAlias,
         threshold: _threshold,
         participantCount: _participantCount,
         network: _network,

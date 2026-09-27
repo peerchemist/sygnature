@@ -70,7 +70,10 @@ void main() {
     await tester.tap(find.byKey(const Key('create-roast-draft')));
     await tester.pumpAndSettle();
 
-    expect(controller.roastSetups.single.localParticipant.name, 'This device');
+    final participantAlias =
+        controller.roastSetups.single.localParticipant.name;
+    expect(participantAlias, isNot('This device'));
+    expect(participantAlias.split(' '), hasLength(2));
     expect(find.text('Shared wallet'), findsWidgets);
     expect(find.text('ROAST · 2 of 2'), findsWidgets);
     expect(find.text('LOCAL'), findsOneWidget);
