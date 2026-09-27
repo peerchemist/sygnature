@@ -236,6 +236,32 @@ class WalletController extends ChangeNotifier {
           .where((utxo) => utxo.isConfirmed)
           .toList(growable: false);
 
+  List<ElectrumxUtxo> availableUtxosFor(WalletAccount account) {
+    final reservedOutpoints = _reservedOutpointsFor(account.id);
+    return spendableUtxosFor(account)
+        .where((utxo) => !reservedOutpoints.contains(_utxoKey(utxo)))
+        .toList(growable: false);
+  }
+
+  int availableBalanceSatsFor(WalletAccount account) =>
+      availableUtxosFor(account).fold(0, (total, utxo) => total + utxo.value);
+
+  int reservedBalanceSatsFor(WalletAccount account) {
+    final reservedOutpoints = _reservedOutpointsFor(account.id);
+    return spendableUtxosFor(account)
+        .where((utxo) => reservedOutpoints.contains(_utxoKey(utxo)))
+        .fold(0, (total, utxo) => total + utxo.value);
+  }
+
+  Set<String> _reservedOutpointsFor(String accountId) =>
+      _storedRoastSigningOperations.values
+          .where(
+            (operation) =>
+                operation.accountId == accountId && operation.reservesUtxos,
+          )
+          .expand((operation) => operation.reservedOutpoints)
+          .toSet();
+
   AccountSyncStatus syncStatusFor(WalletAccount account) {
     final address = account.address;
     if (address == null ||
@@ -1444,20 +1470,11 @@ class WalletController extends ChangeNotifier {
     if (account == null || address == null) {
       throw const WalletSigningUnavailable();
     }
-    final reservedOutpoints = _storedRoastSigningOperations.values
-        .where(
-          (operation) =>
-              operation.accountId == account.id && operation.reservesUtxos,
-        )
-        .expand((operation) => operation.reservedOutpoints)
-        .toSet();
     return _transactionService.prepare(
       accountId: account.id,
       network: networkForAccount(account),
       sourceAddress: address,
-      availableUtxos: spendableUtxosFor(account)
-          .where((utxo) => !reservedOutpoints.contains(_utxoKey(utxo)))
-          .toList(growable: false),
+      availableUtxos: availableUtxosFor(account),
       request: request,
     );
   }
@@ -1552,6 +1569,10 @@ class WalletController extends ChangeNotifier {
             state: RoastSigningOperationState.requesting,
           );
           await _saveRoastSigningOperation(signingOperation);
+          signingOperation = signingOperation.copyWith(
+            state: RoastSigningOperationState.awaitingSignatures,
+          );
+          await _saveRoastSigningOperation(signingOperation);
           await runtime.requestTransactionSignatures(setup, proposal);
           final outcome = await completer.future.timeout(
             proposal.expiry.difference(DateTime.now()),
@@ -1570,10 +1591,15 @@ class WalletController extends ChangeNotifier {
             final expired =
                 current.expiry.isBefore(DateTime.now()) ||
                 error.toString().toLowerCase().contains('expired');
+            final rejected =
+                error is WalletTransactionRejected &&
+                error.message == 'Signing request failed.';
             await _saveRoastSigningOperation(
               current.copyWith(
                 state: expired
                     ? RoastSigningOperationState.expired
+                    : rejected
+                    ? RoastSigningOperationState.rejected
                     : RoastSigningOperationState.interrupted,
                 errorMessage: '$error',
               ),
@@ -1760,10 +1786,7 @@ class WalletController extends ChangeNotifier {
           (entry) => entry.$1 == entry.$2,
         );
     final knownOutpoints = spendableUtxosFor(account).map(_utxoKey).toSet();
-    final reservedOutpoints = _storedRoastSigningOperations.values
-        .where((operation) => operation.reservesUtxos)
-        .expand((operation) => operation.reservedOutpoints)
-        .toSet();
+    final reservedOutpoints = _reservedOutpointsFor(account.id);
     final validOutpoints =
         request.inputOutpoints.length == request.transactionInputCount &&
         request.inputOutpoints.every(knownOutpoints.contains) &&

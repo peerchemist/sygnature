@@ -32,15 +32,19 @@ class RoastSigningOperation({
 }) {
   String get storageId => '$setupId:$requestIdHex';
 
-  bool get reservesUtxos => reservationsReleased
-      ? false
-      : rawTransactionHex == null && expiry.isBefore(DateTime.now())
-      ? false
-      : switch (state) {
-          RoastSigningOperationState.expired ||
-          RoastSigningOperationState.rejected => false,
-          _ => true,
-        };
+  bool get reservesUtxos {
+    if (reservationsReleased ||
+        (state == RoastSigningOperationState.interrupted &&
+            errorMessage == 'Signing request failed.') ||
+        (rawTransactionHex == null && expiry.isBefore(DateTime.now()))) {
+      return false;
+    }
+    return switch (state) {
+      RoastSigningOperationState.expired ||
+      RoastSigningOperationState.rejected => false,
+      _ => true,
+    };
+  }
 
   bool get canRetryBroadcast =>
       rawTransactionHex != null &&

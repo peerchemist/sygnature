@@ -177,7 +177,7 @@ void main() {
           txHash: List.filled(64, 'c').join(),
           txPos: 0,
           height: 100,
-          value: 2000000,
+          value: 100000,
         ),
       ],
       request: WalletSendRequest(
@@ -189,7 +189,7 @@ void main() {
     );
 
     expect(preview.changeSats, 0);
-    expect(preview.amountSats + preview.feeSats, 2000000);
+    expect(preview.amountSats + preview.feeSats, 100000);
   });
 
   test('rejects amounts that do not leave enough value for the fee', () {

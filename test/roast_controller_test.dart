@@ -647,9 +647,15 @@ void main() {
     );
 
     expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+    final failedOperation = (await operations.loadSigningOperations()).single;
+    expect(failedOperation.state, RoastSigningOperationState.rejected);
+    expect(failedOperation.reservesUtxos, isFalse);
     expect(
-      (await operations.loadSigningOperations()).single.state,
-      RoastSigningOperationState.interrupted,
+      failedOperation
+          .copyWith(state: RoastSigningOperationState.interrupted)
+          .reservesUtxos,
+      isFalse,
+      reason: 'legacy rejected attempts must release their UTXOs too',
     );
     controller.dispose();
   });
@@ -695,6 +701,15 @@ void main() {
         ),
       ]);
       await _flushEvents();
+      expect(
+        controller.confirmedBalanceSatsFor(controller.accounts.single),
+        2000000,
+      );
+      expect(
+        controller.reservedBalanceSatsFor(controller.accounts.single),
+        2000000,
+      );
+      expect(controller.availableBalanceSatsFor(controller.accounts.single), 0);
       expect(
         (await operations.getSigningOperation(operation.storageId))
             ?.reservationsReleased,

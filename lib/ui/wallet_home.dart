@@ -565,8 +565,25 @@ class _BalanceCard extends StatelessWidget {
     final syncStatus = controller.syncStatusFor(account);
     final balance = controller.balanceSatsFor(account);
     final confirmedBalance = controller.confirmedBalanceSatsFor(account);
+    final availableBalance = controller.availableBalanceSatsFor(account);
+    final reservedBalance = controller.reservedBalanceSatsFor(account);
     final pendingBalance = controller.pendingBalanceSatsFor(account);
     final utxoCount = controller.utxosFor(account).length;
+    final balanceDescription = switch (syncStatus) {
+      AccountSyncStatus.unavailable =>
+        'Value unavailable until synchronization',
+      AccountSyncStatus.syncing => 'Synchronizing with ElectrumX…',
+      AccountSyncStatus.synced =>
+        reservedBalance > 0
+            ? '${_formatPpc(confirmedBalance)} PPC confirmed · '
+                  '${_formatPpc(reservedBalance)} PPC reserved by ROAST'
+            : pendingBalance == 0
+            ? '${_formatPpc(confirmedBalance)} PPC confirmed · '
+                  '$utxoCount ${utxoCount == 1 ? 'output' : 'outputs'}'
+            : '${_formatPpc(confirmedBalance)} PPC confirmed · '
+                  '${_formatPpc(pendingBalance)} PPC pending',
+      AccountSyncStatus.error => 'ElectrumX synchronization failed',
+    };
     return Card(
       child: SizedBox(
         width: double.infinity,
@@ -607,20 +624,7 @@ class _BalanceCard extends StatelessWidget {
                   ],
                   Expanded(
                     child: Text(
-                      switch (syncStatus) {
-                        AccountSyncStatus.unavailable =>
-                          'Value unavailable until synchronization',
-                        AccountSyncStatus.syncing =>
-                          'Synchronizing with ElectrumX…',
-                        AccountSyncStatus.synced =>
-                          pendingBalance == 0
-                              ? '${_formatPpc(confirmedBalance)} PPC confirmed · '
-                                    '$utxoCount ${utxoCount == 1 ? 'output' : 'outputs'}'
-                              : '${_formatPpc(confirmedBalance)} PPC confirmed · '
-                                    '${_formatPpc(pendingBalance)} PPC pending',
-                        AccountSyncStatus.error =>
-                          'ElectrumX synchronization failed',
-                      },
+                      balanceDescription,
                       style: const TextStyle(
                         color: AppColors.inkMuted,
                         fontSize: 12,
@@ -647,11 +651,11 @@ class _BalanceCard extends StatelessWidget {
                     enabled:
                         active &&
                         syncStatus == AccountSyncStatus.synced &&
-                        confirmedBalance > 0,
+                        availableBalance > 0,
                     onPressed:
                         active &&
                             syncStatus == AccountSyncStatus.synced &&
-                            confirmedBalance > 0
+                            availableBalance > 0
                         ? () => _showSendDialog(context, controller, account)
                         : null,
                   ),
@@ -1248,6 +1252,9 @@ class _SendDialogState extends State<_SendDialog> {
 
   Widget _buildForm() {
     final maximumAvailableSats = _maximumAvailableSats();
+    final reservedBalanceSats = widget.controller.reservedBalanceSatsFor(
+      widget.account,
+    );
     return Form(
       key: _formKey,
       child: Column(
@@ -1294,7 +1301,11 @@ class _SendDialogState extends State<_SendDialog> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Send maximum available'),
             subtitle: Text(
-              maximumAvailableSats == null
+              reservedBalanceSats > 0
+                  ? '${_formatPpc(maximumAvailableSats ?? 0)} PPC available '
+                        'after the network fee · '
+                        '${_formatPpc(reservedBalanceSats)} PPC reserved by ROAST'
+                  : maximumAvailableSats == null
                   ? 'The network fee is deducted automatically.'
                   : '${_formatPpc(maximumAvailableSats)} PPC available after '
                         'the network fee.',
