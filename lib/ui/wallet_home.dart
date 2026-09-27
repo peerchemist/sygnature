@@ -293,6 +293,12 @@ class _WalletDashboard extends StatelessWidget {
       );
     }
     final roastSetup = controller.setupForAccount(account);
+    final signingRequests = roastSetup == null
+        ? const <RoastSigningInboxItem>[]
+        : controller.roastSigningRequestsForSetup(roastSetup.id);
+    final hasPendingDkg =
+        roastSetup?.status == RoastSetupStatus.awaitingDkgApproval &&
+        roastSetup?.pendingDkgProposalHex != null;
     return SafeArea(
       top: !mobile,
       child: SingleChildScrollView(
@@ -311,6 +317,15 @@ class _WalletDashboard extends StatelessWidget {
                 if (mobile) ...[
                   _MobileWalletPicker(controller: controller),
                   const SizedBox(height: 26),
+                ],
+                if (hasPendingDkg || signingRequests.isNotEmpty) ...[
+                  _RoastPriorityRequests(
+                    controller: controller,
+                    setup: roastSetup!,
+                    showDkg: hasPendingDkg,
+                    signingRequests: signingRequests,
+                  ),
+                  const SizedBox(height: 18),
                 ],
                 _DashboardHeader(
                   account: account,
@@ -371,6 +386,46 @@ class _WalletDashboard extends StatelessWidget {
       ),
     );
   }
+}
+
+class const _RoastPriorityRequests({
+  required final WalletController controller,
+  required final RoastSetup setup,
+  required final bool showDkg,
+  required final List<RoastSigningInboxItem> signingRequests,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Column(
+    key: const Key('roast-priority-requests'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Row(
+        children: [
+          Icon(
+            Icons.notifications_active_outlined,
+            color: AppColors.danger,
+            size: 20,
+          ),
+          SizedBox(width: 8),
+          Text(
+            'ROAST ACTION REQUIRED',
+            style: TextStyle(
+              color: AppColors.danger,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.9,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      if (showDkg) RoastDkgRequestCard(controller: controller, setup: setup),
+      for (final (index, request) in signingRequests.indexed) ...[
+        if (showDkg || index > 0) const SizedBox(height: 12),
+        _RoastRequestCard(controller: controller, item: request),
+      ],
+    ],
+  );
 }
 
 class _MobileWalletPicker extends StatelessWidget {
@@ -462,6 +517,7 @@ class _DashboardHeader extends StatelessWidget {
     };
     final statusColor = ready ? AppColors.greenDark : const Color(0xff795400);
     return Wrap(
+      key: const Key('wallet-dashboard-header'),
       spacing: 16,
       runSpacing: 12,
       alignment: WrapAlignment.spaceBetween,
@@ -1818,11 +1874,32 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
   Widget build(BuildContext context) {
     final request = widget.item.request;
     return Card(
+      key: ValueKey('roast-signing-request-${request.idHex}'),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const Row(
+              children: [
+                Icon(
+                  Icons.approval_outlined,
+                  color: AppColors.danger,
+                  size: 20,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'SIGNATURE REQUEST · ACTION REQUIRED',
+                  style: TextStyle(
+                    color: AppColors.danger,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             Text(
               widget.item.walletName,
               style: Theme.of(context).textTheme.titleMedium,

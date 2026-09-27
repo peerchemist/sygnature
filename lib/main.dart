@@ -77,6 +77,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
             PeercoinNetworks.fromWalletNetwork(network),
           ),
       onCoinsReceived: _sounds.message,
+      onRoastActionRequired: _sounds.message,
     );
     await controller.load();
     return controller;

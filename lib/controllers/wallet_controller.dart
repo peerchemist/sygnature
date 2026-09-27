@@ -64,6 +64,7 @@ class WalletController extends ChangeNotifier {
     this._repository, {
     this.networkServiceFactory,
     this.onCoinsReceived,
+    this.onRoastActionRequired,
     WalletKeyService? keyService,
     WalletTransactionService? transactionService,
     RoastRuntime? roastRuntime,
@@ -93,6 +94,7 @@ class WalletController extends ChangeNotifier {
   final WalletRepository _repository;
   final WalletNetworkServiceFactory? networkServiceFactory;
   final VoidCallback? onCoinsReceived;
+  final VoidCallback? onRoastActionRequired;
   final WalletKeyService _keyService;
   final WalletTransactionService _transactionService;
   final RoastRuntime? _roastRuntime;
@@ -123,6 +125,7 @@ class WalletController extends ChangeNotifier {
   final Map<String, List<RoastIssuedInvitation>> _issuedRoastInvitations = {};
   final Map<String, RoastSigningOperation> _storedRoastSigningOperations = {};
   final Map<String, _RoastPresence> _roastPresence = {};
+  final Set<String> _announcedRoastActions = {};
 
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
@@ -136,6 +139,10 @@ class WalletController extends ChangeNotifier {
   bool get roastAvailable => _roastRuntime != null;
   List<RoastSigningInboxItem> get roastSigningRequests =>
       List.unmodifiable(_roastSigningRequests.values);
+  List<RoastSigningInboxItem> roastSigningRequestsForSetup(String setupId) =>
+      roastSigningRequests
+          .where((item) => item.setupId == setupId)
+          .toList(growable: false);
   List<RoastSigningOperation> get recoverableRoastSigningOperations =>
       _storedRoastSigningOperations.values
           .where((operation) => operation.canRetryBroadcast)
@@ -936,6 +943,11 @@ class WalletController extends ChangeNotifier {
         clearError: true,
       );
       await _replaceSetup(connected);
+      final pendingDkgProposalHex = connected.pendingDkgProposalHex;
+      if (connected.status == RoastSetupStatus.awaitingDkgApproval &&
+          pendingDkgProposalHex != null) {
+        _announceRoastAction('dkg:${connected.id}:$pendingDkgProposalHex');
+      }
       if (snapshot.groupKeyHex != null) {
         await _activateRoastAccount(connected, snapshot.groupKeyHex!);
       }
@@ -1114,6 +1126,9 @@ class WalletController extends ChangeNotifier {
             errorMessage: event.failure,
           ),
         );
+        if (event.failure == null && event.stage == 'waiting') {
+          _announceRoastAction('dkg:${setup.id}:${event.proposalHex}');
+        }
         await _recordSetupActivity(
           setup,
           id: event.failure == null
@@ -1224,6 +1239,7 @@ class WalletController extends ChangeNotifier {
             walletName: account.name,
             request: event.request,
           );
+          _announceRoastAction('signatures:$requestKey');
           await _recordActivity(
             id: 'signature-request-received:$requestKey',
             accountId: account.id,
@@ -1889,6 +1905,10 @@ class WalletController extends ChangeNotifier {
       if (first[index] != second[index]) return false;
     }
     return true;
+  }
+
+  void _announceRoastAction(String id) {
+    if (_announcedRoastActions.add(id)) onRoastActionRequired?.call();
   }
 
   void selectAccount(int index) {

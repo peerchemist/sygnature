@@ -241,6 +241,19 @@ void main() {
       find.textContaining('creator ${setup.hostParticipantId}'),
       findsNothing,
     );
+    final priorityRequests = find.byKey(const Key('roast-priority-requests'));
+    final dashboardHeader = find.byKey(const Key('wallet-dashboard-header'));
+    expect(priorityRequests, findsOneWidget);
+    expect(find.byKey(const Key('roast-dkg-request-card')), findsOneWidget);
+    expect(find.text('Approve key creation'), findsOneWidget);
+    expect(
+      tester.getTopLeft(priorityRequests).dy,
+      lessThan(tester.getTopLeft(dashboardHeader).dy),
+    );
+    expect(
+      tester.getTopLeft(priorityRequests).dy,
+      lessThan(tester.getTopLeft(health).dy),
+    );
 
     runtime.emit(
       RoastRuntimeDkgEvent(

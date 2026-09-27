@@ -536,28 +536,6 @@ class const RoastSetupPanel({
                 ),
               ),
             ],
-            if (setup.status == RoastSetupStatus.awaitingDkgApproval) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.warning,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'Proposal ${setup.pendingDkgName ?? 'unknown'} · '
-                  '${setup.pendingDkgThreshold ?? 0} required · creator '
-                  '${_creatorLabel(setup)} · expires '
-                  '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
             if (actions.isNotEmpty) ...[
               const SizedBox(height: 16),
               Wrap(spacing: 10, runSpacing: 10, children: actions),
@@ -616,28 +594,6 @@ class const RoastSetupPanel({
         FilledButton(
           onPressed: busy ? null : () => _join(context, setup),
           child: const Text('Paste invite from clipboard'),
-        ),
-      ];
-    }
-    if (setup.status == RoastSetupStatus.awaitingDkgApproval) {
-      return [
-        OutlinedButton(
-          onPressed: busy
-              ? null
-              : () => _perform(
-                  context,
-                  () => controller.rejectRoastDkg(setup.id),
-                ),
-          child: const Text('Reject key creation'),
-        ),
-        FilledButton(
-          onPressed: busy
-              ? null
-              : () => _perform(
-                  context,
-                  () => controller.acceptRoastDkg(setup.id),
-                ),
-          child: const Text('Approve key creation'),
         ),
       ];
     }
@@ -792,6 +748,97 @@ class const RoastSetupPanel({
           : participant.name;
     }
     return _short(creatorId);
+  }
+}
+
+class const RoastDkgRequestCard({
+  super.key,
+  required final WalletController controller,
+  required final RoastSetup setup,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final busy = controller.roastOperationInProgress(setup.id);
+    return Card(
+      key: const Key('roast-dkg-request-card'),
+      color: AppColors.warning,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: AppColors.warningDark),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.key_rounded, color: AppColors.warningDark, size: 22),
+                SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    'DKG REQUEST · ACTION REQUIRED',
+                    style: TextStyle(
+                      color: AppColors.warningDark,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.7,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Approve shared-key creation for ${setup.name}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Proposal ${setup.pendingDkgName ?? 'unknown'} · '
+              '${setup.pendingDkgThreshold ?? 0} required · creator '
+              '${RoastSetupPanel._creatorLabel(setup)} · expires '
+              '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
+              style: const TextStyle(
+                color: AppColors.ink,
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                OutlinedButton(
+                  onPressed: busy
+                      ? null
+                      : () => RoastSetupPanel._perform(
+                          context,
+                          () => controller.rejectRoastDkg(setup.id),
+                        ),
+                  child: const Text('Reject key creation'),
+                ),
+                FilledButton(
+                  onPressed: busy
+                      ? null
+                      : () => RoastSetupPanel._perform(
+                          context,
+                          () => controller.acceptRoastDkg(setup.id),
+                        ),
+                  child: const Text('Approve key creation'),
+                ),
+              ],
+            ),
+            if (busy) ...[
+              const SizedBox(height: 14),
+              const LinearProgressIndicator(minHeight: 3),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 

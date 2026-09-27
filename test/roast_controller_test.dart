@@ -265,6 +265,7 @@ void main() {
   });
 
   test('asks a reconnected host to approve a pending DKG', () async {
+    var notificationCount = 0;
     final expiry = DateTime.now().add(const Duration(hours: 1));
     final runtime = _FakeRoastRuntime()
       ..startSnapshot = RoastRuntimeSnapshot(
@@ -282,7 +283,11 @@ void main() {
         pendingDkgCreator: '01',
         pendingDkgExpiry: expiry,
       );
-    final controller = _controller(runtime: runtime, role: RoastSetupRole.host);
+    final controller = _controller(
+      runtime: runtime,
+      role: RoastSetupRole.host,
+      onRoastActionRequired: () => notificationCount++,
+    );
 
     await controller.load();
     await _flushEvents();
@@ -290,6 +295,7 @@ void main() {
     final setup = controller.roastSetups.single;
     expect(setup.status, RoastSetupStatus.awaitingDkgApproval);
     expect(setup.pendingDkgProposalHex, 'existing-proposal');
+    expect(notificationCount, 1);
 
     controller.dispose();
   });
@@ -450,12 +456,14 @@ void main() {
   });
 
   test('records the signature request lifecycle as wallet activity', () async {
+    var notificationCount = 0;
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
     final electrumx = _FakeElectrumxService();
     final controller = _controller(
       runtime: runtime,
       electrumx: electrumx,
       active: true,
+      onRoastActionRequired: () => notificationCount++,
     );
     await controller.load();
     await _flushEvents();
@@ -473,6 +481,9 @@ void main() {
     final approved = _signingRequest('aa' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: approved));
     await _flushEvents();
+    runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: approved));
+    await _flushEvents();
+    expect(notificationCount, 1);
     await controller.acceptRoastSigningRequest(
       controller.roastSigningRequests.single,
     );
@@ -480,6 +491,7 @@ void main() {
     final rejected = _signingRequest('bb' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: rejected));
     await _flushEvents();
+    expect(notificationCount, 2);
     await controller.rejectRoastSigningRequest(
       controller.roastSigningRequests.single,
     );
@@ -487,6 +499,7 @@ void main() {
     final expired = _signingRequest('cc' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: expired));
     await _flushEvents();
+    expect(notificationCount, 3);
     runtime.emit(
       RoastRuntimeSigningRequestRemovedEvent(
         'setup',
@@ -828,6 +841,7 @@ WalletController _controller({
   RoastSigningOperationRepository? operationRepository,
   _FakeElectrumxService? electrumx,
   bool active = false,
+  void Function()? onRoastActionRequired,
 }) {
   final repository = MemoryWalletRepository()
     ..value = WalletVault(
@@ -855,6 +869,7 @@ WalletController _controller({
     roastKeyService: keyService ?? _FakeRoastKeyService(),
     roastSigningOperations: operationRepository,
     networkServiceFactory: electrumx == null ? null : (_) async => electrumx,
+    onRoastActionRequired: onRoastActionRequired,
   );
 }
 
