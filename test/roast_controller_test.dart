@@ -116,12 +116,14 @@ void main() {
       ).copyWith(groupKeyHex: signingKey.pubkey.hex),
       transaction,
       const [0, 6, 0, 0, 0, 0],
+      message: 'Quarterly hosting bill',
     );
     final persisted = SignaturesRequestDetails.fromHex(proposal.proposalHex);
 
     expect(proposal.expiry, persisted.expiry.time);
     expect(proposal.expiry.microsecond % 1000, 0);
     expect(proposal.idHex, bytesToHex(persisted.id.toBytes()));
+    expect(persisted.message, 'Quarterly hosting bill');
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
@@ -481,6 +483,10 @@ void main() {
     final approved = _signingRequest('aa' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: approved));
     await _flushEvents();
+    expect(
+      controller.activitiesFor(controller.accounts.single).single.details,
+      approved.message,
+    );
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: approved));
     await _flushEvents();
     expect(notificationCount, 1);
@@ -639,6 +645,7 @@ void main() {
         destinationAddress: destinationAddress,
         amountSats: 1000000,
         feeRateSatsPerKb: 10000,
+        signingMessage: 'Quarterly hosting bill',
       ),
     );
     final result = await controller.sendTransaction(preview);
@@ -648,6 +655,7 @@ void main() {
     expect(stored.rawTransactionHex, electrumx.broadcasts.single);
     expect(stored.transactionId, result.transactionId);
     expect(stored.state, RoastSigningOperationState.broadcasted);
+    expect(runtime.signingMessage, 'Quarterly hosting bill');
     expect(
       controller
           .activitiesFor(controller.accounts.single)
@@ -935,6 +943,7 @@ RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
   derivationPaths: const [
     [0, 6, 0, 0, 0, 0],
   ],
+  message: 'Quarterly hosting bill',
 );
 
 final class _FakeRoastKeyService extends RoastKeyService {
@@ -1049,8 +1058,9 @@ final class _FakeRoastRuntime implements RoastRuntime {
   RoastSigningProposal createTransactionSigningProposal(
     setup,
     transaction,
-    List<int> derivationPath,
-  ) => RoastSigningProposal(
+    List<int> derivationPath, {
+    String message = '',
+  }) => RoastSigningProposal(
     idHex: 'aa' * 16,
     proposalHex: 'bb',
     expiry: DateTime.now().add(const Duration(minutes: 1)),
@@ -1134,6 +1144,7 @@ final class _SigningRoastRuntime(
       StreamController<RoastRuntimeEvent>.broadcast();
   ThresholdWalletTransaction? _transaction;
   List<int>? _derivationPath;
+  String? signingMessage;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -1162,10 +1173,12 @@ final class _SigningRoastRuntime(
   RoastSigningProposal createTransactionSigningProposal(
     RoastSetup setup,
     ThresholdWalletTransaction transaction,
-    List<int> derivationPath,
-  ) {
+    List<int> derivationPath, {
+    String message = '',
+  }) {
     _transaction = transaction;
     _derivationPath = List.unmodifiable(derivationPath);
+    signingMessage = message;
     return RoastSigningProposal(
       idHex: 'aa' * 16,
       proposalHex: 'bb',

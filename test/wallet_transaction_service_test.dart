@@ -47,11 +47,13 @@ void main() {
         destinationAddress: destinationAddress,
         amountSats: 1000000,
         feeRateSatsPerKb: Network.mainnet.feePerKb.toInt(),
+        signingMessage: 'Quarterly hosting bill',
       ),
     );
 
     expect(preview.selectedUtxos, hasLength(1));
     expect(preview.amountSats, 1000000);
+    expect(preview.signingMessage, 'Quarterly hosting bill');
     expect(
       preview.feeSats,
       greaterThanOrEqualTo(Network.mainnet.minFee.toInt()),

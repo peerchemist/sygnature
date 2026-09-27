@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,6 +11,7 @@ import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../services/app_logger.dart';
 import '../services/peercoin_network_service.dart';
+import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
 import 'onboarding_screen.dart';
@@ -1159,6 +1162,7 @@ class _SendDialogState extends State<_SendDialog> {
   final _formKey = GlobalKey<FormState>();
   final _destinationController = TextEditingController();
   final _amountController = TextEditingController();
+  final _signingMessageController = TextEditingController();
   late final int _feeRateSatsPerKb;
   WalletTransactionPreview? _preview;
   String? _error;
@@ -1180,6 +1184,7 @@ class _SendDialogState extends State<_SendDialog> {
     widget.controller.removeListener(_refreshMaximumAvailable);
     _destinationController.dispose();
     _amountController.dispose();
+    _signingMessageController.dispose();
     super.dispose();
   }
 
@@ -1218,6 +1223,9 @@ class _SendDialogState extends State<_SendDialog> {
           amountSats: _maximum ? 0 : _parsePpc(_amountController.text)!,
           feeRateSatsPerKb: _feeRateSatsPerKb,
           maximum: _maximum,
+          signingMessage: widget.account.keySource == WalletKeySource.roast
+              ? _signingMessageController.text.trim()
+              : '',
         ),
       );
       setState(() {
@@ -1352,6 +1360,28 @@ class _SendDialogState extends State<_SendDialog> {
                   : null;
             },
           ),
+          if (widget.account.keySource == WalletKeySource.roast) ...[
+            const SizedBox(height: 14),
+            TextFormField(
+              key: const Key('send-signing-message-field'),
+              controller: _signingMessageController,
+              textCapitalization: TextCapitalization.sentences,
+              minLines: 2,
+              maxLines: 4,
+              maxLength: maxRoastSigningMessageBytes,
+              decoration: const InputDecoration(
+                labelText: 'Message to signers (optional)',
+                helperText: 'Authenticated with the signing request.',
+                alignLabelWithHint: true,
+              ),
+              validator: (value) {
+                final byteLength = utf8.encode(value?.trim() ?? '').length;
+                return byteLength > maxRoastSigningMessageBytes
+                    ? 'Message must be no more than 1 KiB of UTF-8 text.'
+                    : null;
+              },
+            ),
+          ],
           CheckboxListTile(
             key: const Key('send-maximum-field'),
             value: _maximum,
@@ -1412,6 +1442,8 @@ class _SendDialogState extends State<_SendDialog> {
         label: 'Change',
         value: '${_formatPpc(preview.changeSats)} PPC',
       ),
+      if (preview.signingMessage.isNotEmpty)
+        _TransactionRow(label: 'Message', value: preview.signingMessage),
       _TransactionRow(
         label: 'Inputs',
         value: '${preview.selectedUtxos.length}',
@@ -1910,6 +1942,37 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
               '${request.masterGroupKeys.length} input(s)',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
             ),
+            if (request.message.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                key: const Key('roast-signing-request-message'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: AppColors.warning.withValues(alpha: 0.35),
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'REQUEST MESSAGE · AUTHENTICATED',
+                      style: TextStyle(
+                        color: AppColors.warningDark,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SelectableText(request.message),
+                  ],
+                ),
+              ),
+            ],
             const Divider(height: 24),
             for (var i = 0; i < request.outputs.length; i++)
               _TransactionRow(

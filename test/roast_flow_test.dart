@@ -440,8 +440,9 @@ final class _FakeRoastRuntime implements RoastRuntime {
   RoastSigningProposal createTransactionSigningProposal(
     setup,
     transaction,
-    List<int> derivationPath,
-  ) => throw UnimplementedError();
+    List<int> derivationPath, {
+    String message = '',
+  }) => throw UnimplementedError();
 
   @override
   Future<void> requestTransactionSignatures(

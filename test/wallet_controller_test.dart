@@ -626,6 +626,7 @@ class _FakeWalletTransactionService implements WalletTransactionService {
       changeSats: 999000,
       feeRateSatsPerKb: request.feeRateSatsPerKb,
       selectedUtxos: availableUtxos,
+      signingMessage: request.signingMessage,
     );
   }
 

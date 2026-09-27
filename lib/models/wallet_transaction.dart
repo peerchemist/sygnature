@@ -6,12 +6,14 @@ class WalletSendRequest {
     required this.amountSats,
     required this.feeRateSatsPerKb,
     this.maximum = false,
+    this.signingMessage = '',
   });
 
   final String destinationAddress;
   final int amountSats;
   final int feeRateSatsPerKb;
   final bool maximum;
+  final String signingMessage;
 }
 
 class WalletTransactionPreview {
@@ -24,6 +26,7 @@ class WalletTransactionPreview {
     required this.changeSats,
     required this.feeRateSatsPerKb,
     required this.selectedUtxos,
+    this.signingMessage = '',
   });
 
   final String accountId;
@@ -34,6 +37,7 @@ class WalletTransactionPreview {
   final int changeSats;
   final int feeRateSatsPerKb;
   final List<ElectrumxUtxo> selectedUtxos;
+  final String signingMessage;
 
   int get inputSats =>
       selectedUtxos.fold(0, (total, utxo) => total + utxo.value);

@@ -200,6 +200,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
       changeSats: selection.changeValue.toInt(),
       feeRateSatsPerKb: request.feeRateSatsPerKb,
       selectedUtxos: List.unmodifiable(selectedUtxos),
+      signingMessage: request.signingMessage,
     );
   }
 

@@ -10,6 +10,7 @@ import 'app_logger.dart';
 import 'wallet_transaction_service.dart';
 
 const roastDkgAttemptTtl = Duration(hours: 1);
+const maxRoastSigningMessageBytes = SignaturesRequestDetails.maxMessageBytes;
 
 sealed class RoastRuntimeEvent {
   const RoastRuntimeEvent(this.setupId);
@@ -78,6 +79,7 @@ class RoastSigningRequest({
   required final List<RoastSigningOutput> outputs,
   required final List<String> masterGroupKeys,
   required final List<List<int>> derivationPaths,
+  final String message = '',
 }) {
   int get outputSats =>
       outputs.fold(0, (sum, output) => sum + output.valueSats);
@@ -151,8 +153,9 @@ abstract interface class RoastRuntime {
   RoastSigningProposal createTransactionSigningProposal(
     RoastSetup setup,
     ThresholdWalletTransaction transaction,
-    List<int> derivationPath,
-  );
+    List<int> derivationPath, {
+    String message = '',
+  });
   Future<void> requestTransactionSignatures(
     RoastSetup setup,
     RoastSigningProposal proposal,
@@ -788,8 +791,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   RoastSigningProposal createTransactionSigningProposal(
     RoastSetup setup,
     ThresholdWalletTransaction transaction,
-    List<int> derivationPath,
-  ) {
+    List<int> derivationPath, {
+    String message = '',
+  }) {
     final groupKeyHex = setup.groupKeyHex;
     if (groupKeyHex == null) {
       throw StateError('The shared key is not available.');
@@ -808,6 +812,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         signDetails: transaction.signDetails,
       ),
       expiry: Expiry(const Duration(minutes: 5)),
+      message: message,
     );
     final proposalBytes = details.toBytes();
     final persistedDetails = SignaturesRequestDetails.fromBytes(proposalBytes);
@@ -1262,6 +1267,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
             for (final signature in proposal.requiredSigs)
               List.unmodifiable(signature.hdDerivation),
           ],
+          message: proposal.message,
         ),
       ),
     );

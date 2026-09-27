@@ -42,9 +42,10 @@ Create or import recovery phrase
    one shared public key and a private key share on each participant device.
 6. The resulting Taproot address can receive Peercoin like a normal wallet.
 7. Spending creates an immutable ROAST request containing Taproot transaction
-   metadata. Signers review the recipients, change, fee and expiry. Once the
-   threshold is reached, the aggregate signature is applied and the transaction
-   is broadcast through ElectrumX.
+   metadata and an optional authenticated message. Signers review the
+   recipients, change, fee and expiry. Once the threshold is reached, the
+   aggregate signature is applied and the transaction is broadcast through
+   ElectrumX.
 
 Wallet names are local labels and may differ between participants. Participant
 aliases are also editable; cryptographic identities and key fingerprints are

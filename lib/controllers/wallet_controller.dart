@@ -1245,6 +1245,9 @@ class WalletController extends ChangeNotifier {
             accountId: account.id,
             type: WalletActivityType.signatureRequestReceived,
             reference: event.request.idHex,
+            details: event.request.message.isEmpty
+                ? null
+                : event.request.message,
           );
           notifyListeners();
         } on Object {
@@ -1559,6 +1562,7 @@ class WalletController extends ChangeNotifier {
           setup,
           transaction,
           derived.path,
+          message: preview.signingMessage,
         );
         final pendingKey = '${setup.id}:${proposal.idHex}';
         final completer = Completer<_RoastSendOutcome>();
