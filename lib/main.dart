@@ -55,8 +55,17 @@ class _SygnatureAppState extends State<SygnatureApp> {
       (widget.controllerFactory ?? _createController)();
 
   Future<WalletController> _createController() async {
-    final repository = await HiveWalletRepository.open();
-    final roastPersistence = _roastSupported ? RoastPersistenceFactory() : null;
+    final platformKeyStore = PlatformSecureKeyStore();
+    final secureKeyStore =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+        ? KeyringSecureKeyStore(platformKeyStore)
+        : platformKeyStore;
+    final repository = await HiveWalletRepository.open(
+      secureKeyStore: secureKeyStore,
+    );
+    final roastPersistence = _roastSupported
+        ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
+        : null;
     final controller = WalletController(
       repository,
       roastRuntime: _roastSupported
