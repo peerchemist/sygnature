@@ -403,6 +403,8 @@ class PeercoinElectrumxService implements ElectrumxService {
     Future<T> Function(_ElectrumxClient client) action,
   ) async {
     final failures = <String>[];
+    Object? lastError;
+    Object? rpcError;
     if (_closed) {
       throw const ElectrumxException('ElectrumX service is closed.');
     }
@@ -422,6 +424,10 @@ class PeercoinElectrumxService implements ElectrumxService {
         AppLogger.info('ElectrumX action succeeded via $server');
         return result;
       } catch (error, stackTrace) {
+        lastError = error;
+        if (error is ElectrumxException && error.cause is Map) {
+          rpcError ??= error;
+        }
         AppLogger.warn(
           'ElectrumX action failed via $server',
           error: error,
@@ -439,6 +445,7 @@ class PeercoinElectrumxService implements ElectrumxService {
     );
     throw ElectrumxException(
       'All ElectrumX servers failed: ${failures.join('; ')}',
+      cause: rpcError ?? lastError,
     );
   }
 

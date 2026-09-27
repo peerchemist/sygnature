@@ -83,6 +83,30 @@ void main() {
     expect(attempts, PeercoinElectrumxNetworks.mainnet.servers);
   });
 
+  test('preserves the JSON-RPC rejection after all backends fail', () async {
+    final service = PeercoinElectrumxService(
+      electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+      connector: (_) async => _FakeConnection(
+        broadcastError: const {
+          'code': -26,
+          'message': 'bad-txns-inputs-missingorspent',
+        },
+      ),
+    );
+    addTearDown(service.close);
+
+    await expectLater(
+      service.broadcastTransaction('deadbeef'),
+      throwsA(
+        isA<ElectrumxException>().having(
+          (error) => (error.cause as ElectrumxException).cause,
+          'JSON-RPC error',
+          const {'code': -26, 'message': 'bad-txns-inputs-missingorspent'},
+        ),
+      ),
+    );
+  });
+
   test('rejects a backend for a different blockchain', () async {
     final service = PeercoinElectrumxService(
       electrumNetwork: PeercoinElectrumxNetworks.mainnet,
@@ -156,9 +180,11 @@ class _FakeConnection implements ElectrumxConnection {
   _FakeConnection({
     this.genesisHash =
         '0000000032fe677166d54963b62a4677d8957e87c508eaa4fd7eb1c880cd27e3',
+    this.broadcastError,
   });
 
   final String genesisHash;
+  final Map<String, Object>? broadcastError;
   final StreamController<dynamic> _controller = StreamController<dynamic>();
   final List<String> methods = [];
   bool closed = false;
@@ -172,6 +198,15 @@ class _FakeConnection implements ElectrumxConnection {
     final id = request['id'] as int;
     final method = request['method'] as String;
     methods.add(method);
+    if (method == 'blockchain.transaction.broadcast' &&
+        broadcastError != null) {
+      scheduleMicrotask(
+        () => _controller.add(
+          jsonEncode({'jsonrpc': '2.0', 'id': id, 'error': broadcastError}),
+        ),
+      );
+      return;
+    }
     final result = switch (method) {
       'server.version' => ['ElectrumX 1.20', '1.4'],
       'server.features' => {

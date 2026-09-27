@@ -311,6 +311,69 @@ void main() {
 
     controller.dispose();
   });
+
+  test(
+    'surfaces the ElectrumX rejection reason when broadcast fails',
+    () async {
+      final electrumx = _FakeElectrumxService()
+        ..broadcastError = const ElectrumxException(
+          'All ElectrumX servers failed.',
+          cause: ElectrumxException(
+            'ElectrumX request failed.',
+            cause: {'code': -26, 'message': 'bad-txns-inputs-missingorspent'},
+          ),
+        );
+      final controller = WalletController(
+        MemoryWalletRepository(),
+        keyService: _FakeWalletKeyService(),
+        transactionService: _FakeWalletTransactionService(),
+        networkServiceFactory: (_) async => electrumx,
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      electrumx.snapshots.add(
+        const PeercoinElectrumxUtxoSnapshot(
+          address: 'pc1paccount0',
+          utxos: [
+            ElectrumxUtxo(
+              address: 'pc1paccount0',
+              txHash: 'funding',
+              txPos: 0,
+              height: 10,
+              value: 2000000,
+            ),
+          ],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final preview = controller.prepareSend(
+        const WalletSendRequest(
+          destinationAddress: 'pc1pdestination',
+          amountSats: 1000000,
+          feeRateSatsPerKb: 10000,
+        ),
+      );
+
+      await expectLater(
+        controller.sendTransaction(preview),
+        throwsA(
+          isA<WalletTransactionRejected>().having(
+            (error) => error.message,
+            'message',
+            'ElectrumX rejected the transaction: '
+                'bad-txns-inputs-missingorspent (code -26)',
+          ),
+        ),
+      );
+      expect(electrumx.broadcastedTransactions, ['signed-transaction']);
+
+      controller.dispose();
+    },
+  );
 }
 
 const _mnemonic = MnemonicSession(
@@ -372,6 +435,7 @@ class _FakeElectrumxService implements ElectrumxService {
   final List<Set<String>> watchedAddresses = [];
   bool closed = false;
   final List<String> broadcastedTransactions = [];
+  Object? broadcastError;
 
   @override
   Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
@@ -387,6 +451,8 @@ class _FakeElectrumxService implements ElectrumxService {
   @override
   Future<String> broadcastTransaction(String rawTransactionHex) async {
     broadcastedTransactions.add(rawTransactionHex);
+    final error = broadcastError;
+    if (error != null) throw error;
     return 'transaction-id';
   }
 

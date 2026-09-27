@@ -1695,9 +1695,22 @@ class WalletController extends ChangeNotifier {
     try {
       final service = _networkServices[networkForAccount(account).storageId];
       if (service == null) throw StateError('ElectrumX is not configured.');
-      final serverTransactionId = await service.broadcastTransaction(
-        signed.rawTransactionHex,
-      );
+      late final String serverTransactionId;
+      try {
+        serverTransactionId = await service.broadcastTransaction(
+          signed.rawTransactionHex,
+        );
+      } on Object catch (error, stackTrace) {
+        final network = networkForAccount(account);
+        AppLogger.error(
+          '[ELECTRUMX ${network.storageId}] Transaction broadcast failed; '
+          'localTxId=${signed.transactionId}; '
+          'rawBytes=${(signed.rawTransactionHex.length + 1) ~/ 2}',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        throw WalletTransactionRejected(_broadcastFailureMessage(error));
+      }
       _broadcastedTransactionIds.add(signed.transactionId);
       await _recordActivity(
         id: 'transaction-broadcast:${account.id}:${signed.transactionId}',
@@ -1713,6 +1726,45 @@ class WalletController extends ChangeNotifier {
     } finally {
       _broadcastingTransactionIds.remove(signed.transactionId);
     }
+  }
+
+  String _broadcastFailureMessage(Object error) {
+    Object cause = error;
+    for (var depth = 0; depth < 8; depth++) {
+      if (cause is ElectrumxException && cause.cause != null) {
+        cause = cause.cause!;
+        continue;
+      }
+      break;
+    }
+
+    if (cause is Map) {
+      final message = cause['message'];
+      final code = cause['code'];
+      if (message is String && message.trim().isNotEmpty) {
+        final detail = _sanitizeBroadcastError(message);
+        final codeSuffix = code == null ? '' : ' (code $code)';
+        return 'ElectrumX rejected the transaction: $detail$codeSuffix';
+      }
+    }
+    if (cause is TimeoutException) {
+      return 'Broadcast timed out. Verify the network connection and retry.';
+    }
+    if (cause is ElectrumxException) {
+      return 'ElectrumX could not broadcast the transaction. '
+          'Verify the network connection and retry.';
+    }
+    return 'Broadcast failed. Verify the network connection and retry.';
+  }
+
+  String _sanitizeBroadcastError(String message) {
+    final clean = message
+        .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    const maxLength = 240;
+    if (clean.length <= maxLength) return clean;
+    return '${clean.substring(0, maxLength - 1)}…';
   }
 
   Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
