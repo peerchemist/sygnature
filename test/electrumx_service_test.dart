@@ -145,6 +145,25 @@ void main() {
     );
   });
 
+  test('keeps an active subscription alive with server ping', () async {
+    final connection = _FakeConnection();
+    final service = PeercoinElectrumxService(
+      electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+      connector: (_) async => connection,
+      keepAliveInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(service.close);
+
+    final subscription = service
+        .watchUtxosForAddresses([_mainnetAddress])
+        .listen((_) {});
+    addTearDown(subscription.cancel);
+
+    await connection.pingReceived.future.timeout(const Duration(seconds: 1));
+
+    expect(connection.methods, contains('server.ping'));
+  });
+
   test(
     'subscription cancellation completes after the initial snapshot',
     () async {
@@ -187,6 +206,7 @@ class _FakeConnection implements ElectrumxConnection {
   final Map<String, Object>? broadcastError;
   final StreamController<dynamic> _controller = StreamController<dynamic>();
   final List<String> methods = [];
+  final Completer<void> pingReceived = Completer<void>();
   bool closed = false;
 
   @override
@@ -198,6 +218,9 @@ class _FakeConnection implements ElectrumxConnection {
     final id = request['id'] as int;
     final method = request['method'] as String;
     methods.add(method);
+    if (method == 'server.ping' && !pingReceived.isCompleted) {
+      pingReceived.complete();
+    }
     if (method == 'blockchain.transaction.broadcast' &&
         broadcastError != null) {
       scheduleMicrotask(
@@ -214,6 +237,7 @@ class _FakeConnection implements ElectrumxConnection {
         'hash_function': 'sha256',
         'protocol_max': '1.4.3',
       },
+      'server.ping' => null,
       'blockchain.scripthash.subscribe' => 'status-1',
       'blockchain.scripthash.listunspent' => [
         {

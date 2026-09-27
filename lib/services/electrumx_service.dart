@@ -140,6 +140,7 @@ class PeercoinElectrumxService implements ElectrumxService {
     this.connector = WebSocketElectrumxConnection.connect,
     this.timeout = const Duration(seconds: 12),
     this.reconnectDelay = const Duration(seconds: 5),
+    this.keepAliveInterval = const Duration(seconds: 450),
     Uri? preferredServer,
   }) : preferredServer = preferredServer ?? electrumNetwork.servers.first {
     if (!_isConfiguredBackend(electrumNetwork, this.preferredServer)) {
@@ -155,6 +156,7 @@ class PeercoinElectrumxService implements ElectrumxService {
   final ElectrumxConnector connector;
   final Duration timeout;
   final Duration reconnectDelay;
+  final Duration keepAliveInterval;
   final Uri preferredServer;
   _ElectrumxClient? _persistentClient;
   Future<_ElectrumxClient>? _persistentClientFuture;
@@ -168,6 +170,7 @@ class PeercoinElectrumxService implements ElectrumxService {
     ElectrumxConnector connector = WebSocketElectrumxConnection.connect,
     Duration timeout = const Duration(seconds: 12),
     Duration reconnectDelay = const Duration(seconds: 5),
+    Duration keepAliveInterval = const Duration(seconds: 450),
     Uri? preferredServer,
   }) {
     return PeercoinElectrumxService(
@@ -175,6 +178,7 @@ class PeercoinElectrumxService implements ElectrumxService {
       connector: connector,
       timeout: timeout,
       reconnectDelay: reconnectDelay,
+      keepAliveInterval: keepAliveInterval,
       preferredServer: preferredServer,
     );
   }
@@ -184,12 +188,14 @@ class PeercoinElectrumxService implements ElectrumxService {
     ElectrumxConnector connector = WebSocketElectrumxConnection.connect,
     Duration timeout = const Duration(seconds: 12),
     Duration reconnectDelay = const Duration(seconds: 5),
+    Duration keepAliveInterval = const Duration(seconds: 450),
   }) async {
     return PeercoinElectrumxService.forPreset(
       preset,
       connector: connector,
       timeout: timeout,
       reconnectDelay: reconnectDelay,
+      keepAliveInterval: keepAliveInterval,
       preferredServer: await selectedBackend(preset),
     );
   }
@@ -232,6 +238,7 @@ class PeercoinElectrumxService implements ElectrumxService {
         electrumNetwork: electrumNetwork,
         connector: connector,
         timeout: timeout,
+        keepAliveInterval: keepAliveInterval,
       );
       try {
         await client.connect();
@@ -417,6 +424,7 @@ class PeercoinElectrumxService implements ElectrumxService {
         electrumNetwork: electrumNetwork,
         connector: connector,
         timeout: timeout,
+        keepAliveInterval: Duration.zero,
       );
       try {
         await client.connect();
@@ -486,15 +494,18 @@ class _ElectrumxClient {
     required this.electrumNetwork,
     required this.connector,
     required this.timeout,
+    required this.keepAliveInterval,
   });
 
   final Uri server;
   final PeercoinElectrumxNetwork electrumNetwork;
   final ElectrumxConnector connector;
   final Duration timeout;
+  final Duration keepAliveInterval;
 
   ElectrumxConnection? _connection;
   StreamSubscription<dynamic>? _subscription;
+  Timer? _keepAliveTimer;
   final Map<int, Completer<Object?>> _pending = {};
   final Map<String, StreamController<String?>> _subscriptions = {};
   int _nextId = 0;
@@ -542,6 +553,12 @@ class _ElectrumxClient {
       );
     }
     _usable = true;
+    if (keepAliveInterval > Duration.zero) {
+      _keepAliveTimer = Timer.periodic(
+        keepAliveInterval,
+        (_) => unawaited(_sendKeepAlive()),
+      );
+    }
   }
 
   Future<List<ElectrumxUtxo>> fetchUtxos(String address) async {
@@ -621,6 +638,8 @@ class _ElectrumxClient {
 
   Future<void> close() async {
     _usable = false;
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
     await _subscription?.cancel();
     _subscription = null;
     final connection = _connection;
@@ -728,8 +747,26 @@ class _ElectrumxClient {
         negotiated.startsWith('${electrumNetwork.requiredProtocol}.');
   }
 
+  Future<void> _sendKeepAlive() async {
+    if (!_usable) return;
+    try {
+      await _request('server.ping', const []);
+    } catch (error, stackTrace) {
+      if (!_usable) return;
+      _handleTransportFailure(
+        ElectrumxException(
+          'ElectrumX keepalive failed for $server.',
+          cause: error,
+        ),
+        stackTrace,
+      );
+    }
+  }
+
   void _handleTransportFailure(Object error, StackTrace stackTrace) {
     _usable = false;
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
     _failPending(error, stackTrace);
   }
 
