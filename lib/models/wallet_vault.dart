@@ -1,4 +1,5 @@
 import 'wallet_account.dart';
+import 'wallet_activity.dart';
 import 'roast_setup.dart';
 
 class WalletVault {
@@ -6,12 +7,13 @@ class WalletVault {
     required this.accounts,
     required this.nextAccountIndex,
     this.roastSetups = const [],
+    this.activities = const [],
     this.mnemonic,
     this.languageId,
     this.mnemonicWordCount,
   });
 
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
 
   /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;
@@ -20,11 +22,13 @@ class WalletVault {
   final List<WalletAccount> accounts;
   final int nextAccountIndex;
   final List<RoastSetup> roastSetups;
+  final List<WalletActivity> activities;
 
   WalletVault copyWith({
     List<WalletAccount>? accounts,
     int? nextAccountIndex,
     List<RoastSetup>? roastSetups,
+    List<WalletActivity>? activities,
   }) => WalletVault(
     mnemonic: mnemonic,
     languageId: languageId,
@@ -32,6 +36,7 @@ class WalletVault {
     accounts: accounts ?? this.accounts,
     nextAccountIndex: nextAccountIndex ?? this.nextAccountIndex,
     roastSetups: roastSetups ?? this.roastSetups,
+    activities: activities ?? this.activities,
   );
 
   Map<String, Object?> toJson() => {
@@ -42,11 +47,12 @@ class WalletVault {
     'accounts': accounts.map((account) => account.toJson()).toList(),
     'nextAccountIndex': nextAccountIndex,
     'roastSetups': roastSetups.map((setup) => setup.toJson()).toList(),
+    'activities': activities.map((activity) => activity.toJson()).toList(),
   };
 
   factory WalletVault.fromJson(Map<Object?, Object?> json) {
     final version = json['schemaVersion'] as int? ?? 0;
-    if (version != 1 && version != 2 && version != schemaVersion) {
+    if (version < 1 || version > schemaVersion) {
       throw StateError('Unsupported wallet vault schema: $version');
     }
     return WalletVault(
@@ -61,6 +67,11 @@ class WalletVault {
           ? const []
           : (json['roastSetups']! as List)
                 .map((setup) => RoastSetup.fromJson(setup as Map))
+                .toList(growable: false),
+      activities: version < 4
+          ? const []
+          : (json['activities']! as List)
+                .map((activity) => WalletActivity.fromJson(activity as Map))
                 .toList(growable: false),
     );
   }

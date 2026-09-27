@@ -9,6 +9,7 @@ import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/roast_signing_operation.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
+import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_transaction.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
@@ -279,6 +280,12 @@ void main() {
     expect(setup.status, RoastSetupStatus.awaitingDkgApproval);
     expect(setup.pendingDkgProposalHex, 'valid-proposal');
     expect(setup.pendingDkgThreshold, 2);
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((item) => item.type),
+      [WalletActivityType.dkgStarted],
+    );
 
     runtime.emit(
       RoastRuntimeDkgEvent(
@@ -315,6 +322,12 @@ void main() {
     expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
     expect(controller.roastSetups.single.pendingDkgProposalHex, isNull);
     expect(runtime.rejectedDkgProposalHexes, ['bad-proposal']);
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((item) => item.type),
+      [WalletActivityType.dkgFailed, WalletActivityType.dkgStarted],
+    );
 
     controller.dispose();
   });
@@ -371,6 +384,76 @@ void main() {
 
     expect(controller.roastSetups.single.status, RoastSetupStatus.active);
     expect(controller.accounts.single.address, 'pc1pshared');
+    expect(
+      controller.activitiesFor(controller.accounts.single).single.type,
+      WalletActivityType.dkgCompleted,
+    );
+
+    controller.dispose();
+  });
+
+  test('records the signature request lifecycle as wallet activity', () async {
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final electrumx = _FakeElectrumxService();
+    final controller = _controller(
+      runtime: runtime,
+      electrumx: electrumx,
+      active: true,
+    );
+    await controller.load();
+    await _flushEvents();
+    electrumx.emit('pc1pshared', const [
+      ElectrumxUtxo(
+        address: 'pc1pshared',
+        txHash: 'funding',
+        txPos: 0,
+        height: 100,
+        value: 2000000,
+      ),
+    ]);
+    await _flushEvents();
+
+    final approved = _signingRequest('aa' * 16);
+    runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: approved));
+    await _flushEvents();
+    await controller.acceptRoastSigningRequest(
+      controller.roastSigningRequests.single,
+    );
+
+    final rejected = _signingRequest('bb' * 16);
+    runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: rejected));
+    await _flushEvents();
+    await controller.rejectRoastSigningRequest(
+      controller.roastSigningRequests.single,
+    );
+
+    final expired = _signingRequest('cc' * 16);
+    runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: expired));
+    await _flushEvents();
+    runtime.emit(
+      RoastRuntimeSigningRequestRemovedEvent(
+        'setup',
+        requestIdHex: expired.idHex,
+        expired: true,
+      ),
+    );
+    await _flushEvents();
+
+    expect(runtime.acceptedSigningRequestIds, [approved.idHex]);
+    expect(runtime.rejectedSigningRequestIds, [rejected.idHex]);
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((item) => item.type),
+      [
+        WalletActivityType.signatureRequestExpired,
+        WalletActivityType.signatureRequestReceived,
+        WalletActivityType.signatureRequestRejected,
+        WalletActivityType.signatureRequestReceived,
+        WalletActivityType.signatureRequestApproved,
+        WalletActivityType.signatureRequestReceived,
+      ],
+    );
 
     controller.dispose();
   });
@@ -495,6 +578,15 @@ void main() {
     expect(stored.rawTransactionHex, electrumx.broadcasts.single);
     expect(stored.transactionId, result.transactionId);
     expect(stored.state, RoastSigningOperationState.broadcasted);
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((item) => item.type),
+      [
+        WalletActivityType.transactionBroadcast,
+        WalletActivityType.transactionSigned,
+      ],
+    );
 
     controller.dispose();
   });
@@ -735,6 +827,29 @@ Future<void> _flushEvents() async {
   }
 }
 
+RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
+  idHex: idHex,
+  proposalHex: 'dd',
+  creator: '01',
+  expiry: DateTime.now().add(const Duration(minutes: 5)),
+  hasTransactionMetadata: true,
+  usesSupportedSighash: true,
+  usesExpectedTaprootTweak: true,
+  status: 'waiting',
+  inputSats: 2000000,
+  transactionInputCount: 1,
+  signedInputIndexes: const [0],
+  previousOutputScripts: const ['expected-script'],
+  inputOutpoints: const ['funding:0'],
+  outputs: [
+    RoastSigningOutput(valueSats: 1000000, scriptHex: 'destination-script'),
+  ],
+  masterGroupKeys: const ['expected-key'],
+  derivationPaths: const [
+    [0, 6, 0, 0, 0, 0],
+  ],
+);
+
 final class _FakeRoastKeyService extends RoastKeyService {
   bool failNextDerivation = false;
 
@@ -756,6 +871,9 @@ final class _FakeRoastKeyService extends RoastKeyService {
       internalKeyHex: 'internal-key',
     );
   }
+
+  @override
+  String scriptHexForAddress(network, String address) => 'expected-script';
 }
 
 final class _RoomRoastKeyService(final List<RoastParticipant> roster)
@@ -789,6 +907,8 @@ final class _FakeRoastRuntime implements RoastRuntime {
       StreamController<RoastRuntimeEvent>.broadcast();
   final List<String> requestedDkgSetupIds = [];
   final List<String> rejectedDkgProposalHexes = [];
+  final List<String> acceptedSigningRequestIds = [];
+  final List<String> rejectedSigningRequestIds = [];
   final List<String> deletedSetupIds = [];
   String? snapshotGroupKey;
   bool failSigningRequests = false;
@@ -867,12 +987,14 @@ final class _FakeRoastRuntime implements RoastRuntime {
   }
 
   @override
-  Future<void> acceptSignatures(String setupId, String requestIdHex) =>
-      throw UnimplementedError();
+  Future<void> acceptSignatures(String setupId, String requestIdHex) async {
+    acceptedSigningRequestIds.add(requestIdHex);
+  }
 
   @override
-  Future<void> rejectSignatures(String setupId, String requestIdHex) =>
-      throw UnimplementedError();
+  Future<void> rejectSignatures(String setupId, String requestIdHex) async {
+    rejectedSigningRequestIds.add(requestIdHex);
+  }
 
   @override
   Future<void> stopSetup(String setupId) async {}

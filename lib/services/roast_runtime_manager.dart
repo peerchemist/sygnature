@@ -92,6 +92,7 @@ final class RoastRuntimeSigningRequestEvent(
 final class RoastRuntimeSigningRequestRemovedEvent(
   super.setupId, {
   required final String requestIdHex,
+  required final bool expired,
 }) extends RoastRuntimeEvent;
 
 final class RoastRuntimeSigningResultEvent(
@@ -1165,11 +1166,12 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         )
         .toList(growable: false);
     for (final key in removed) {
-      _signingRequests.remove(key);
+      final request = _signingRequests.remove(key);
       _events.add(
         RoastRuntimeSigningRequestRemovedEvent(
           snapshot.setupId,
           requestIdHex: key.substring(prefix.length),
+          expired: request?.expiry.isBefore(DateTime.now()) ?? false,
         ),
       );
     }

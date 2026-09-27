@@ -6,7 +6,10 @@ import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
+import 'package:sygnature_ng/models/wallet_account.dart';
+import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
+import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
@@ -148,6 +151,50 @@ void main() {
     expect(find.text('LOCAL'), findsOneWidget);
     expect(find.text('ROAST'), findsNothing);
     expect(find.text('Recent activity'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('shows persisted events in recent activity', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = WalletAccount(
+      id: 'main',
+      name: 'Main wallet',
+      accountIndex: 0,
+      blockchainId: 'peercoin',
+      networkId: 'mainnet',
+      address: 'pc1paccount0',
+      privateKeyHex: 'private-key-0',
+      createdAt: DateTime.utc(2026),
+    );
+    final repository = MemoryWalletRepository()
+      ..value = WalletVault(
+        accounts: [account],
+        nextAccountIndex: 1,
+        activities: [
+          WalletActivity(
+            id: 'broadcast:txid',
+            accountId: account.id,
+            type: WalletActivityType.transactionBroadcast,
+            occurredAt: DateTime.now().toUtc(),
+            reference: 'transaction-id',
+          ),
+        ],
+      );
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('Transaction broadcast'), findsOneWidget);
+    expect(find.textContaining('Transaction transa'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

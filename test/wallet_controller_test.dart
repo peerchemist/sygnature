@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
+import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
 import 'package:sygnature_ng/models/wallet_transaction.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
@@ -294,6 +295,15 @@ void main() {
     expect(electrumx.broadcastedTransactions, ['signed-transaction']);
     expect(result.transactionId, 'local-transaction-id');
     expect(result.serverTransactionId, 'transaction-id');
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((item) => item.type),
+      [
+        WalletActivityType.transactionBroadcast,
+        WalletActivityType.transactionSigned,
+      ],
+    );
     await expectLater(
       controller.sendTransaction(preview),
       throwsA(isA<WalletTransactionRejected>()),

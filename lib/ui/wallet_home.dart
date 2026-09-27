@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_account.dart';
+import '../models/wallet_activity.dart';
 import '../models/roast_setup.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
@@ -360,7 +361,7 @@ class _WalletDashboard extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 18),
-                  const _ActivityCard(),
+                  _ActivityCard(controller: controller, account: account),
                 ],
               ],
             ),
@@ -857,10 +858,14 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _ActivityCard extends StatelessWidget {
-  const _ActivityCard();
+  const _ActivityCard({required this.controller, required this.account});
+
+  final WalletController controller;
+  final WalletAccount account;
 
   @override
   Widget build(BuildContext context) {
+    final activities = controller.activitiesFor(account);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -871,37 +876,192 @@ class _ActivityCard extends StatelessWidget {
               'Recent activity',
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            const SizedBox(height: 30),
-            const Center(
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.receipt_long_outlined,
-                    size: 38,
-                    color: AppColors.inkMuted,
-                  ),
-                  SizedBox(height: 12),
-                  Text(
-                    'No transactions',
-                    style: TextStyle(
-                      color: AppColors.ink,
-                      fontWeight: FontWeight.w700,
+            if (activities.isEmpty) ...[
+              const SizedBox(height: 30),
+              const Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.receipt_long_outlined,
+                      size: 38,
+                      color: AppColors.inkMuted,
                     ),
-                  ),
-                  SizedBox(height: 5),
-                  Text(
-                    'History will appear after synchronization.',
-                    style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
-                  ),
-                ],
+                    SizedBox(height: 12),
+                    Text(
+                      'No activity yet',
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'Wallet events will appear here.',
+                      style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
+            ] else ...[
+              const SizedBox(height: 12),
+              for (var index = 0; index < activities.length; index++) ...[
+                _ActivityRow(activity: activities[index]),
+                if (index != activities.length - 1) const Divider(height: 1),
+              ],
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.activity});
+
+  final WalletActivity activity;
+
+  @override
+  Widget build(BuildContext context) {
+    final presentation = _activityPresentation(activity.type);
+    final reference = activity.reference;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: presentation.color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(presentation.icon, size: 20, color: presentation.color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  presentation.title,
+                  style: const TextStyle(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (activity.details case final details?) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    details,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ] else if (reference != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    _activityReference(activity.type, reference),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            _activityTime(activity.occurredAt),
+            style: const TextStyle(color: AppColors.inkMuted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+({String title, IconData icon, Color color}) _activityPresentation(
+  WalletActivityType type,
+) => switch (type) {
+  WalletActivityType.signatureRequestReceived => (
+    title: 'Signature request received',
+    icon: Icons.mark_email_unread_outlined,
+    color: AppColors.greenDark,
+  ),
+  WalletActivityType.signatureRequestApproved => (
+    title: 'Signature request approved',
+    icon: Icons.check_circle_outline,
+    color: AppColors.success,
+  ),
+  WalletActivityType.signatureRequestRejected => (
+    title: 'Signature request rejected',
+    icon: Icons.cancel_outlined,
+    color: AppColors.danger,
+  ),
+  WalletActivityType.signatureRequestExpired => (
+    title: 'Signature request expired',
+    icon: Icons.schedule_outlined,
+    color: AppColors.warningDark,
+  ),
+  WalletActivityType.dkgStarted => (
+    title: 'Shared key creation started',
+    icon: Icons.hub_outlined,
+    color: AppColors.greenDark,
+  ),
+  WalletActivityType.dkgCompleted => (
+    title: 'Shared key created',
+    icon: Icons.key_outlined,
+    color: AppColors.success,
+  ),
+  WalletActivityType.dkgFailed => (
+    title: 'Shared key creation failed',
+    icon: Icons.error_outline,
+    color: AppColors.danger,
+  ),
+  WalletActivityType.transactionSigned => (
+    title: 'Transaction signed',
+    icon: Icons.draw_outlined,
+    color: AppColors.greenDark,
+  ),
+  WalletActivityType.transactionBroadcast => (
+    title: 'Transaction broadcast',
+    icon: Icons.send_outlined,
+    color: AppColors.success,
+  ),
+};
+
+String _activityReference(WalletActivityType type, String value) {
+  final label = switch (type) {
+    WalletActivityType.dkgStarted ||
+    WalletActivityType.dkgCompleted ||
+    WalletActivityType.dkgFailed => 'DKG',
+    WalletActivityType.transactionSigned ||
+    WalletActivityType.transactionBroadcast => 'Transaction',
+    _ => 'Request',
+  };
+  return '$label ${_shortTransactionId(value)}';
+}
+
+String _activityTime(DateTime value) {
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final time =
+      '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}';
+  if (local.year == now.year &&
+      local.month == now.month &&
+      local.day == now.day) {
+    return time;
+  }
+  return '${local.day}.${local.month}. · $time';
 }
 
 Future<void> _showSendDialog(

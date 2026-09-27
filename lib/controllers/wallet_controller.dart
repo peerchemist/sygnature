@@ -10,6 +10,7 @@ import '../models/mnemonic_seed.dart';
 import '../models/roast_setup.dart';
 import '../models/roast_signing_operation.dart';
 import '../models/wallet_account.dart';
+import '../models/wallet_activity.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../models/wallet_vault.dart';
@@ -57,6 +58,8 @@ typedef WalletNetworkServiceFactory = Future<ElectrumxService?> Function(
 );
 
 class WalletController extends ChangeNotifier {
+  static const _maxActivityEntries = 100;
+
   WalletController(
     this._repository, {
     this.networkServiceFactory,
@@ -124,6 +127,10 @@ class WalletController extends ChangeNotifier {
   bool get hasWallet => _vault != null;
   bool get busy => _busy;
   List<WalletAccount> get accounts => _vault?.accounts ?? const [];
+  List<WalletActivity> activitiesFor(WalletAccount account) =>
+      (_vault?.activities ?? const [])
+          .where((activity) => activity.accountId == account.id)
+          .toList(growable: false);
   List<RoastSetup> get roastSetups => _vault?.roastSetups ?? const [];
   bool get roastAvailable => _roastRuntime != null;
   List<RoastSigningInboxItem> get roastSigningRequests =>
@@ -304,6 +311,12 @@ class WalletController extends ChangeNotifier {
           errorMessage: 'The ROAST signing request expired.',
         );
         await _saveRoastSigningOperation(operation);
+        await _recordActivity(
+          id: 'signature-request-expired:${operation.storageId}',
+          accountId: operation.accountId,
+          type: WalletActivityType.signatureRequestExpired,
+          reference: operation.requestIdHex,
+        );
       } else if (operation.rawTransactionHex == null &&
           (operation.state == RoastSigningOperationState.prepared ||
               operation.state == RoastSigningOperationState.requesting ||
@@ -328,6 +341,64 @@ class WalletController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _recordActivity({
+    required String id,
+    required String accountId,
+    required WalletActivityType type,
+    String? reference,
+    String? details,
+  }) async {
+    final current = _vault;
+    if (current == null || current.activities.any((item) => item.id == id)) {
+      return;
+    }
+    final activity = WalletActivity(
+      id: id,
+      accountId: accountId,
+      type: type,
+      occurredAt: DateTime.now().toUtc(),
+      reference: reference,
+      details: details,
+    );
+    final next = current.copyWith(
+      activities: [
+        activity,
+        ...current.activities,
+      ].take(_maxActivityEntries).toList(growable: false),
+    );
+    try {
+      await _repository.save(next);
+      _vault = next;
+      notifyListeners();
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'Unable to persist wallet activity',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _recordSetupActivity(
+    RoastSetup setup, {
+    required String id,
+    required WalletActivityType type,
+    String? reference,
+    String? details,
+  }) async {
+    final account = accounts
+        .where((item) => item.sourceId == setup.id)
+        .firstOrNull;
+    if (account == null) return;
+    await _recordActivity(
+      id: id,
+      accountId: account.id,
+      type: type,
+      reference: reference,
+      details: details,
+    );
+  }
+
   Future<RoastSigningOperation> _completeRoastSigningOperation(
     RoastSigningOperation operation,
   ) async {
@@ -347,6 +418,12 @@ class WalletController extends ChangeNotifier {
       clearError: true,
     );
     await _saveRoastSigningOperation(completed);
+    await _recordActivity(
+      id: 'transaction-signed:${operation.storageId}',
+      accountId: operation.accountId,
+      type: WalletActivityType.transactionSigned,
+      reference: signed.transactionId,
+    );
     return completed;
   }
 
@@ -401,6 +478,7 @@ class WalletController extends ChangeNotifier {
         accounts: [...?current?.accounts, first],
         nextAccountIndex: 1,
         roastSetups: current?.roastSetups ?? const [],
+        activities: current?.activities ?? const [],
       );
       await _repository.save(vault);
       _vault = vault;
@@ -719,7 +797,20 @@ class WalletController extends ChangeNotifier {
           clearError: true,
         ),
       );
-      await _roastRuntime!.requestDkg(dkgSetup);
+      try {
+        await _roastRuntime!.requestDkg(dkgSetup);
+      } on Object catch (error) {
+        await _recordSetupActivity(
+          dkgSetup,
+          id:
+              'dkg-failed:${dkgSetup.id}:request:'
+              '${DateTime.now().microsecondsSinceEpoch}',
+          type: WalletActivityType.dkgFailed,
+          reference: dkgSetup.keyName,
+          details: _cleanRoastError(error),
+        );
+        rethrow;
+      }
     });
   }
 
@@ -965,6 +1056,13 @@ class WalletController extends ChangeNotifier {
                 errorMessage: event.failure ?? 'The DKG proposal was rejected.',
               ),
             );
+            await _recordSetupActivity(
+              setup,
+              id: 'dkg-failed:${setup.id}:${event.proposalHex}',
+              type: WalletActivityType.dkgFailed,
+              reference: event.proposalHex,
+              details: event.failure ?? 'The DKG proposal was rejected.',
+            );
           }
           return;
         }
@@ -989,6 +1087,17 @@ class WalletController extends ChangeNotifier {
             errorMessage: event.failure,
           ),
         );
+        await _recordSetupActivity(
+          setup,
+          id: event.failure == null
+              ? 'dkg-started:${setup.id}:${event.proposalHex}'
+              : 'dkg-failed:${setup.id}:${event.proposalHex}',
+          type: event.failure == null
+              ? WalletActivityType.dkgStarted
+              : WalletActivityType.dkgFailed,
+          reference: event.proposalHex,
+          details: event.failure,
+        );
       case RoastRuntimeKeyEvent():
         if (event.keyName != setup.keyName) return;
         final active = setup.copyWith(
@@ -999,6 +1108,12 @@ class WalletController extends ChangeNotifier {
         );
         await _replaceSetup(active);
         await _activateRoastAccount(active, event.groupKeyHex);
+        await _recordSetupActivity(
+          active,
+          id: 'dkg-completed:${setup.id}:${event.keyName}',
+          type: WalletActivityType.dkgCompleted,
+          reference: event.keyName,
+        );
       case RoastRuntimeFailureEvent():
         if (event.operation == 'signatures' ||
             event.operation == 'signingPersistence') {
@@ -1022,6 +1137,19 @@ class WalletController extends ChangeNotifier {
           notifyListeners();
           return;
         }
+        if (event.operation.toLowerCase().contains('dkg') ||
+            event.operation == 'keyReadiness') {
+          await _recordSetupActivity(
+            setup,
+            id:
+                'dkg-failed:${setup.id}:'
+                '${setup.pendingDkgProposalHex ?? setup.keyName}:'
+                '${event.operation}',
+            type: WalletActivityType.dkgFailed,
+            reference: setup.pendingDkgProposalHex ?? setup.keyName,
+            details: event.message,
+          );
+        }
         if (event.interrupted) _roastPresence.remove(event.setupId);
         await _replaceSetup(
           setup.copyWith(
@@ -1034,7 +1162,25 @@ class WalletController extends ChangeNotifier {
       case RoastRuntimeSigningRequestEvent():
         final requestKey = '${setup.id}:${event.request.idHex}';
         if (event.request.status != 'waiting') {
-          _roastSigningRequests.remove(requestKey);
+          final removed = _roastSigningRequests.remove(requestKey);
+          final type = switch (event.request.status) {
+            'accepted' => WalletActivityType.signatureRequestApproved,
+            'rejected' => WalletActivityType.signatureRequestRejected,
+            _ => null,
+          };
+          if (type != null &&
+              (removed != null ||
+                  event.request.creator ==
+                      setup.localParticipant.identifierHex)) {
+            await _recordSetupActivity(
+              setup,
+              id: event.request.status == 'accepted'
+                  ? 'signature-request-approved:$requestKey'
+                  : 'signature-request-rejected:$requestKey',
+              type: type,
+              reference: event.request.idHex,
+            );
+          }
           notifyListeners();
           return;
         }
@@ -1051,12 +1197,30 @@ class WalletController extends ChangeNotifier {
             walletName: account.name,
             request: event.request,
           );
+          await _recordActivity(
+            id: 'signature-request-received:$requestKey',
+            accountId: account.id,
+            type: WalletActivityType.signatureRequestReceived,
+            reference: event.request.idHex,
+          );
           notifyListeners();
         } on Object {
           // Unsupported or foreign proposals are deliberately not rendered.
         }
       case RoastRuntimeSigningRequestRemovedEvent():
-        _roastSigningRequests.remove('${event.setupId}:${event.requestIdHex}');
+        final removed = _roastSigningRequests.remove(
+          '${event.setupId}:${event.requestIdHex}',
+        );
+        if (event.expired && removed != null) {
+          await _recordSetupActivity(
+            setup,
+            id:
+                'signature-request-expired:${event.setupId}:'
+                '${event.requestIdHex}',
+            type: WalletActivityType.signatureRequestExpired,
+            reference: event.requestIdHex,
+          );
+        }
         notifyListeners();
       case RoastRuntimeSigningResultEvent():
         final pendingKey = '${setup.id}:${event.requestIdHex}';
@@ -1175,6 +1339,10 @@ class WalletController extends ChangeNotifier {
     await _guard(() async {
       final next = current.copyWith(
         accounts: remainingAccounts,
+        activities: [
+          for (final activity in current.activities)
+            if (activity.accountId != removedAccount.id) activity,
+        ],
         roastSetups: roastSetupId == null
             ? current.roastSetups
             : [
@@ -1322,6 +1490,12 @@ class WalletController extends ChangeNotifier {
           preview: preview,
           privateKeyHex: privateKeyHex,
         );
+        await _recordActivity(
+          id: 'transaction-signed:${account.id}:${signed.transactionId}',
+          accountId: account.id,
+          type: WalletActivityType.transactionSigned,
+          reference: signed.transactionId,
+        );
       } else {
         final setup = setupForAccount(account);
         final runtime = _roastRuntime;
@@ -1393,12 +1567,25 @@ class WalletController extends ChangeNotifier {
         } on Object catch (error) {
           final current = _storedRoastSigningOperations[pendingKey];
           if (current != null && current.rawTransactionHex == null) {
+            final expired =
+                current.expiry.isBefore(DateTime.now()) ||
+                error.toString().toLowerCase().contains('expired');
             await _saveRoastSigningOperation(
               current.copyWith(
-                state: RoastSigningOperationState.interrupted,
+                state: expired
+                    ? RoastSigningOperationState.expired
+                    : RoastSigningOperationState.interrupted,
                 errorMessage: '$error',
               ),
             );
+            if (expired) {
+              await _recordActivity(
+                id: 'signature-request-expired:${current.storageId}',
+                accountId: current.accountId,
+                type: WalletActivityType.signatureRequestExpired,
+                reference: current.requestIdHex,
+              );
+            }
           }
           rethrow;
         } finally {
@@ -1486,6 +1673,12 @@ class WalletController extends ChangeNotifier {
         signed.rawTransactionHex,
       );
       _broadcastedTransactionIds.add(signed.transactionId);
+      await _recordActivity(
+        id: 'transaction-broadcast:${account.id}:${signed.transactionId}',
+        accountId: account.id,
+        type: WalletActivityType.transactionBroadcast,
+        reference: signed.transactionId,
+      );
       await _restartElectrumxSync();
       return WalletSendResult(
         transactionId: signed.transactionId,
@@ -1501,12 +1694,25 @@ class WalletController extends ChangeNotifier {
     _validateRoastSigningRequest(setup, item.request);
     await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
     _roastSigningRequests.remove('${setup.id}:${item.request.idHex}');
+    await _recordSetupActivity(
+      setup,
+      id: 'signature-request-approved:${setup.id}:${item.request.idHex}',
+      type: WalletActivityType.signatureRequestApproved,
+      reference: item.request.idHex,
+    );
     notifyListeners();
   }
 
   Future<void> rejectRoastSigningRequest(RoastSigningInboxItem item) async {
+    final setup = _setupById(item.setupId);
     await _roastRuntime!.rejectSignatures(item.setupId, item.request.idHex);
     _roastSigningRequests.remove('${item.setupId}:${item.request.idHex}');
+    await _recordSetupActivity(
+      setup,
+      id: 'signature-request-rejected:${setup.id}:${item.request.idHex}',
+      type: WalletActivityType.signatureRequestRejected,
+      reference: item.request.idHex,
+    );
     notifyListeners();
   }
 
