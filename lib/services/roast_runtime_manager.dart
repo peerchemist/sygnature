@@ -809,10 +809,12 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       ),
       expiry: Expiry(const Duration(minutes: 5)),
     );
+    final proposalBytes = details.toBytes();
+    final persistedDetails = SignaturesRequestDetails.fromBytes(proposalBytes);
     return RoastSigningProposal(
-      idHex: bytesToHex(details.id.toBytes()),
-      proposalHex: bytesToHex(details.toBytes()),
-      expiry: details.expiry.time,
+      idHex: bytesToHex(persistedDetails.id.toBytes()),
+      proposalHex: bytesToHex(proposalBytes),
+      expiry: persistedDetails.expiry.time,
     );
   }
 

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart'
-    show Expiry, HDKeyInfo, NewDkgDetails;
+    show Expiry, HDKeyInfo, NewDkgDetails, SignaturesRequestDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
@@ -66,6 +66,63 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('uses serialized expiry precision for signing proposals', () async {
+    final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
+    final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
+    final sourceAddress = const RoastKeyService()
+        .deriveAddress(
+          groupKeyHex: signingKey.pubkey.hex,
+          threshold: 2,
+          network: PeercoinNetworks.mainnet,
+          accountIndex: 0,
+        )
+        .address;
+    final destinationAddress = P2TRAddress.fromTweakedKey(
+      destinationKey.pubkey,
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final preview = const CoinlibWalletTransactionService().prepare(
+      accountId: 'shared',
+      network: PeercoinNetworks.mainnet,
+      sourceAddress: sourceAddress,
+      availableUtxos: [
+        ElectrumxUtxo(
+          address: sourceAddress,
+          txHash: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+          txPos: 0,
+          height: 100,
+          value: 2000000,
+        ),
+      ],
+      request: WalletSendRequest(
+        destinationAddress: destinationAddress,
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+    final transaction = const CoinlibWalletTransactionService()
+        .prepareThresholdSigning(
+          network: PeercoinNetworks.mainnet,
+          preview: preview,
+        );
+    final runtime = RoastRuntimeManager(RoastPersistenceFactory());
+    addTearDown(runtime.close);
+
+    final proposal = runtime.createTransactionSigningProposal(
+      _setup(
+        RoastSetupRole.host,
+        active: true,
+      ).copyWith(groupKeyHex: signingKey.pubkey.hex),
+      transaction,
+      const [0, 6, 0, 0, 0, 0],
+    );
+    final persisted = SignaturesRequestDetails.fromHex(proposal.proposalHex);
+
+    expect(proposal.expiry, persisted.expiry.time);
+    expect(proposal.expiry.microsecond % 1000, 0);
+    expect(proposal.idHex, bytesToHex(persisted.id.toBytes()));
+  });
 
   test('creates a separate room invite bound to each remote signer', () async {
     final participants = [
