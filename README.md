@@ -31,17 +31,21 @@ Create or import recovery phrase
 
 ## ROAST shared-wallet workflow
 
-1. The host creates a room and chooses the participant count and threshold.
-2. Each signer generates a participant identity locally and gives its public
-   participant card to the host.
-3. The host creates a separate, short-lived invitation bound to that signer's
-   public key. The invitation cannot be used by another participant identity.
-4. Signers import their invitations and join the room over Iroh. Once the
-   expected roster is present, the room is frozen.
-5. The host requests DKG and every signer reviews and approves it. DKG creates
-   one shared public key and a private key share on each participant device.
-6. The resulting Taproot address can receive Peercoin like a normal wallet.
-7. Spending creates an immutable ROAST request containing Taproot transaction
+1. The host creates a ROAST group, chooses how many signers it has and how many
+   approvals are required.
+2. Each signer generates a participant identity on their device and sends its
+   public key to the host. This is an authentication key, not a private key or
+   wallet key share.
+3. The host enters those public keys and creates one invitation for each
+   signer. Every invitation is bound to its intended public key, so it cannot
+   be used from a different participant identity.
+4. The host sends each invitation to its signer. The signer pastes it into
+   Sygnature and joins the group through an encrypted Iroh connection.
+5. When everyone has joined, the group is locked and the signers approve DKG.
+   DKG creates one shared public key while leaving each device with only its
+   own private share.
+6. The resulting Taproot address receives Peercoin like a normal wallet.
+7. Spending creates a ROAST signature request containing Taproot transaction
    metadata and an optional authenticated message. Signers review the
    recipients, change, fee and expiry. Once the threshold is reached, the
    aggregate signature is applied and the transaction is broadcast through
@@ -51,11 +55,26 @@ Wallet names are local labels and may differ between participants. Participant
 aliases are also editable; cryptographic identities and key fingerprints are
 the authoritative identifiers.
 
+## ROAST events
+
+Noosphere delivers changes in a ROAST group as events, allowing every connected
+wallet to update its screen from the same coordinator state. A signature
+request event, for example, tells signers that a transaction needs approval and
+includes the authenticated transaction metadata, optional message and expiry.
+
+Other events report signer availability, DKG requests and progress, new signing
+rounds, completion, rejection or failure. Sygnature presents requests requiring
+attention at the top of the ROAST screen and records relevant lifecycle events
+in Recent Activity; low-level Iroh network traffic is not activity history.
+
 ## Iroh connectivity and star topology
 
-[Iroh](https://www.iroh.computer/) provides authenticated QUIC connectivity,
-NAT traversal and relay fallback. Noosphere supplies the room, authentication,
-DKG and ROAST coordination protocol carried over those connections.
+[Iroh](https://www.iroh.computer/) gives the coordinator a cryptographic
+endpoint identity and opens encrypted QUIC connections from signers, first
+trying a direct path with NAT traversal and then using a relay when necessary.
+Each signer connects only to the coordinator, which distributes Noosphere room,
+DKG and ROAST events in a star topology while any relay only forwards encrypted
+traffic.
 
 Sygnature deliberately uses a star topology rather than a signer-to-signer
 mesh:
@@ -73,12 +92,6 @@ Every signer establishes its own authenticated connection to the coordinator.
 The coordinator may also run a separate local signer, but hosting does not
 count as an approval by itself. Invitations pin the coordinator's Iroh endpoint
 identity and contain direct-address or relay hints.
-
-Iroh tries to establish a direct path, including NAT hole punching. If that is
-not possible, an [Iroh relay](https://www.iroh.computer/services/hosting)
-forwards the encrypted QUIC traffic. The route may change without changing the
-ROAST protocol. Relays cannot read the connection payload; the coordinator is
-the application endpoint and distributes room events to the signers.
 
 The coordinator is required for room availability and message delivery, but it
 cannot produce a threshold signature alone. Iroh endpoint identity, participant
