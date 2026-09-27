@@ -31,25 +31,20 @@ Create or import recovery phrase
 
 ## ROAST shared-wallet workflow
 
-1. The host creates a ROAST group, chooses how many signers it has and how many
-   approvals are required.
-2. Each signer generates a participant identity on their device and sends its
-   public key to the host. This is an authentication key, not a private key or
-   wallet key share.
-3. The host enters those public keys and creates one invitation for each
-   signer. Every invitation is bound to its intended public key, so it cannot
-   be used from a different participant identity.
-4. The host sends each invitation to its signer. The signer pastes it into
-   Sygnature and joins the group through an encrypted Iroh connection.
-5. When everyone has joined, the group is locked and the signers approve DKG.
-   DKG creates one shared public key while leaving each device with only its
-   own private share.
-6. The resulting Taproot address receives Peercoin like a normal wallet.
-7. Spending creates a ROAST signature request containing Taproot transaction
-   metadata and an optional authenticated message. Signers review the
-   recipients, change, fee and expiry. Once the threshold is reached, the
-   aggregate signature is applied and the transaction is broadcast through
-   ElectrumX.
+1. Someone creates a ROAST group and decides how many people can sign and how
+   many signatures are needed to spend.
+2. Each signer shares the public key from their device with the group creator.
+   It is only used to identify them—no private keys or wallet shares are sent.
+3. The creator adds those public keys and makes a separate invite for each
+   signer. An invite only works for the person it was made for.
+4. Each signer pastes their invite into Sygnature and joins over an encrypted
+   Iroh connection.
+5. Once everyone is in, the signers approve DKG. This creates the shared wallet
+   address, while every signer keeps their own private share on their device.
+6. The shared Taproot address can now receive Peercoin like any other wallet.
+7. When someone wants to spend, Sygnature asks the other signers to review and
+   approve the transaction. As soon as enough people approve, the transaction
+   is signed and sent to the Peercoin network through ElectrumX.
 
 Wallet names are local labels and may differ between participants. Participant
 aliases are also editable; cryptographic identities and key fingerprints are
