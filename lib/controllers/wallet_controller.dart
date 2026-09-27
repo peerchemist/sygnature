@@ -1622,6 +1622,15 @@ class WalletController extends ChangeNotifier {
       return signingOperation == null
           ? await _broadcastSigned(account, signed)
           : await _broadcastRoastOperation(account, signingOperation, signed);
+    } on WalletTransactionFailure {
+      rethrow;
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        '[WALLET SEND ${preview.accountId}] Transaction submission failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      throw WalletTransactionRejected(_sendFailureMessage(error));
     } finally {
       _sending = false;
     }
@@ -1693,10 +1702,12 @@ class WalletController extends ChangeNotifier {
       );
     }
     try {
-      final service = _networkServices[networkForAccount(account).storageId];
-      if (service == null) throw StateError('ElectrumX is not configured.');
       late final String serverTransactionId;
       try {
+        final service = _networkServices[networkForAccount(account).storageId];
+        if (service == null) {
+          throw StateError('ElectrumX is not configured.');
+        }
         serverTransactionId = await service.broadcastTransaction(
           signed.rawTransactionHex,
         );
@@ -1750,6 +1761,9 @@ class WalletController extends ChangeNotifier {
     if (cause is TimeoutException) {
       return 'Broadcast timed out. Verify the network connection and retry.';
     }
+    if (cause is StateError) {
+      return 'ElectrumX is unavailable for this wallet. Reconnect and retry.';
+    }
     if (cause is ElectrumxException) {
       return 'ElectrumX could not broadcast the transaction. '
           'Verify the network connection and retry.';
@@ -1766,6 +1780,16 @@ class WalletController extends ChangeNotifier {
     if (clean.length <= maxLength) return clean;
     return '${clean.substring(0, maxLength - 1)}…';
   }
+
+  String _sendFailureMessage(Object error) => switch (error) {
+    NoosphereWorkerException(:final message) =>
+      'ROAST signing failed: ${_sanitizeBroadcastError(message)}',
+    TimeoutException() =>
+      'Transaction signing timed out. Check signer connectivity and retry.',
+    StateError(:final message) =>
+      'Transaction submission failed: ${_sanitizeBroadcastError(message)}',
+    _ => 'Transaction submission failed. Check the application log and retry.',
+  };
 
   Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
     final setup = _setupById(item.setupId);

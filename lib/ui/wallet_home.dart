@@ -7,6 +7,7 @@ import '../models/wallet_activity.dart';
 import '../models/roast_setup.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
+import '../services/app_logger.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
@@ -1187,7 +1188,12 @@ class _SendDialogState extends State<_SendDialog> {
       Navigator.pop(context, result);
     } on WalletTransactionFailure catch (error) {
       if (mounted) setState(() => _error = error.message);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '[WALLET SEND UI] Unhandled transaction submission error',
+        error: error,
+        stackTrace: stackTrace,
+      );
       if (mounted) {
         setState(() {
           _error = 'Broadcast failed. Verify the network connection and retry.';

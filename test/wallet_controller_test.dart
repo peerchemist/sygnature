@@ -374,6 +374,78 @@ void main() {
       controller.dispose();
     },
   );
+
+  test(
+    'reports when no ElectrumX service is available for broadcast',
+    () async {
+      final controller = WalletController(
+        MemoryWalletRepository(),
+        keyService: _FakeWalletKeyService(),
+        transactionService: _FakeWalletTransactionService(),
+        networkServiceFactory: (_) async => null,
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+
+      final preview = controller.prepareSend(
+        const WalletSendRequest(
+          destinationAddress: 'pc1pdestination',
+          amountSats: 1000000,
+          feeRateSatsPerKb: 10000,
+        ),
+      );
+
+      await expectLater(
+        controller.sendTransaction(preview),
+        throwsA(
+          isA<WalletTransactionRejected>().having(
+            (error) => error.message,
+            'message',
+            'ElectrumX is unavailable for this wallet. Reconnect and retry.',
+          ),
+        ),
+      );
+
+      controller.dispose();
+    },
+  );
+
+  test('maps and logs an unexpected signing failure', () async {
+    final transactions = _FakeWalletTransactionService()
+      ..signingError = StateError('signer exploded');
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      transactionService: transactions,
+      networkServiceFactory: (_) async => _FakeElectrumxService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+
+    final preview = controller.prepareSend(
+      const WalletSendRequest(
+        destinationAddress: 'pc1pdestination',
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+
+    await expectLater(
+      controller.sendTransaction(preview),
+      throwsA(
+        isA<WalletTransactionRejected>().having(
+          (error) => error.message,
+          'message',
+          'Transaction submission failed: signer exploded',
+        ),
+      ),
+    );
+
+    controller.dispose();
+  });
 }
 
 const _mnemonic = MnemonicSession(
@@ -466,6 +538,7 @@ class _FakeElectrumxService implements ElectrumxService {
 class _FakeWalletTransactionService implements WalletTransactionService {
   List<ElectrumxUtxo> preparedUtxos = const [];
   String? signedPrivateKey;
+  Object? signingError;
 
   @override
   WalletTransactionPreview prepare({
@@ -495,6 +568,8 @@ class _FakeWalletTransactionService implements WalletTransactionService {
     required String privateKeyHex,
   }) {
     signedPrivateKey = privateKeyHex;
+    final error = signingError;
+    if (error != null) throw error;
     return const SignedWalletTransaction(
       transactionId: 'local-transaction-id',
       rawTransactionHex: 'signed-transaction',
