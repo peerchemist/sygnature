@@ -107,6 +107,7 @@ class WalletController extends ChangeNotifier {
   int _syncGeneration = 0;
   final Map<String, StreamSubscription<PeercoinElectrumxUtxoSnapshot>>
   _syncSubscriptions = {};
+  Future<void>? _syncCancellation;
   final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
   final Map<String, Object> _syncErrorsByAddress = {};
   final Set<String> _syncingAddresses = {};
@@ -2063,12 +2064,21 @@ class WalletController extends ChangeNotifier {
         });
   }
 
-  Future<void> _cancelSyncSubscriptions() async {
+  Future<void> _cancelSyncSubscriptions() {
+    final pending = _syncCancellation;
+    if (pending != null) return pending;
     final subscriptions = _syncSubscriptions.values.toList(growable: false);
     _syncSubscriptions.clear();
-    for (final subscription in subscriptions) {
-      await subscription.cancel();
-    }
+    late final Future<void> cancellation;
+    cancellation =
+        Future.wait(subscriptions.map((subscription) => subscription.cancel()))
+            .then<void>((_) {})
+            .whenComplete(() {
+              if (identical(_syncCancellation, cancellation)) {
+                _syncCancellation = null;
+              }
+            });
+    return _syncCancellation = cancellation;
   }
 
   Future<void> _closeNetworkServices() async {

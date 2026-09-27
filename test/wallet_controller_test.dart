@@ -183,6 +183,35 @@ void main() {
     controller.dispose();
   });
 
+  test('waits for an active sync cancellation before restarting', () async {
+    final cancellationStarted = Completer<void>();
+    final releaseCancellation = Completer<void>();
+    final electrumx = _DelayedCancellationElectrumxService(
+      cancellationStarted,
+      releaseCancellation,
+    );
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+
+    final firstRefresh = controller.refreshBalances();
+    await cancellationStarted.future;
+    final secondRefresh = controller.refreshBalances();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(electrumx.watchedAddresses, hasLength(1));
+
+    releaseCancellation.complete();
+    await Future.wait([firstRefresh, secondRefresh]);
+
+    expect(electrumx.watchedAddresses, hasLength(2));
+    controller.dispose();
+  });
+
   test('deletes an account without reusing its derivation index', () async {
     final repository = MemoryWalletRepository();
     final services = <String, _FakeElectrumxService>{};
@@ -532,6 +561,45 @@ class _FakeElectrumxService implements ElectrumxService {
   Future<void> close() async {
     closed = true;
     await snapshots.close();
+  }
+}
+
+class _DelayedCancellationElectrumxService(
+  final Completer<void> cancellationStarted,
+  final Completer<void> releaseCancellation,
+) implements ElectrumxService {
+  final List<Set<String>> watchedAddresses = [];
+  final List<StreamController<PeercoinElectrumxUtxoSnapshot>> _controllers = [];
+
+  @override
+  Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
+    Iterable<String> addresses,
+  ) {
+    watchedAddresses.add(addresses.toSet());
+    final controller = StreamController<PeercoinElectrumxUtxoSnapshot>(
+      onCancel: () async {
+        if (!cancellationStarted.isCompleted) {
+          cancellationStarted.complete();
+        }
+        await releaseCancellation.future;
+      },
+    );
+    _controllers.add(controller);
+    return controller.stream;
+  }
+
+  @override
+  Future<List<ElectrumxUtxo>> fetchUtxos(String address) async => const [];
+
+  @override
+  Future<String> broadcastTransaction(String rawTransactionHex) async =>
+      'transaction-id';
+
+  @override
+  Future<void> close() async {
+    for (final controller in _controllers) {
+      await controller.close();
+    }
   }
 }
 
