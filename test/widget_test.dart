@@ -154,6 +154,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('shows both ends of a long receive address', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const address =
+        'pc1pczy4pf46yjt8ukyg1gsyxhquvx7vjhlgqjpux8ahcxv3870example';
+    final repository = MemoryWalletRepository()
+      ..value = WalletVault(
+        accounts: [
+          WalletAccount(
+            id: 'main',
+            name: 'Main wallet',
+            accountIndex: 0,
+            blockchainId: 'peercoin',
+            networkId: 'mainnet',
+            address: address,
+            privateKeyHex: 'private-key-0',
+            createdAt: DateTime.utc(2026),
+          ),
+        ],
+        nextAccountIndex: 1,
+      );
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    final addressText = tester.widget<Text>(
+      find.byKey(const Key('receive-address-value')),
+    );
+    expect(addressText.data, contains('…'));
+    expect(addressText.data, startsWith(address.substring(0, 8)));
+    expect(addressText.data, endsWith(address.substring(address.length - 8)));
+    expect(addressText.semanticsLabel, address);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('shows persisted events in recent activity', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));

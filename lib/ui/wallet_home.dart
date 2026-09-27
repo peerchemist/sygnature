@@ -813,15 +813,26 @@ class _AddressCard extends StatelessWidget {
                   : Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            address,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              const style = TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              );
+                              return Text(
+                                _ellipsizeMiddle(
+                                  address,
+                                  maxWidth: constraints.maxWidth,
+                                  style: style,
+                                  textDirection: Directionality.of(context),
+                                ),
+                                key: const Key('receive-address-value'),
+                                maxLines: 1,
+                                semanticsLabel: address,
+                                style: style,
+                              );
+                            },
                           ),
                         ),
                         IconButton(
@@ -846,6 +857,33 @@ class _AddressCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _ellipsizeMiddle(
+  String value, {
+  required double maxWidth,
+  required TextStyle style,
+  required TextDirection textDirection,
+}) {
+  double widthOf(String text) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      maxLines: 1,
+      textDirection: textDirection,
+    )..layout();
+    return painter.width;
+  }
+
+  if (widthOf(value) <= maxWidth) return value;
+  for (var visible = value.length - 1; visible >= 2; visible--) {
+    final leading = (visible + 1) ~/ 2;
+    final trailing = visible - leading;
+    final shortened =
+        '${value.substring(0, leading)}…'
+        '${value.substring(value.length - trailing)}';
+    if (widthOf(shortened) <= maxWidth) return shortened;
+  }
+  return '…';
 }
 
 class _AccountDetails extends StatelessWidget {
