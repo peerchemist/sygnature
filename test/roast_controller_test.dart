@@ -602,7 +602,7 @@ void main() {
     controller.dispose();
   });
 
-  test('persists signatures and signed bytes before broadcasting', () async {
+  test('queues signing while quorum is offline', () async {
     final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
     final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
     final derived = const RoastKeyService().deriveAddress(
@@ -653,6 +653,10 @@ void main() {
     );
     await controller.load();
     await _flushEvents();
+    expect(
+      controller.onlineSignerCount(controller.roastSetups.single),
+      lessThan(controller.roastSetups.single.threshold),
+    );
 
     final preview = const CoinlibWalletTransactionService().prepare(
       accountId: 'shared',
@@ -1180,7 +1184,7 @@ final class _SigningRoastRuntime(
       RoastRuntimeSnapshot(
         connected: true,
         signerRunning: true,
-        onlineParticipantIds: const ['02'],
+        onlineParticipantIds: const [],
         coordinatorId: 'coordinator',
         coordinatorRelayUrls: const [],
         coordinatorIpAddrs: const [],

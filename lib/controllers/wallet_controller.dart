@@ -1542,11 +1542,6 @@ class WalletController extends ChangeNotifier {
             setup.groupKeyHex == null) {
           throw const WalletSigningUnavailable();
         }
-        if (onlineSignerCount(setup) < setup.threshold) {
-          throw const WalletTransactionRejected(
-            'The ROAST signing quorum is not online.',
-          );
-        }
         final network = networkForAccount(account);
         final derived = _roastKeyService.deriveAddress(
           groupKeyHex: setup.groupKeyHex!,
