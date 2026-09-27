@@ -17,6 +17,7 @@ import 'app_theme.dart';
 import 'onboarding_screen.dart';
 import 'roast_setup_flow.dart';
 import 'widgets/brand_mark.dart';
+import 'widgets/middle_ellipsis_text.dart';
 
 class WalletHome extends StatelessWidget {
   const WalletHome({super.key, required this.controller});
@@ -813,26 +814,14 @@ class _AddressCard extends StatelessWidget {
                   : Row(
                       children: [
                         Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              const style = TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              );
-                              return Text(
-                                _ellipsizeMiddle(
-                                  address,
-                                  maxWidth: constraints.maxWidth,
-                                  style: style,
-                                  textDirection: Directionality.of(context),
-                                ),
-                                key: const Key('receive-address-value'),
-                                maxLines: 1,
-                                semanticsLabel: address,
-                                style: style,
-                              );
-                            },
+                          child: MiddleEllipsisText(
+                            key: const Key('receive-address-value'),
+                            value: address,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         IconButton(
@@ -857,33 +846,6 @@ class _AddressCard extends StatelessWidget {
       ),
     );
   }
-}
-
-String _ellipsizeMiddle(
-  String value, {
-  required double maxWidth,
-  required TextStyle style,
-  required TextDirection textDirection,
-}) {
-  double widthOf(String text) {
-    final painter = TextPainter(
-      text: TextSpan(text: text, style: style),
-      maxLines: 1,
-      textDirection: textDirection,
-    )..layout();
-    return painter.width;
-  }
-
-  if (widthOf(value) <= maxWidth) return value;
-  for (var visible = value.length - 1; visible >= 2; visible--) {
-    final leading = (visible + 1) ~/ 2;
-    final trailing = visible - leading;
-    final shortened =
-        '${value.substring(0, leading)}…'
-        '${value.substring(value.length - trailing)}';
-    if (widthOf(shortened) <= maxWidth) return shortened;
-  }
-  return '…';
 }
 
 class _AccountDetails extends StatelessWidget {
@@ -1369,8 +1331,9 @@ class _SendDialogState extends State<_SendDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextFormField(
-            key: const Key('send-address-field'),
+          MiddleEllipsisTextFormField(
+            fieldKey: const Key('send-address-field'),
+            collapsedTextKey: const Key('send-address-collapsed-value'),
             controller: _destinationController,
             autofocus: true,
             autocorrect: false,

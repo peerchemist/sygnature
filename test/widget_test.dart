@@ -14,6 +14,7 @@ import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
+import 'package:sygnature_ng/ui/widgets/middle_ellipsis_text.dart';
 
 void main() {
   Future<WalletController> createController() async {
@@ -187,13 +188,65 @@ void main() {
     await tester.pumpAndSettle();
 
     final addressText = tester.widget<Text>(
-      find.byKey(const Key('receive-address-value')),
+      find.descendant(
+        of: find.byKey(const Key('receive-address-value')),
+        matching: find.byType(Text),
+      ),
     );
     expect(addressText.data, contains('…'));
     expect(addressText.data, startsWith(address.substring(0, 8)));
     expect(addressText.data, endsWith(address.substring(address.length - 8)));
     expect(addressText.semanticsLabel, address);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('collapses an unfocused address field without changing it', (
+    tester,
+  ) async {
+    const address =
+        'pc1pczy4pf46yjt8ukyg1gsyxhquvx7vjhlgqjpux8ahcxv3870example';
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            child: Column(
+              children: [
+                MiddleEllipsisTextFormField(
+                  controller: controller,
+                  fieldKey: const Key('address-field'),
+                  collapsedTextKey: const Key('collapsed-address'),
+                  decoration: const InputDecoration(labelText: 'Address'),
+                ),
+                const TextField(key: Key('next-field')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byKey(const Key('address-field')), address);
+    await tester.tap(find.byKey(const Key('next-field')));
+    await tester.pump();
+
+    final addressText = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('collapsed-address')),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(addressText.data, contains('…'));
+    expect(addressText.data, startsWith(address.substring(0, 8)));
+    expect(addressText.data, endsWith(address.substring(address.length - 8)));
+    expect(controller.text, address);
+
+    await tester.tap(find.byKey(const Key('address-field')));
+    await tester.pump();
+    expect(find.byKey(const Key('collapsed-address')), findsNothing);
   });
 
   testWidgets('shows persisted events in recent activity', (tester) async {
