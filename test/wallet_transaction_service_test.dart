@@ -7,6 +7,8 @@ import 'package:sygnature_ng/models/wallet_transaction.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 
+import 'fixtures/peercoin_taproot_transaction_fixture.dart';
+
 void main() {
   const service = CoinlibWalletTransactionService();
   final sourceKeyHex = '${List.filled(63, '0').join()}1';
@@ -166,6 +168,92 @@ void main() {
       ),
       throwsA(isA<WalletTransactionRejected>()),
     );
+  });
+
+  test('matches the deterministic Taproot transaction fixture', () {
+    final internalKey = ECPrivateKey.fromHex(fixtureInternalPrivateKeyHex);
+    final taproot = Taproot(internalKey: internalKey.pubkey);
+    final spendKey = taproot.tweakPrivateKey(internalKey);
+    final destinationKey = ECPrivateKey.fromHex(
+      fixtureDestinationPrivateKeyHex,
+    );
+
+    expect(internalKey.pubkey.hex, fixtureInternalPublicKeyHex);
+    expect(bytesToHex(spendKey.data), fixtureSpendPrivateKeyHex);
+    expect(
+      P2TRAddress.fromTaproot(
+        taproot,
+        hrp: Network.mainnet.bech32Hrp,
+      ).toString(),
+      fixtureSourceAddress,
+    );
+    expect(
+      P2TRAddress.fromTweakedKey(
+        destinationKey.pubkey,
+        hrp: Network.mainnet.bech32Hrp,
+      ).toString(),
+      fixtureDestinationAddress,
+    );
+
+    final preview = service.prepare(
+      accountId: 'fixture-wallet',
+      network: PeercoinNetworks.mainnet,
+      sourceAddress: fixtureSourceAddress,
+      availableUtxos: const [
+        ElectrumxUtxo(
+          address: fixtureSourceAddress,
+          txHash: fixtureUtxoTransactionId,
+          txPos: fixtureUtxoIndex,
+          height: 100,
+          value: fixtureUtxoValue,
+        ),
+      ],
+      request: const WalletSendRequest(
+        destinationAddress: fixtureDestinationAddress,
+        amountSats: 0,
+        feeRateSatsPerKb: fixtureFeeRate,
+        maximum: true,
+      ),
+    );
+
+    expect(preview.amountSats, fixtureAmount);
+    expect(preview.feeSats, fixtureFee);
+    expect(preview.changeSats, fixtureChange);
+
+    final unsigned = service.prepareThresholdSigning(
+      network: PeercoinNetworks.mainnet,
+      preview: preview,
+    );
+    expect(
+      bytesToHex(unsigned.transaction.toBytes()),
+      fixtureUnsignedTransactionHex,
+    );
+    expect(
+      bytesToHex(unsigned.signatureHashes.single),
+      fixtureSignatureHashHex,
+    );
+
+    final signature = SchnorrSignature.sign(
+      spendKey,
+      unsigned.signatureHashes.single,
+    );
+    expect(bytesToHex(signature.data), fixtureSignatureHex);
+
+    final thresholdSigned = service.completeThresholdSigning(
+      transaction: unsigned,
+      signatures: [signature.data],
+      expectedInternalKeyHex: fixtureInternalPublicKeyHex,
+    );
+    expect(thresholdSigned.rawTransactionHex, fixtureSignedTransactionHex);
+    expect(thresholdSigned.transactionId, fixtureTransactionId);
+
+    final locallySigned = service.sign(
+      network: PeercoinNetworks.mainnet,
+      preview: preview,
+      privateKeyHex: fixtureSpendPrivateKeyHex,
+    );
+    expect(locallySigned.rawTransactionHex, fixtureSignedTransactionHex);
+    expect(locallySigned.transactionId, fixtureTransactionId);
   });
 
   test('maximum spend deducts the fee and creates no change', () {
