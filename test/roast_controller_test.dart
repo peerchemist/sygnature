@@ -248,6 +248,7 @@ void main() {
             accountIndex: 0,
             blockchainId: 'peercoin',
             networkId: 'mainnet',
+            derivationState: WalletDerivationState.pending,
             keySource: WalletKeySource.roast,
             sourceId: 'setup',
             keyId: 'group:generation:1',
@@ -816,6 +817,7 @@ void main() {
             accountIndex: 0,
             blockchainId: 'peercoin',
             networkId: 'mainnet',
+            derivationState: WalletDerivationState.ready,
             keySource: WalletKeySource.roast,
             sourceId: 'setup',
             keyId: 'setup:generation:1',
@@ -1040,6 +1042,7 @@ WalletController _activeController({
           accountIndex: 0,
           blockchainId: 'peercoin',
           networkId: 'mainnet',
+          derivationState: WalletDerivationState.ready,
           keySource: WalletKeySource.roast,
           sourceId: 'setup',
           keyId: 'setup:generation:1',
@@ -1079,6 +1082,9 @@ WalletController _controller({
           accountIndex: 0,
           blockchainId: 'peercoin',
           networkId: 'mainnet',
+          derivationState: active
+              ? WalletDerivationState.ready
+              : WalletDerivationState.pending,
           keySource: WalletKeySource.roast,
           sourceId: 'setup',
           keyId: 'setup:generation:1',

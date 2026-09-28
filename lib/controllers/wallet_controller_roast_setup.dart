@@ -93,6 +93,7 @@ extension WalletRoastSetupController on WalletController {
       accountIndex: 0,
       blockchainId: selectedNetwork.blockchainId,
       networkId: selectedNetwork.networkId,
+      derivationState: WalletDerivationState.pending,
       keySource: WalletKeySource.roast,
       sourceId: setupId,
       keyId: setup.keyName,
@@ -228,6 +229,7 @@ extension WalletRoastSetupController on WalletController {
       accountIndex: 0,
       blockchainId: setup.blockchainId,
       networkId: setup.networkId,
+      derivationState: WalletDerivationState.pending,
       keySource: WalletKeySource.roast,
       sourceId: setupId,
       keyId: setup.keyName,
@@ -504,6 +506,7 @@ extension WalletRoastSetupController on WalletController {
           if (account.sourceId == setup.id)
             account.copyWith(
               keyId: setup.keyName,
+              derivationState: WalletDerivationState.ready,
               derivationPath: derived.pathLabel,
               address: derived.address,
             )

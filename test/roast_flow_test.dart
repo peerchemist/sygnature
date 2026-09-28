@@ -34,6 +34,7 @@ void main() {
             accountIndex: 0,
             blockchainId: 'peercoin',
             networkId: 'mainnet',
+            derivationState: WalletDerivationState.ready,
             derivationPath: "m/86'/6'/0'/0/0",
             address: 'pc1ppersonal',
             privateKeyHex: 'personal-private-key',
@@ -558,6 +559,7 @@ WalletVault _activeRoastVault() {
   return vault.copyWith(
     accounts: [
       vault.accounts.single.copyWith(
+        derivationState: WalletDerivationState.ready,
         address: 'pc1proast',
         derivationPath: 'R/0/6/0/0/0/0',
       ),
@@ -579,6 +581,7 @@ WalletVault _finalizedRoastVault() => WalletVault(
       accountIndex: 0,
       blockchainId: 'peercoin',
       networkId: 'mainnet',
+      derivationState: WalletDerivationState.pending,
       keySource: WalletKeySource.roast,
       sourceId: 'setup',
       keyId: 'group-g1',

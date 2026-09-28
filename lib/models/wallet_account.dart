@@ -1,5 +1,7 @@
 enum WalletKeySource { personal, roast }
 
+enum WalletDerivationState { pending, ready, watchOnly, locked, error }
+
 class WalletAccount {
   const WalletAccount({
     required this.id,
@@ -7,6 +9,7 @@ class WalletAccount {
     required this.accountIndex,
     required this.blockchainId,
     required this.networkId,
+    required this.derivationState,
     required this.createdAt,
     this.keySource = WalletKeySource.personal,
     this.sourceId,
@@ -21,6 +24,7 @@ class WalletAccount {
   final int accountIndex;
   final String blockchainId;
   final String networkId;
+  final WalletDerivationState derivationState;
   final WalletKeySource keySource;
   final String? sourceId;
   final String? keyId;
@@ -36,6 +40,7 @@ class WalletAccount {
 
   WalletAccount copyWith({
     String? name,
+    WalletDerivationState? derivationState,
     String? derivationPath,
     String? address,
     String? keyId,
@@ -45,6 +50,7 @@ class WalletAccount {
     accountIndex: accountIndex,
     blockchainId: blockchainId,
     networkId: networkId,
+    derivationState: derivationState ?? this.derivationState,
     keySource: keySource,
     sourceId: sourceId,
     keyId: keyId ?? this.keyId,
@@ -60,6 +66,7 @@ class WalletAccount {
     'accountIndex': accountIndex,
     'blockchainId': blockchainId,
     'networkId': networkId,
+    'derivationState': derivationState.name,
     'keySource': keySource.name,
     'sourceId': sourceId,
     'keyId': keyId,
@@ -69,20 +76,46 @@ class WalletAccount {
     'createdAt': createdAt.toUtc().toIso8601String(),
   };
 
-  factory WalletAccount.fromJson(Map<Object?, Object?> json) => WalletAccount(
-    id: json['id']! as String,
-    name: json['name']! as String,
-    accountIndex: json['accountIndex']! as int,
-    blockchainId: json['blockchainId']! as String,
-    networkId: json['networkId']! as String,
-    keySource: WalletKeySource.values.byName(
+  factory WalletAccount.fromJson(Map<Object?, Object?> json) {
+    final keySource = WalletKeySource.values.byName(
       json['keySource'] as String? ?? WalletKeySource.personal.name,
-    ),
-    sourceId: json['sourceId'] as String?,
-    keyId: json['keyId'] as String?,
-    derivationPath: json['derivationPath'] as String?,
-    address: json['address'] as String?,
-    privateKeyHex: json['privateKeyHex'] as String?,
-    createdAt: DateTime.parse(json['createdAt']! as String),
-  );
+    );
+    final address = json['address'] as String?;
+    final privateKeyHex = json['privateKeyHex'] as String?;
+    final storedState = json['derivationState'] as String?;
+    final derivationState = storedState == null
+        ? _legacyDerivationState(
+            keySource: keySource,
+            address: address,
+            privateKeyHex: privateKeyHex,
+          )
+        : WalletDerivationState.values.byName(storedState);
+    return WalletAccount(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      accountIndex: json['accountIndex']! as int,
+      blockchainId: json['blockchainId']! as String,
+      networkId: json['networkId']! as String,
+      derivationState: derivationState,
+      keySource: keySource,
+      sourceId: json['sourceId'] as String?,
+      keyId: json['keyId'] as String?,
+      derivationPath: json['derivationPath'] as String?,
+      address: address,
+      privateKeyHex: privateKeyHex,
+      createdAt: DateTime.parse(json['createdAt']! as String),
+    );
+  }
+
+  static WalletDerivationState _legacyDerivationState({
+    required WalletKeySource keySource,
+    required String? address,
+    required String? privateKeyHex,
+  }) {
+    if (address == null) return WalletDerivationState.pending;
+    if (keySource == WalletKeySource.personal && privateKeyHex == null) {
+      return WalletDerivationState.watchOnly;
+    }
+    return WalletDerivationState.ready;
+  }
 }

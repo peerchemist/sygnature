@@ -63,7 +63,9 @@ extension WalletSigningController on WalletController {
   WalletTransactionPreview prepareSend(WalletSendRequest request) {
     final account = selectedAccount;
     final address = account?.address;
-    if (account == null || address == null) {
+    if (account == null ||
+        account.derivationState != WalletDerivationState.ready ||
+        address == null) {
       throw const WalletSigningUnavailable();
     }
     return _transactionService.prepare(
@@ -82,6 +84,9 @@ extension WalletSigningController on WalletController {
     required String text,
     String message = '',
   }) async {
+    if (account.derivationState != WalletDerivationState.ready) {
+      throw const WalletSigningUnavailable();
+    }
     final setup = setupForAccount(account);
     final runtime = _roastRuntime;
     if (setup == null ||
@@ -137,6 +142,9 @@ extension WalletSigningController on WalletController {
           .where((candidate) => candidate.id == preview.accountId)
           .firstOrNull;
       if (account == null) {
+        throw const WalletSigningUnavailable();
+      }
+      if (account.derivationState != WalletDerivationState.ready) {
         throw const WalletSigningUnavailable();
       }
       final SignedWalletTransaction signed;

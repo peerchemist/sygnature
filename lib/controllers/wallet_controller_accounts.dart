@@ -297,6 +297,7 @@ extension WalletAccountsController on WalletController {
     accountIndex: index,
     blockchainId: network.blockchainId,
     networkId: network.networkId,
+    derivationState: WalletDerivationState.ready,
     derivationPath: material.derivationPath,
     address: material.address,
     privateKeyHex: material.privateKeyHex,

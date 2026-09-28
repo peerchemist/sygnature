@@ -5,9 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
+import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
 import 'package:sygnature_ng/models/wallet_transaction.dart';
+import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
@@ -339,6 +341,50 @@ void main() {
     );
 
     controller.dispose();
+  });
+
+  test('rejects sends unless derivation state is ready', () async {
+    for (final state in [
+      WalletDerivationState.pending,
+      WalletDerivationState.watchOnly,
+      WalletDerivationState.locked,
+      WalletDerivationState.error,
+    ]) {
+      final repository = MemoryWalletRepository()
+        ..value = WalletVault(
+          accounts: [
+            WalletAccount(
+              id: state.name,
+              name: state.name,
+              accountIndex: 0,
+              blockchainId: 'peercoin',
+              networkId: 'mainnet',
+              derivationState: state,
+              address: 'pc1paccount0',
+              createdAt: DateTime.utc(2026),
+            ),
+          ],
+          nextAccountIndex: 1,
+        );
+      final controller = WalletController(
+        repository,
+        networkServiceFactory: (_) async => null,
+      );
+      await controller.load();
+
+      expect(
+        () => controller.prepareSend(
+          const WalletSendRequest(
+            destinationAddress: 'pc1pdestination',
+            amountSats: 1,
+            feeRateSatsPerKb: 10000,
+          ),
+        ),
+        throwsA(isA<WalletSigningUnavailable>()),
+        reason: state.name,
+      );
+      controller.dispose();
+    }
   });
 
   test(

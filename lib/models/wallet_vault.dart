@@ -13,7 +13,7 @@ class WalletVault {
     this.mnemonicWordCount,
   });
 
-  static const schemaVersion = 4;
+  static const schemaVersion = 5;
 
   /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;

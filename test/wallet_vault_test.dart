@@ -13,6 +13,7 @@ void main() {
           accountIndex: 0,
           blockchainId: 'peercoin',
           networkId: 'testnet',
+          derivationState: WalletDerivationState.pending,
           createdAt: DateTime.utc(2026),
         ),
       ],
@@ -33,6 +34,10 @@ void main() {
     expect(restored.accounts.single.blockchainId, 'peercoin');
     expect(restored.accounts.single.networkId, 'testnet');
     expect(
+      restored.accounts.single.derivationState,
+      WalletDerivationState.pending,
+    );
+    expect(
       restored.activities.single.type,
       WalletActivityType.transactionSigned,
     );
@@ -49,6 +54,61 @@ void main() {
       ..remove('activities');
 
     expect(WalletVault.fromJson(json).activities, isEmpty);
+  });
+
+  test('migrates legacy nullable derivation data to explicit states', () {
+    Map<String, Object?> account({
+      required String id,
+      String? address,
+      String? privateKeyHex,
+      String? keySource,
+    }) => {
+      'id': id,
+      'name': id,
+      'accountIndex': 0,
+      'blockchainId': 'peercoin',
+      'networkId': 'mainnet',
+      'keySource': ?keySource,
+      'address': address,
+      'privateKeyHex': privateKeyHex,
+      'createdAt': '2026-01-01T00:00:00.000Z',
+    };
+
+    final restored = WalletVault.fromJson({
+      'schemaVersion': 4,
+      'accounts': [
+        account(id: 'ready', address: 'pc1pready', privateKeyHex: 'secret'),
+        account(id: 'watch', address: 'pc1pwatch'),
+        account(id: 'pending'),
+        account(id: 'roast', address: 'pc1proast', keySource: 'roast'),
+      ],
+      'nextAccountIndex': 1,
+      'roastSetups': const [],
+      'activities': const [],
+    });
+
+    expect(restored.accounts.map((account) => account.derivationState), [
+      WalletDerivationState.ready,
+      WalletDerivationState.watchOnly,
+      WalletDerivationState.pending,
+      WalletDerivationState.ready,
+    ]);
+  });
+
+  test('round trips every explicit derivation state', () {
+    for (final state in WalletDerivationState.values) {
+      final account = WalletAccount(
+        id: state.name,
+        name: state.name,
+        accountIndex: 0,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        derivationState: state,
+        createdAt: DateTime.utc(2026),
+      );
+
+      expect(WalletAccount.fromJson(account.toJson()).derivationState, state);
+    }
   });
 
   test('rejects unsupported schemas', () {

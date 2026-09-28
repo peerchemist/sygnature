@@ -182,6 +182,17 @@ class _WalletListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isRoast = account.keySource == WalletKeySource.roast;
     final isCoordinator = setup?.role == RoastSetupRole.host;
+    final accountStatus = switch (account.derivationState) {
+      WalletDerivationState.pending => 'Pending derivation',
+      WalletDerivationState.ready =>
+        syncStatus == AccountSyncStatus.syncing
+            ? 'Synchronizing…'
+            : '${_formatPpc(balanceSats)} PPC',
+      WalletDerivationState.watchOnly =>
+        'Watch-only · ${_formatPpc(balanceSats)} PPC',
+      WalletDerivationState.locked => 'Locked · ${_formatPpc(balanceSats)} PPC',
+      WalletDerivationState.error => 'Derivation failed',
+    };
 
     return Material(
       color: selected ? AppColors.lime : Colors.transparent,
@@ -268,11 +279,7 @@ class _WalletListTile extends StatelessWidget {
                     Text(
                       setup != null && !setup!.isActive
                           ? 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
-                          : account.address == null
-                          ? 'Pending derivation'
-                          : syncStatus == AccountSyncStatus.syncing
-                          ? 'Synchronizing…'
-                          : '${_formatPpc(balanceSats)} PPC',
+                          : accountStatus,
                       style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
                     ),
                   ],
@@ -632,7 +639,9 @@ class _BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final active = account.address != null;
+    final hasAddress = account.address != null;
+    final canSign =
+        hasAddress && account.derivationState == WalletDerivationState.ready;
     final syncStatus = controller.syncStatusFor(account);
     final balance = controller.balanceSatsFor(account);
     final confirmedBalance = controller.confirmedBalanceSatsFor(account);
@@ -702,7 +711,7 @@ class _BalanceCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (active && syncStatus != AccountSyncStatus.syncing)
+                  if (hasAddress && syncStatus != AccountSyncStatus.syncing)
                     IconButton(
                       tooltip: 'Refresh balance',
                       visualDensity: VisualDensity.compact,
@@ -720,11 +729,11 @@ class _BalanceCard extends StatelessWidget {
                     icon: Icons.north_east,
                     label: 'Send',
                     enabled:
-                        active &&
+                        canSign &&
                         syncStatus == AccountSyncStatus.synced &&
                         availableBalance > 0,
                     onPressed:
-                        active &&
+                        canSign &&
                             syncStatus == AccountSyncStatus.synced &&
                             availableBalance > 0
                         ? () => _showSendDialog(context, controller, account)
@@ -817,9 +826,18 @@ class _AddressCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               child: address == null
-                  ? const Text(
-                      'Address unavailable until coinlib derivation.',
-                      style: TextStyle(color: AppColors.inkMuted, fontSize: 13),
+                  ? Text(
+                      switch (account.derivationState) {
+                        WalletDerivationState.error =>
+                          'Address unavailable because derivation failed.',
+                        WalletDerivationState.locked =>
+                          'Unlock the wallet to access its address.',
+                        _ => 'Address unavailable until derivation completes.',
+                      },
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 13,
+                      ),
                     )
                   : Row(
                       children: [
