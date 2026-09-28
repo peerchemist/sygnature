@@ -403,10 +403,113 @@ prevouts, wallet/key/path ownership, outputs, change, fee, network, sighash
 policy, Taproot tweaks and request context before authorizing its signature
 share.
 
+### Local secrets and encrypted Hive storage
+
+The storage behavior in this section was checked against Sygnature and its
+resolved secure-storage dependencies on 2026-09-28.
+
+Sygnature separates encrypted application data from the keys needed to open
+it. `PlatformSecureKeyStore` uses `flutter_secure_storage` to access the
+platform's secret storage. Each Hive box has its own randomly generated
+32-byte encryption key, stored there as a base64url string:
+
+| Encrypted Hive box | Logical secret-storage key |
+| --- | --- |
+| `sygnature_private_v1` (wallet vault) | `sygnature_hive_key_v1` |
+| `sygnature_roast_private_v1` (ROAST persistence) | `sygnature_roast_hive_key_v1` |
+
+On opening a box, the repository retrieves and decodes its key, checks that it
+is 32 bytes long, and passes it to `HiveAesCipher`. When the secret is absent,
+the current implementation generates and stores a new key. A replacement key
+cannot decrypt an existing box whose original key has been lost. Base64url is
+only an encoding; protection of the stored key comes from the secret-storage
+backend. These keys are not derived from the user's OS password or recovery
+phrase.
+
+```text
+Platform secret storage
+  -> release the appropriate Hive encryption key to Sygnature
+  -> HiveAesCipher opens the encrypted box
+  -> wallet or ROAST code reads the decrypted application data
+```
+
+Wallet secret material and FROST shares are held in encrypted Hive data.
+Coordinator Iroh identity secrets use logical secure-storage keys named
+`sygnature_iroh_identity_<setupId>` directly; they are separate from Hive
+encryption keys and FROST shares.
+
+#### macOS
+
+At application startup, `main.dart` creates one `KeyringSecureKeyStore` shared
+by the wallet repository and ROAST persistence. It stores their logical
+secrets, including Iroh identities, in the single macOS Keychain item
+`sygnature_secure_keyring_v1`. This is one container holding distinct secrets,
+not one encryption key reused for every purpose.
+
+The first access reads this item and caches its decoded contents in the
+process. Subsequent reads of contained keys use that cache, avoiding separate
+Keychain reads for the wallet and ROAST encryption keys. Writes still update
+Keychain. Legacy individual items are migrated when read: persist their value
+in the shared item before deleting the old item. This migration can require
+additional access prompts on the first run.
+
+`PlatformSecureKeyStore` enables the Data Protection Keychain outside debug
+mode and disables it for debug builds. Actual access prompts depend on macOS
+Keychain policy and the app's identity; consolidating reads does not guarantee
+exactly one prompt in every situation. The current code does not implement a
+separate passkey or require Touch ID for every Hive access.
+
+#### Linux
+
+Linux uses `PlatformSecureKeyStore` directly. The resolved
+`flutter_secure_storage_linux` 3.0.3 backend calls `libsecret`, normally reaching
+a desktop Secret Service over the session D-Bus, such as GNOME Keyring or a
+compatible KDE service. See the [libsecret documentation](https://gnome.pages.gitlab.gnome.org/libsecret/).
+
+Although Sygnature does not apply its macOS keyring wrapper on Linux, this
+plugin version already serializes logical key/value pairs into a JSON secret
+record selected by its schema/account attributes. Reading a logical key
+retrieves that record through libsecret. Sygnature does not cache the whole
+record with `KeyringSecureKeyStore` on Linux.
+
+The desktop service controls unlocking. With correctly configured GNOME PAM
+integration, signing into the desktop can also unlock the login keyring, so
+starting Sygnature may require no additional password. If the collection is
+locked, the plugin requests unlocking through the service; a denied or failed
+unlock surfaces as a storage error. Session configuration determines whether
+and when the user sees a prompt. See [GNOME Keyring PAM integration](https://wiki.gnome.org/Projects/GnomeKeyring/Pam).
+
+Sandboxed deployments can instead use libsecret's portal-backed encrypted
+file storage, depending on backend selection and service availability. A
+working secret-storage backend is required; Sygnature has no plaintext-key
+fallback. The portal-backed file is encrypted using a secret supplied by the
+portal, as described in [libsecret's service documentation](https://gnome.pages.gitlab.gnome.org/libsecret/class.Service.html).
+
+The encrypted Hive files themselves are stored in the Linux application
+support directory resolved by `path_provider`. `HiveStorageInitializer`
+migrates legacy boxes from the Documents directory when applicable. The files
+are separate from the desktop's secret storage.
+
+#### Lifetime and protection boundary
+
+On both platforms, retrieved keys and decrypted data are available in the
+application process while in use. Hive does not ask the OS secret store to
+authorize each read, and local signing uses the loaded secret material.
+Locking the OS keychain/keyring does not revoke keys already retrieved by the
+process. Sygnature currently has no explicit session-lock mechanism that
+closes the boxes and clears all loaded secrets. Protection of files at rest
+must therefore be distinguished from protection of an already running,
+unlocked application.
+
 ## 11. Implementation source map
 
 The behavior described above is defined primarily in:
 
+- `lib/main.dart`
+- `lib/storage/wallet_repository.dart`
+- `lib/storage/roast_storage.dart`
+- `lib/storage/hive_storage_initializer.dart`
+- `test/secure_key_store_test.dart`
 - `../noosphere_roast_client/lib/src/protocol/protos/noosphere.proto`
 - `../noosphere_roast_client/lib/src/protocol/framing.dart`
 - `../noosphere_roast_client/lib/src/iroh/client_api.dart`
