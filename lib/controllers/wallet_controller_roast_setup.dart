@@ -488,11 +488,15 @@ extension WalletRoastSetupController on WalletController {
     final current = _vault;
     if (current == null) return;
     final network = _networkById(setup.blockchainId, setup.networkId);
+    final account = current.accounts.firstWhere(
+      (item) => item.sourceId == setup.id,
+    );
     final derived = _roastKeyService.deriveAddress(
       groupKeyHex: groupKeyHex,
       threshold: setup.threshold,
       network: network,
       accountIndex: 0,
+      pathLabel: account.derivationPath,
     );
     final next = current.copyWith(
       accounts: [

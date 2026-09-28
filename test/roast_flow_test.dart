@@ -647,6 +647,7 @@ final class _FakeRoastKeyService extends RoastKeyService {
     required int threshold,
     required network,
     required int accountIndex,
+    String? pathLabel,
   }) => RoastDerivedAddress(
     path: const [0, 6, 0, 0, 0, 0],
     pathLabel: 'R/0/6/0/0/0/0',

@@ -7,6 +7,7 @@ class PeercoinNetworkPreset extends WalletNetwork {
     required super.networkId,
     required super.networkLabel,
     required super.derivationPathTemplate,
+    required this.coinType,
     required this.network,
   }) : super(
          blockchainId: 'peercoin',
@@ -14,6 +15,7 @@ class PeercoinNetworkPreset extends WalletNetwork {
          accountTypeLabel: 'Taproot BIP-86',
        );
 
+  final int coinType;
   final Network network;
 
   String get id => networkId;
@@ -23,6 +25,7 @@ abstract final class PeercoinNetworks {
   static final mainnet = PeercoinNetworkPreset(
     networkId: 'mainnet',
     networkLabel: 'mainnet',
+    coinType: 6,
     network: Network.mainnet,
     derivationPathTemplate: "m/86'/6'/{account}'/0/0",
   );
@@ -30,6 +33,7 @@ abstract final class PeercoinNetworks {
   static final testnet = PeercoinNetworkPreset(
     networkId: 'testnet',
     networkLabel: 'testnet',
+    coinType: 1,
     network: Network.testnet,
     derivationPathTemplate: "m/86'/1'/{account}'/0/0",
   );

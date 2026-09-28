@@ -170,6 +170,7 @@ extension WalletSigningController on WalletController {
           threshold: setup.threshold,
           network: network,
           accountIndex: account.accountIndex,
+          pathLabel: account.derivationPath,
         );
         final transaction = _transactionService.prepareThresholdSigning(
           network: network,
@@ -495,6 +496,7 @@ extension WalletSigningController on WalletController {
       threshold: setup.threshold,
       network: network,
       accountIndex: account.accountIndex,
+      pathLabel: account.derivationPath,
     );
     final expectedScript = _roastKeyService.scriptHexForAddress(
       network,

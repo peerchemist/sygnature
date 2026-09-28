@@ -259,17 +259,20 @@ class RoastKeyService {
     required int threshold,
     required WalletNetwork network,
     required int accountIndex,
+    String? pathLabel,
   }) {
-    final networkIndex = network.networkId == 'mainnet' ? 0 : 1;
-    final path = [0, 6, networkIndex, accountIndex, 0, 0];
-    var info = HDGroupKeyInfo.master(
+    final preset = PeercoinNetworks.fromWalletNetwork(network);
+    final path = pathLabel == null
+        ? thresholdBip86DerivationPath(
+            coinType: preset.coinType,
+            account: accountIndex,
+          )
+        : _parsePathLabel(pathLabel);
+    final info = deriveThresholdGroupKey(
       groupKey: ECCompressedPublicKey.fromHex(groupKeyHex),
       threshold: threshold,
+      path: path,
     );
-    for (final index in path) {
-      info = info.derive(index);
-    }
-    final preset = PeercoinNetworks.fromWalletNetwork(network);
     final address = P2TRAddress.fromTaproot(
       Taproot(internalKey: info.groupKey),
       hrp: preset.network.bech32Hrp,
@@ -280,6 +283,18 @@ class RoastKeyService {
       address: address,
       internalKeyHex: info.groupKey.hex,
     );
+  }
+
+  static List<int> _parsePathLabel(String label) {
+    final components = label.split('/');
+    if (components.length < 2 || components.first != 'R') {
+      throw const FormatException('Invalid ROAST derivation path.');
+    }
+    try {
+      return List.unmodifiable(components.skip(1).map(int.parse));
+    } on FormatException {
+      throw const FormatException('Invalid ROAST derivation path.');
+    }
   }
 
   String scriptHexForAddress(WalletNetwork network, String address) {

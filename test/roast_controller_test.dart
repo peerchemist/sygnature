@@ -28,6 +28,37 @@ import 'package:sygnature_ng/storage/roast_storage.dart';
 void main() {
   setUpAll(loadCoinlib);
 
+  test('uses the threshold BIP-86 hierarchy for new ROAST accounts', () {
+    final service = const RoastKeyService();
+    final mainnet = service.deriveAddress(
+      groupKeyHex: ECPrivateKey.fromHex('${'0' * 63}1').pubkey.hex,
+      threshold: 2,
+      network: PeercoinNetworks.mainnet,
+      accountIndex: 2,
+    );
+    final testnet = service.deriveAddress(
+      groupKeyHex: ECPrivateKey.fromHex('${'0' * 63}1').pubkey.hex,
+      threshold: 2,
+      network: PeercoinNetworks.testnet,
+      accountIndex: 2,
+    );
+
+    expect(mainnet.path, [86, 6, 2, 0, 0]);
+    expect(mainnet.pathLabel, 'R/86/6/2/0/0');
+    expect(testnet.path, [86, 1, 2, 0, 0]);
+    expect(testnet.pathLabel, 'R/86/1/2/0/0');
+
+    final legacy = service.deriveAddress(
+      groupKeyHex: ECPrivateKey.fromHex('${'0' * 63}1').pubkey.hex,
+      threshold: 2,
+      network: PeercoinNetworks.mainnet,
+      accountIndex: 2,
+      pathLabel: 'R/0/6/0/2/0/0',
+    );
+    expect(legacy.path, [0, 6, 0, 2, 0, 0]);
+    expect(legacy.pathLabel, 'R/0/6/0/2/0/0');
+  });
+
   test(
     'uses the wallet name for setup and keeps later renames local',
     () async {
@@ -1173,6 +1204,7 @@ final class _FakeRoastKeyService extends RoastKeyService {
     required int threshold,
     required network,
     required int accountIndex,
+    String? pathLabel,
   }) {
     if (failNextDerivation) {
       failNextDerivation = false;
@@ -1213,6 +1245,7 @@ final class _FixedRoastKeyService(final RoastDerivedAddress address)
     required int threshold,
     required network,
     required int accountIndex,
+    String? pathLabel,
   }) => address;
 }
 
