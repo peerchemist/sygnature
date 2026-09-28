@@ -17,6 +17,60 @@ import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
+  test('adds and synchronizes a watch-only Taproot address', () async {
+    const address =
+        'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm';
+    final repository = MemoryWalletRepository();
+    final electrumx = _FakeElectrumxService();
+    final controller = WalletController(
+      repository,
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+
+    await controller.addWatchOnlyAccount(
+      'Treasury observer',
+      network: PeercoinNetworks.mainnet,
+      address: '  $address  ',
+    );
+
+    final account = controller.accounts.single;
+    expect(account.name, 'Treasury observer');
+    expect(account.keySource, WalletKeySource.watchOnly);
+    expect(account.derivationState, WalletDerivationState.watchOnly);
+    expect(account.address, address);
+    expect(account.derivationPath, isNull);
+    expect(account.privateKeyHex, isNull);
+    expect(controller.vault?.mnemonic, isNull);
+    expect(controller.vault?.nextAccountIndex, 0);
+    expect(electrumx.watchedAddresses.single, {address});
+
+    await expectLater(
+      controller.addWatchOnlyAccount(
+        'Duplicate',
+        network: PeercoinNetworks.mainnet,
+        address: address,
+      ),
+      throwsA(
+        isA<WatchOnlyWalletFailure>().having(
+          (error) => error.message,
+          'message',
+          'This address is already in the wallet.',
+        ),
+      ),
+    );
+    await expectLater(
+      controller.addWatchOnlyAccount(
+        'Wrong network',
+        network: PeercoinNetworks.testnet,
+        address: address,
+      ),
+      throwsA(isA<WatchOnlyWalletFailure>()),
+    );
+
+    controller.dispose();
+  });
+
   test('persists mnemonic and automatically derives every account', () async {
     final repository = MemoryWalletRepository();
     final controller = WalletController(

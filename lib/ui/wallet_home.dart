@@ -17,6 +17,7 @@ import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
 import 'onboarding_screen.dart';
 import 'roast_setup_flow.dart';
+import 'watch_only_wallet_dialog.dart';
 import 'widgets/brand_mark.dart';
 import 'widgets/middle_ellipsis_text.dart';
 
@@ -125,6 +126,7 @@ class const _WalletSidebar({
                     final selected = index == controller.selectedAccountIndex;
                     return _WalletListTile(
                       account: account,
+                      displayIndex: index,
                       setup: controller.setupForAccount(account),
                       balanceSats: controller.balanceSatsFor(account),
                       syncStatus: controller.syncStatusFor(account),
@@ -165,6 +167,7 @@ class const _WalletSidebar({
 class _WalletListTile extends StatelessWidget {
   const _WalletListTile({
     required this.account,
+    required this.displayIndex,
     required this.setup,
     required this.balanceSats,
     required this.syncStatus,
@@ -172,6 +175,7 @@ class _WalletListTile extends StatelessWidget {
     required this.onTap,
   });
   final WalletAccount account;
+  final int displayIndex;
   final RoastSetup? setup;
   final int balanceSats;
   final AccountSyncStatus syncStatus;
@@ -181,6 +185,7 @@ class _WalletListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isRoast = account.keySource == WalletKeySource.roast;
+    final isWatchOnly = account.keySource == WalletKeySource.watchOnly;
     final isCoordinator = setup?.role == RoastSetupRole.host;
     final accountStatus = switch (account.derivationState) {
       WalletDerivationState.pending => 'Pending derivation',
@@ -214,7 +219,7 @@ class _WalletListTile extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: Text(
-                  '${account.accountIndex + 1}'.padLeft(2, '0'),
+                  '${displayIndex + 1}'.padLeft(2, '0'),
                   style: TextStyle(
                     color: AppColors.forest,
                     fontSize: 12,
@@ -258,7 +263,9 @@ class _WalletListTile extends StatelessWidget {
                             borderRadius: BorderRadius.circular(3),
                           ),
                           child: Text(
-                            isRoast
+                            isWatchOnly
+                                ? 'WATCH ONLY'
+                                : isRoast
                                 ? isCoordinator
                                       ? 'ROAST · HOST'
                                       : 'ROAST'
@@ -553,7 +560,9 @@ class _DashboardHeader extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              'Peercoin account ${account.accountIndex}',
+              account.keySource == WalletKeySource.watchOnly
+                  ? 'Watch-only Peercoin address'
+                  : 'Peercoin account ${account.accountIndex}',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -901,15 +910,19 @@ class _AccountDetails extends StatelessWidget {
             const SizedBox(height: 13),
             _DetailRow(
               label: 'Key source',
-              value: account.keySource == WalletKeySource.personal
-                  ? 'Personal BIP-86 seed'
-                  : 'ROAST threshold key',
+              value: switch (account.keySource) {
+                WalletKeySource.personal => 'Personal BIP-86 seed',
+                WalletKeySource.watchOnly => 'Imported watch-only address',
+                WalletKeySource.roast => 'ROAST threshold key',
+              },
             ),
-            const SizedBox(height: 13),
-            _DetailRow(
-              label: 'Account index',
-              value: '${account.accountIndex}',
-            ),
+            if (account.keySource != WalletKeySource.watchOnly) ...[
+              const SizedBox(height: 13),
+              _DetailRow(
+                label: 'Account index',
+                value: '${account.accountIndex}',
+              ),
+            ],
             if (account.keySource == WalletKeySource.personal) ...[
               const SizedBox(height: 13),
               _DetailRow(
@@ -1574,6 +1587,15 @@ Future<void> _showAddWallet(
           ),
         ),
         SimpleDialogOption(
+          onPressed: () =>
+              Navigator.pop(dialogContext, WalletKeySource.watchOnly),
+          child: const ListTile(
+            leading: Icon(Icons.visibility_outlined),
+            title: Text('Watch-only wallet'),
+            subtitle: Text('Track a Taproot address without spending keys.'),
+          ),
+        ),
+        SimpleDialogOption(
           onPressed: controller.roastAvailable
               ? () => Navigator.pop(dialogContext, WalletKeySource.roast)
               : null,
@@ -1593,6 +1615,10 @@ Future<void> _showAddWallet(
   if (!context.mounted) return;
   if (type == WalletKeySource.roast) {
     await showRoastSetupCreation(context, controller);
+    return;
+  }
+  if (type == WalletKeySource.watchOnly) {
+    await showWatchOnlyWalletDialog(context, controller);
     return;
   }
   if (type != WalletKeySource.personal) return;
@@ -1714,6 +1740,7 @@ Future<void> _confirmDeleteWallet(
   WalletAccount account,
 ) async {
   final isRoast = account.keySource == WalletKeySource.roast;
+  final isWatchOnly = account.keySource == WalletKeySource.watchOnly;
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -1723,6 +1750,9 @@ Future<void> _confirmDeleteWallet(
             ? 'This wallet, its local signer identity and key share will be '
                   'permanently removed from this device. You may lose the '
                   'ability to approve transactions for the shared wallet.'
+            : isWatchOnly
+            ? 'This watch-only wallet will be removed from this device. '
+                  'No private key or funds are stored in it.'
             : 'This wallet will be removed from this device. Its account '
                   'index will not be reused.',
       ),

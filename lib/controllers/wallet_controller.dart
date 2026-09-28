@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:coinlib/coinlib.dart' show hexToBytes;
+import 'package:coinlib/coinlib.dart'
+    show Address, P2TRAddress, bytesToHex, generateRandomBytes, hexToBytes;
 import 'package:flutter/foundation.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart'
     show NoosphereWorkerException;

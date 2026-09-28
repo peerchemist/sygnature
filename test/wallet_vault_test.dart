@@ -93,10 +93,14 @@ void main() {
       WalletDerivationState.pending,
       WalletDerivationState.ready,
     ]);
+    expect(restored.accounts[1].keySource, WalletKeySource.watchOnly);
   });
 
   test('round trips every explicit derivation state', () {
     for (final state in WalletDerivationState.values) {
+      final keySource = state == WalletDerivationState.watchOnly
+          ? WalletKeySource.watchOnly
+          : WalletKeySource.personal;
       final account = WalletAccount(
         id: state.name,
         name: state.name,
@@ -104,10 +108,13 @@ void main() {
         blockchainId: 'peercoin',
         networkId: 'mainnet',
         derivationState: state,
+        keySource: keySource,
         createdAt: DateTime.utc(2026),
       );
 
-      expect(WalletAccount.fromJson(account.toJson()).derivationState, state);
+      final restored = WalletAccount.fromJson(account.toJson());
+      expect(restored.derivationState, state);
+      expect(restored.keySource, keySource);
     }
   });
 

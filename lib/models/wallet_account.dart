@@ -1,4 +1,4 @@
-enum WalletKeySource { personal, roast }
+enum WalletKeySource { personal, watchOnly, roast }
 
 enum WalletDerivationState { pending, ready, watchOnly, locked, error }
 
@@ -83,13 +83,20 @@ class WalletAccount {
     final address = json['address'] as String?;
     final privateKeyHex = json['privateKeyHex'] as String?;
     final storedState = json['derivationState'] as String?;
-    final derivationState = storedState == null
+    final derivationState = keySource == WalletKeySource.watchOnly
+        ? WalletDerivationState.watchOnly
+        : storedState == null
         ? _legacyDerivationState(
             keySource: keySource,
             address: address,
             privateKeyHex: privateKeyHex,
           )
         : WalletDerivationState.values.byName(storedState);
+    final normalizedKeySource =
+        derivationState == WalletDerivationState.watchOnly &&
+            keySource == WalletKeySource.personal
+        ? WalletKeySource.watchOnly
+        : keySource;
     return WalletAccount(
       id: json['id']! as String,
       name: json['name']! as String,
@@ -97,7 +104,7 @@ class WalletAccount {
       blockchainId: json['blockchainId']! as String,
       networkId: json['networkId']! as String,
       derivationState: derivationState,
-      keySource: keySource,
+      keySource: normalizedKeySource,
       sourceId: json['sourceId'] as String?,
       keyId: json['keyId'] as String?,
       derivationPath: json['derivationPath'] as String?,
@@ -112,6 +119,9 @@ class WalletAccount {
     required String? address,
     required String? privateKeyHex,
   }) {
+    if (keySource == WalletKeySource.watchOnly) {
+      return WalletDerivationState.watchOnly;
+    }
     if (address == null) return WalletDerivationState.pending;
     if (keySource == WalletKeySource.personal && privateKeyHex == null) {
       return WalletDerivationState.watchOnly;

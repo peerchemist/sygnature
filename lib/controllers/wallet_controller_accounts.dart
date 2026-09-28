@@ -1,5 +1,10 @@
 part of 'wallet_controller.dart';
 
+class const WatchOnlyWalletFailure(final String message) implements Exception {
+  @override
+  String toString() => message;
+}
+
 extension WalletAccountsController on WalletController {
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
@@ -132,6 +137,56 @@ extension WalletAccountsController on WalletController {
         accounts: [...current.accounts, account],
         nextAccountIndex: current.nextAccountIndex + 1,
       );
+      await _repository.save(next);
+      _vault = next;
+      _selectedAccount = next.accounts.length - 1;
+      await _restartElectrumxSync();
+    });
+  }
+
+  Future<void> addWatchOnlyAccount(
+    String name, {
+    required WalletNetwork network,
+    required String address,
+  }) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw const WatchOnlyWalletFailure('Enter a wallet name.');
+    }
+    final selectedNetwork = _networkById(
+      network.blockchainId,
+      network.networkId,
+    );
+    final normalizedAddress = _watchOnlyAddress(address, selectedNetwork);
+    final current = _vault;
+    if (current?.accounts.any(
+          (account) =>
+              account.blockchainId == selectedNetwork.blockchainId &&
+              account.networkId == selectedNetwork.networkId &&
+              account.address == normalizedAddress,
+        ) ==
+        true) {
+      throw const WatchOnlyWalletFailure(
+        'This address is already in the wallet.',
+      );
+    }
+
+    await _guard(() async {
+      await _ensureNetworkService(selectedNetwork);
+      final account = WalletAccount(
+        id: 'watch-${bytesToHex(generateRandomBytes(16))}',
+        name: trimmedName,
+        accountIndex: current?.accounts.length ?? 0,
+        blockchainId: selectedNetwork.blockchainId,
+        networkId: selectedNetwork.networkId,
+        derivationState: WalletDerivationState.watchOnly,
+        keySource: WalletKeySource.watchOnly,
+        address: normalizedAddress,
+        createdAt: DateTime.now().toUtc(),
+      );
+      final next = current == null
+          ? WalletVault(accounts: [account], nextAccountIndex: 0)
+          : current.copyWith(accounts: [...current.accounts, account]);
       await _repository.save(next);
       _vault = next;
       _selectedAccount = next.accounts.length - 1;
@@ -311,6 +366,21 @@ extension WalletAccountsController on WalletController {
       orElse: () => throw StateError(
         'Unsupported wallet network: $blockchainId:$networkId.',
       ),
+    );
+  }
+
+  String _watchOnlyAddress(String value, WalletNetwork network) {
+    try {
+      final parsed = Address.fromString(
+        value.trim(),
+        PeercoinNetworks.fromWalletNetwork(network).network,
+      );
+      if (parsed is P2TRAddress) return parsed.toString();
+    } on Exception {
+      // The caller receives the stable validation failure below.
+    }
+    throw const WatchOnlyWalletFailure(
+      'Enter a valid Taproot address for the selected network.',
     );
   }
 }

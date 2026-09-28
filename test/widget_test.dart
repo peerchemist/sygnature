@@ -66,6 +66,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Add sub-wallet'));
     await tester.pumpAndSettle();
+    expect(find.text('Watch-only wallet'), findsOneWidget);
     await tester.tap(find.text('Personal wallet'));
     await tester.pumpAndSettle();
     expect(find.text('New sub-wallet'), findsOneWidget);
@@ -99,6 +100,54 @@ void main() {
 
     expect(find.text('Wallet 2'), findsNothing);
     expect(find.text('Main wallet'), findsWidgets);
+  });
+
+  testWidgets('imports a watch-only wallet without private material', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const address =
+        'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm';
+    final controller = await createController();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    final watchOnlyButton = find.byKey(const Key('watch-only-import-button'));
+    await tester.ensureVisible(watchOnlyButton);
+    await tester.tap(watchOnlyButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Add watch-only wallet'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('watch-only-address-field')),
+      address,
+    );
+    await tester.enterText(
+      find.byKey(const Key('watch-only-name-field')),
+      'Observer',
+    );
+    await tester.tap(find.byKey(const Key('watch-only-add-button')));
+    await tester.pumpAndSettle();
+
+    final account = controller.accounts.single;
+    expect(account.name, 'Observer');
+    expect(account.address, address);
+    expect(account.keySource, WalletKeySource.watchOnly);
+    expect(account.derivationState, WalletDerivationState.watchOnly);
+    expect(account.privateKeyHex, isNull);
+    expect(find.text('Observer'), findsWidgets);
+    expect(find.text('WATCH ONLY'), findsOneWidget);
+    expect(find.text('Watch-only · 0.00 PPC'), findsOneWidget);
+    final sendButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Send'),
+    );
+    expect(sendButton.onPressed, isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('does not show Ready while ElectrumX is synchronizing', (

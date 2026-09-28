@@ -149,7 +149,9 @@ extension WalletSigningController on WalletController {
       }
       final SignedWalletTransaction signed;
       RoastSigningOperation? signingOperation;
-      if (account.keySource == WalletKeySource.personal) {
+      if (account.keySource == WalletKeySource.watchOnly) {
+        throw const WalletSigningUnavailable();
+      } else if (account.keySource == WalletKeySource.personal) {
         final privateKeyHex = account.privateKeyHex;
         if (privateKeyHex == null) throw const WalletSigningUnavailable();
         signed = _transactionService.sign(
