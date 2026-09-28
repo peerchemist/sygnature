@@ -155,6 +155,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('configures desktop notifications and notification volume', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Desktop notifications'), findsOneWidget);
+    expect(find.text('Notification sound'), findsOneWidget);
+    expect(find.text('Volume'), findsOneWidget);
+    expect(find.text('50%'), findsOneWidget);
+    expect(find.text('Send test notification'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('notification-sound-toggle')));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<Slider>(find.byKey(const Key('notification-volume-slider')))
+          .onChanged,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('shows both ends of a long receive address', (tester) async {
     await tester.binding.setSurfaceSize(const Size(420, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));

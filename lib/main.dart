@@ -7,10 +7,10 @@ import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import 'controllers/wallet_controller.dart';
 import 'services/app_logger.dart';
+import 'services/app_notifications.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
 import 'services/roast_runtime_manager.dart';
-import 'services/ui_sounds.dart';
 import 'storage/wallet_repository.dart';
 import 'storage/roast_storage.dart';
 import 'ui/app_theme.dart';
@@ -50,11 +50,12 @@ class SygnatureApp extends StatefulWidget {
 }
 
 class _SygnatureAppState extends State<SygnatureApp> {
-  final UiSounds _sounds = UiSounds();
+  final AppNotifications _notifications = AppNotifications();
   late final Future<WalletController> _controller =
       (widget.controllerFactory ?? _createController)();
 
   Future<WalletController> _createController() async {
+    await _notifications.initialize();
     final platformKeyStore = PlatformSecureKeyStore();
     final secureKeyStore =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
@@ -76,8 +77,8 @@ class _SygnatureAppState extends State<SygnatureApp> {
           PeercoinElectrumxService.createForPreset(
             PeercoinNetworks.fromWalletNetwork(network),
           ),
-      onCoinsReceived: _sounds.message,
-      onRoastActionRequired: _sounds.message,
+      onCoinsReceived: _notifications.coinsReceived,
+      onRoastActionRequired: _notifications.roastActionRequired,
     );
     await controller.load();
     return controller;
@@ -86,7 +87,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void dispose() {
     unawaited(_controller.then((controller) => controller.dispose()));
-    unawaited(_sounds.dispose());
+    _notifications.dispose();
     super.dispose();
   }
 
@@ -107,7 +108,10 @@ class _SygnatureAppState extends State<SygnatureApp> {
           return AnimatedBuilder(
             animation: controller,
             builder: (context, _) => controller.hasWallet
-                ? WalletHome(controller: controller)
+                ? WalletHome(
+                    controller: controller,
+                    notifications: _notifications,
+                  )
                 : OnboardingScreen(controller: controller),
           );
         },

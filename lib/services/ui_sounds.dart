@@ -7,10 +7,8 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 ///
 /// Audio is optional: an unavailable output device must never stop the user
 /// from using the wallet.
-class UiSounds {
-  UiSounds({SoLoud? audio}) : _audio = audio ?? SoLoud.instance;
-
-  final SoLoud _audio;
+class UiSounds({SoLoud? audio}) {
+  final SoLoud _audio = audio ?? SoLoud.instance;
 
   AudioSource? _low;
   AudioSource? _high;
@@ -52,9 +50,9 @@ class UiSounds {
   }
 
   /// Plays a soft ascending two-note confirmation without blocking the UI.
-  void message() => unawaited(_playMessage());
+  void message({double volume = 0.5}) => unawaited(_playMessage(volume));
 
-  Future<void> _playMessage() async {
+  Future<void> _playMessage(double volume) async {
     await init();
     if (!_ready || _disposed) return;
 
@@ -64,13 +62,13 @@ class UiSounds {
         _low!,
         now,
         duration: const Duration(milliseconds: 90),
-        volume: 0.18,
+        volume: 0.36 * volume.clamp(0.0, 1.0),
       );
       _audio.playScheduled(
         _high!,
         now + const Duration(milliseconds: 65),
         duration: const Duration(milliseconds: 140),
-        volume: 0.1575,
+        volume: 0.315 * volume.clamp(0.0, 1.0),
       );
     } catch (error, stackTrace) {
       debugPrint('Unable to play UI sound: $error\n$stackTrace');

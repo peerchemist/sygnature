@@ -10,6 +10,7 @@ import '../models/roast_setup.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../services/app_logger.dart';
+import '../services/app_notifications.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
@@ -19,11 +20,11 @@ import 'roast_setup_flow.dart';
 import 'widgets/brand_mark.dart';
 import 'widgets/middle_ellipsis_text.dart';
 
-class WalletHome extends StatelessWidget {
-  const WalletHome({super.key, required this.controller});
-
-  final WalletController controller;
-
+class const WalletHome({
+  super.key,
+  required final WalletController controller,
+  required final AppNotifications notifications,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -35,7 +36,10 @@ class WalletHome extends StatelessWidget {
               children: [
                 SizedBox(
                   width: 280,
-                  child: _WalletSidebar(controller: controller),
+                  child: _WalletSidebar(
+                    controller: controller,
+                    notifications: notifications,
+                  ),
                 ),
                 const VerticalDivider(width: 1),
                 Expanded(child: _WalletDashboard(controller: controller)),
@@ -60,7 +64,8 @@ class WalletHome extends StatelessWidget {
                 ),
               IconButton(
                 tooltip: 'Settings',
-                onPressed: () => _showSettings(context, controller),
+                onPressed: () =>
+                    _showSettings(context, controller, notifications),
                 icon: const Icon(Icons.tune_rounded),
               ),
               const SizedBox(width: 8),
@@ -73,10 +78,10 @@ class WalletHome extends StatelessWidget {
   }
 }
 
-class _WalletSidebar extends StatelessWidget {
-  const _WalletSidebar({required this.controller});
-  final WalletController controller;
-
+class const _WalletSidebar({
+  required final WalletController controller,
+  required final AppNotifications notifications,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -147,7 +152,7 @@ class _WalletSidebar extends StatelessWidget {
                 leading: const Icon(Icons.settings_outlined, size: 21),
                 title: const Text('Settings'),
                 trailing: const Icon(Icons.chevron_right_rounded, size: 19),
-                onTap: () => _showSettings(context, controller),
+                onTap: () => _showSettings(context, controller, notifications),
               ),
             ],
           ),
@@ -1751,71 +1756,176 @@ Future<void> _showRenameWallet(
 Future<void> _showSettings(
   BuildContext context,
   WalletController controller,
+  AppNotifications notifications,
 ) async {
   await showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
-    builder: (sheetContext) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Settings', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            const Text(
-              'Private data is stored in the encrypted Hive CE vault.',
-              style: TextStyle(color: AppColors.inkMuted),
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(
-                Icons.delete_outline_rounded,
-                color: Colors.red,
-              ),
-              title: const Text('Remove local wallet'),
-              subtitle: Text(
-                controller.roastSetups.isEmpty
-                    ? 'Delete vault data from this device.'
-                    : 'Unavailable while this device holds ROAST setups. '
-                          'Signer removal requires a separate recovery-safe '
-                          'workflow.',
-              ),
-              onTap: controller.roastSetups.isNotEmpty
-                  ? null
-                  : () async {
-                      Navigator.pop(sheetContext);
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (dialogContext) => AlertDialog(
-                          title: const Text('Remove wallet?'),
-                          content: const Text(
-                            'This deletes the local vault. Recovery verification will '
-                            'be added with the coinlib integration.',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () =>
-                                  Navigator.pop(dialogContext, false),
-                              child: const Text('Cancel'),
-                            ),
-                            FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.red,
+    builder: (sheetContext) => AnimatedBuilder(
+      animation: notifications,
+      builder: (context, _) => SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Settings', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                const Text(
+                  'Private data is stored in the encrypted Hive CE vault.',
+                  style: TextStyle(color: AppColors.inkMuted),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'NOTIFICATIONS',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.inkMuted,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  key: const Key('desktop-notifications-toggle'),
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(Icons.notifications_outlined),
+                  title: const Text('Desktop notifications'),
+                  subtitle: Text(
+                    notifications.supportsDesktopNotifications
+                        ? 'Show wallet events in the system notification center.'
+                        : 'Available on Linux, macOS, and Windows.',
+                  ),
+                  value:
+                      notifications.supportsDesktopNotifications &&
+                      notifications.desktopEnabled,
+                  onChanged: notifications.supportsDesktopNotifications
+                      ? (enabled) async {
+                          final accepted = await notifications
+                              .setDesktopEnabled(enabled);
+                          if (!accepted && sheetContext.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Desktop notifications could not be enabled.',
+                                ),
                               ),
-                              onPressed: () =>
-                                  Navigator.pop(dialogContext, true),
-                              child: const Text('Remove'),
-                            ),
-                          ],
+                            );
+                          }
+                        }
+                      : null,
+                ),
+                SwitchListTile.adaptive(
+                  key: const Key('notification-sound-toggle'),
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(Icons.volume_up_outlined),
+                  title: const Text('Notification sound'),
+                  subtitle: const Text(
+                    'Play a tone for incoming wallet events.',
+                  ),
+                  value: notifications.soundEnabled,
+                  onChanged: notifications.setSoundEnabled,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 56),
+                  child: Row(
+                    children: [
+                      const Text('Volume'),
+                      Expanded(
+                        child: Slider(
+                          key: const Key('notification-volume-slider'),
+                          value: notifications.soundVolume,
+                          divisions: 10,
+                          label:
+                              '${(notifications.soundVolume * 100).round()}%',
+                          onChanged: notifications.soundEnabled
+                              ? notifications.setSoundVolume
+                              : null,
                         ),
-                      );
-                      if (confirmed == true) await controller.resetWallet();
-                    },
+                      ),
+                      SizedBox(
+                        width: 42,
+                        child: Text(
+                          '${(notifications.soundVolume * 100).round()}%',
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed:
+                        notifications.supportsDesktopNotifications &&
+                            notifications.desktopEnabled
+                        ? () async {
+                            final shown = await notifications.sendTest();
+                            if (!shown && sheetContext.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'The test notification could not be shown.',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        : null,
+                    icon: const Icon(Icons.send_outlined),
+                    label: const Text('Send test notification'),
+                  ),
+                ),
+                const Divider(height: 32),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.red,
+                  ),
+                  title: const Text('Remove local wallet'),
+                  subtitle: Text(
+                    controller.roastSetups.isEmpty
+                        ? 'Delete vault data from this device.'
+                        : 'Unavailable while this device holds ROAST setups. '
+                              'Signer removal requires a separate recovery-safe '
+                              'workflow.',
+                  ),
+                  onTap: controller.roastSetups.isNotEmpty
+                      ? null
+                      : () async {
+                          Navigator.pop(sheetContext);
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Remove wallet?'),
+                              content: const Text(
+                                'This deletes the local vault. Recovery verification will '
+                                'be added with the coinlib integration.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(dialogContext, false),
+                                  child: const Text('Cancel'),
+                                ),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                  ),
+                                  onPressed: () =>
+                                      Navigator.pop(dialogContext, true),
+                                  child: const Text('Remove'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) await controller.resetWallet();
+                        },
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     ),
