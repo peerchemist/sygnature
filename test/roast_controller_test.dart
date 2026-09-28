@@ -623,6 +623,29 @@ void main() {
         WalletActivityType.messageSignatureRequested,
       );
 
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            'cc' * 16,
+            creator: '02',
+            status: 'accepted',
+          ),
+        ),
+      );
+      await _flushEvents();
+      expect(
+        controller
+            .activitiesFor(controller.accounts.single)
+            .where(
+              (activity) =>
+                  activity.type ==
+                      WalletActivityType.signatureRequestApproved &&
+                  activity.reference == 'cc' * 16,
+            ),
+        isEmpty,
+      );
+
       runtime.signatureRequestGate!.complete();
       runtime.emit(
         RoastRuntimeMessageSigningResultEvent(
@@ -657,6 +680,42 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('hides legacy approvals for locally requested messages', () async {
+    final requestId = 'ab' * 16;
+    final controller = _controller(
+      runtime: _FakeRoastRuntime()..snapshotGroupKey = 'expected-key',
+      active: true,
+      activities: [
+        WalletActivity(
+          id: 'signature-request-approved:setup:$requestId',
+          accountId: 'shared',
+          type: WalletActivityType.signatureRequestApproved,
+          occurredAt: DateTime.utc(2026, 1, 1, 0, 1),
+          reference: requestId,
+        ),
+        WalletActivity(
+          id: 'message-signature-requested:setup:$requestId',
+          accountId: 'shared',
+          type: WalletActivityType.messageSignatureRequested,
+          occurredAt: DateTime.utc(2026),
+          reference: requestId,
+          details: 'Legacy request',
+        ),
+      ],
+    );
+    await controller.load();
+    await _flushEvents();
+
+    expect(controller.vault!.activities, hasLength(2));
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((activity) => activity.type),
+      [WalletActivityType.messageSignatureRequested],
+    );
+    controller.dispose();
+  });
 
   test('rebroadcasts the exact persisted transaction after restart', () async {
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
@@ -977,6 +1036,7 @@ WalletController _controller({
   RoastSigningOperationRepository? operationRepository,
   _FakeElectrumxService? electrumx,
   bool active = false,
+  List<WalletActivity> activities = const [],
   void Function()? onRoastActionRequired,
 }) {
   final repository = MemoryWalletRepository()
@@ -998,6 +1058,7 @@ WalletController _controller({
       ],
       nextAccountIndex: 0,
       roastSetups: [_setup(role, active: active)],
+      activities: activities,
     );
   return WalletController(
     repository,
@@ -1076,17 +1137,21 @@ RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
   message: 'Quarterly hosting bill',
 );
 
-RoastSigningRequest _messageSigningRequest(String idHex) => RoastSigningRequest(
+RoastSigningRequest _messageSigningRequest(
+  String idHex, {
+  String creator = '01',
+  String status = 'waiting',
+}) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'ee',
-  creator: '01',
+  creator: creator,
   expiry: DateTime.now().add(const Duration(minutes: 5)),
   kind: RoastSigningRequestKind.message,
   hasTransactionMetadata: false,
   usesSupportedSighash: false,
   usesExpectedTaprootTweak: false,
   usesUntweakedKey: true,
-  status: 'waiting',
+  status: status,
   inputSats: 0,
   transactionInputCount: 0,
   signedInputIndexes: const [],

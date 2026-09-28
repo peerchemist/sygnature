@@ -229,10 +229,7 @@ extension WalletRoastEventController on WalletController {
             'rejected' => WalletActivityType.signatureRequestRejected,
             _ => null,
           };
-          if (type != null &&
-              (removed != null ||
-                  event.request.creator ==
-                      setup.localParticipant.identifierHex)) {
+          if (type != null && removed != null) {
             await _recordSetupActivity(
               setup,
               id: event.request.status == 'accepted'

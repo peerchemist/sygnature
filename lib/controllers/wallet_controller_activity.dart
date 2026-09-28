@@ -1,10 +1,24 @@
 part of 'wallet_controller.dart';
 
 extension WalletActivityController on WalletController {
-  List<WalletActivity> activitiesFor(WalletAccount account) =>
-      (_vault?.activities ?? const [])
-          .where((activity) => activity.accountId == account.id)
-          .toList(growable: false);
+  List<WalletActivity> activitiesFor(WalletAccount account) {
+    final activities = (_vault?.activities ?? const [])
+        .where((activity) => activity.accountId == account.id)
+        .toList(growable: false);
+    final localMessageRequestIds = {
+      for (final activity in activities)
+        if (activity.type == WalletActivityType.messageSignatureRequested &&
+            activity.reference != null)
+          activity.reference,
+    };
+    return activities
+        .where(
+          (activity) =>
+              activity.type != WalletActivityType.signatureRequestApproved ||
+              !localMessageRequestIds.contains(activity.reference),
+        )
+        .toList(growable: false);
+  }
 
   Future<void> _restoreRoastSigningOperations() async {
     final operations = await _roastSigningOperations.loadSigningOperations();
