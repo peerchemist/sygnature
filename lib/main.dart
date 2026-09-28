@@ -122,7 +122,8 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
 bool get _roastSupported =>
     !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.linux ||
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.linux ||
         defaultTargetPlatform == TargetPlatform.macOS);
 
 class _StartupLoading extends StatelessWidget {

@@ -103,7 +103,7 @@ authentication keys and FROST key shares are separate cryptographic roles.
 - Transaction metadata is displayed before approval and is cryptographically
   bound to the requested signatures.
 - ElectrumX is the current blockchain data and broadcast provider.
-- ROAST runtime support currently targets Linux and macOS.
+- ROAST runtime support currently targets Android, Linux and macOS.
 
 Detailed design notes are available in [roast-workflow.md](roast-workflow.md)
 and [ARCHITECTURE.md](ARCHITECTURE.md).
