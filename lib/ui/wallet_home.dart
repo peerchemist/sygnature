@@ -181,6 +181,7 @@ class _WalletListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isRoast = account.keySource == WalletKeySource.roast;
+    final isCoordinator = setup?.role == RoastSetupRole.host;
 
     return Material(
       color: selected ? AppColors.lime : Colors.transparent,
@@ -246,7 +247,11 @@ class _WalletListTile extends StatelessWidget {
                             borderRadius: BorderRadius.circular(3),
                           ),
                           child: Text(
-                            isRoast ? 'ROAST' : 'LOCAL',
+                            isRoast
+                                ? isCoordinator
+                                      ? 'ROAST · HOST'
+                                      : 'ROAST'
+                                : 'LOCAL',
                             style: TextStyle(
                               color: isRoast
                                   ? Colors.white
