@@ -892,11 +892,13 @@ class _AccountDetails extends StatelessWidget {
               label: 'Account index',
               value: '${account.accountIndex}',
             ),
-            const SizedBox(height: 13),
-            _DetailRow(
-              label: 'Derivation path',
-              value: account.derivationPath ?? 'Not available',
-            ),
+            if (account.keySource == WalletKeySource.personal) ...[
+              const SizedBox(height: 13),
+              _DetailRow(
+                label: 'Derivation path',
+                value: account.derivationPath ?? 'Not available',
+              ),
+            ],
           ],
         ),
       ),

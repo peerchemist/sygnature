@@ -325,6 +325,44 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('hides the ROAST derivation path from account details', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final vault = _finalizedRoastVault();
+    final repository = MemoryWalletRepository()
+      ..value = vault.copyWith(
+        accounts: [
+          vault.accounts.single.copyWith(
+            address: 'pc1proast',
+            derivationPath: 'R/0/6/0/0/0/0',
+          ),
+        ],
+        roastSetups: [
+          vault.roastSetups.single.copyWith(
+            status: RoastSetupStatus.active,
+            groupKeyHex: 'group-key',
+          ),
+        ],
+      );
+    final controller = WalletController(
+      repository,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ROAST threshold key'), findsOneWidget);
+    expect(find.text('Derivation path'), findsNothing);
+    expect(find.text('R/0/6/0/0/0/0'), findsNothing);
+  });
 }
 
 WalletVault _finalizedRoastVault() => WalletVault(
