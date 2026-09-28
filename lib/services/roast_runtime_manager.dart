@@ -11,6 +11,7 @@ import 'wallet_transaction_service.dart';
 
 const roastDkgAttemptTtl = Duration(hours: 1);
 const maxRoastSigningMessageBytes = SignaturesRequestDetails.maxMessageBytes;
+const maxRoastSignedMessageBytes = SignedMessagePayload.maxTextBytes;
 
 sealed class RoastRuntimeEvent {
   const RoastRuntimeEvent(this.setupId);
@@ -62,14 +63,18 @@ class RoastSigningOutput({
   required final String scriptHex,
 });
 
+enum RoastSigningRequestKind { transaction, message, unsupported }
+
 class RoastSigningRequest({
   required final String idHex,
   required final String proposalHex,
   required final String creator,
   required final DateTime expiry,
+  required final RoastSigningRequestKind kind,
   required final bool hasTransactionMetadata,
   required final bool usesSupportedSighash,
   required final bool usesExpectedTaprootTweak,
+  required final bool usesUntweakedKey,
   required final String status,
   required final int inputSats,
   required final int transactionInputCount,
@@ -80,6 +85,7 @@ class RoastSigningRequest({
   required final List<String> masterGroupKeys,
   required final List<List<int>> derivationPaths,
   final String message = '',
+  final String? signedMessageText,
 }) {
   int get outputSats =>
       outputs.fold(0, (sum, output) => sum + output.valueSats);
@@ -103,6 +109,20 @@ final class RoastRuntimeSigningResultEvent(
   required final String proposalHex,
   required final List<Uint8List> signatures,
   required final String creator,
+}) extends RoastRuntimeEvent;
+
+class RoastSignedMessage({
+  required final String text,
+  required final String publicKeyHex,
+  required final String signatureHex,
+  required final String encoded,
+});
+
+final class RoastRuntimeMessageSigningResultEvent(
+  super.setupId, {
+  required final String requestIdHex,
+  required final String creator,
+  required final RoastSignedMessage signedMessage,
 }) extends RoastRuntimeEvent;
 
 class RoastRuntimeSnapshot({
@@ -156,7 +176,12 @@ abstract interface class RoastRuntime {
     List<int> derivationPath, {
     String message = '',
   });
-  Future<void> requestTransactionSignatures(
+  RoastSigningProposal createMessageSigningProposal(
+    RoastSetup setup,
+    String text, {
+    String message = '',
+  });
+  Future<void> requestSignatures(
     RoastSetup setup,
     RoastSigningProposal proposal,
   );
@@ -814,6 +839,32 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       expiry: Expiry(const Duration(minutes: 5)),
       message: message,
     );
+    return _signingProposal(details);
+  }
+
+  @override
+  RoastSigningProposal createMessageSigningProposal(
+    RoastSetup setup,
+    String text, {
+    String message = '',
+  }) {
+    final groupKeyHex = setup.groupKeyHex;
+    if (groupKeyHex == null) {
+      throw StateError('The shared key is not available.');
+    }
+    return _signingProposal(
+      SignaturesRequestDetails.forMessage(
+        text: text,
+        groupKey: ECCompressedPublicKey.fromHex(groupKeyHex),
+        expiry: Expiry(const Duration(minutes: 5)),
+        message: message,
+      ),
+    );
+  }
+
+  static RoastSigningProposal _signingProposal(
+    SignaturesRequestDetails details,
+  ) {
     final proposalBytes = details.toBytes();
     final persistedDetails = SignaturesRequestDetails.fromBytes(proposalBytes);
     return RoastSigningProposal(
@@ -824,7 +875,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   }
 
   @override
-  Future<void> requestTransactionSignatures(
+  Future<void> requestSignatures(
     RoastSetup setup,
     RoastSigningProposal proposal,
   ) async {
@@ -837,7 +888,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       throw StateError('The persisted ROAST signing proposal is invalid.');
     }
     AppLogger.info(
-      '${_roastScope(setup.id)} Requesting transaction signatures '
+      '${_roastScope(setup.id)} Requesting signatures '
       '${_shortId(proposal.idHex)}',
     );
     await (await _ensureWorker()).requestSignatures(setup.id, details);
@@ -980,6 +1031,25 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     final proposalHex = bytesToHex(event.proposalBytes);
     final setup = _setups[event.setupId];
     try {
+      if (event.decodeProposal().metadata is MessageSignatureMetadata) {
+        final signed = event.toSignedMessage();
+        if (!_events.isClosed) {
+          _events.add(
+            RoastRuntimeMessageSigningResultEvent(
+              event.setupId,
+              requestIdHex: requestIdHex,
+              creator: event.creator,
+              signedMessage: RoastSignedMessage(
+                text: signed.text,
+                publicKeyHex: signed.publicKey.xhex,
+                signatureHex: bytesToHex(signed.signature.data),
+                encoded: signed.toJsonString(),
+              ),
+            ),
+          );
+        }
+        return;
+      }
       if (setup != null &&
           event.creator == setup.localParticipant.identifierHex) {
         await _persistenceFactory.recordSigningResult(
@@ -1003,7 +1073,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       }
     } catch (error, stackTrace) {
       AppLogger.error(
-        '${_roastScope(event.setupId)} Failed to persist signing result '
+        '${_roastScope(event.setupId)} Failed to process signing result '
         '${_shortId(requestIdHex)}',
         error: error,
         stackTrace: stackTrace,
@@ -1012,7 +1082,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         _events.add(
           RoastRuntimeFailureEvent(
             event.setupId,
-            message: 'Unable to persist completed ROAST signatures: $error',
+            message: 'Unable to process completed ROAST signatures: $error',
             interrupted: false,
             operation: 'signingPersistence',
             requestIdHex: requestIdHex,
@@ -1192,11 +1262,20 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _signingRequests['$setupId:$idHex'] = request;
     final proposal = request.decodeProposal();
     final metadata = proposal.metadata;
+    final kind = switch (metadata) {
+      TaprootTransactionSignatureMetadata() =>
+        RoastSigningRequestKind.transaction,
+      MessageSignatureMetadata() => RoastSigningRequestKind.message,
+      _ => RoastSigningRequestKind.unsupported,
+    };
     var inputSats = 0;
     var transactionInputCount = 0;
     var usesSupportedSighash = false;
     final usesExpectedTaprootTweak = proposal.requiredSigs.every(
       (signature) => signature.signDetails.mastHash?.isEmpty == true,
+    );
+    final usesUntweakedKey = proposal.requiredSigs.every(
+      (signature) => signature.signDetails.mastHash == null,
     );
     var signedInputIndexes = const <int>[];
     var previousOutputScripts = const <String>[];
@@ -1249,9 +1328,11 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           proposalHex: bytesToHex(request.proposalBytes),
           creator: request.creator,
           expiry: request.expiry,
+          kind: kind,
           hasTransactionMetadata: hasTransactionMetadata,
           usesSupportedSighash: usesSupportedSighash,
           usesExpectedTaprootTweak: usesExpectedTaprootTweak,
+          usesUntweakedKey: usesUntweakedKey,
           status: request.status,
           inputSats: inputSats,
           transactionInputCount: transactionInputCount,
@@ -1268,6 +1349,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
               List.unmodifiable(signature.hdDerivation),
           ],
           message: proposal.message,
+          signedMessageText: metadata is MessageSignatureMetadata
+              ? metadata.payload.text
+              : null,
         ),
       ),
     );

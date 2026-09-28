@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:unique_names_generator/unique_names_generator.dart';
@@ -6,6 +8,7 @@ import '../controllers/wallet_controller.dart';
 import '../models/roast_setup.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
+import '../services/roast_runtime_manager.dart';
 import 'app_theme.dart';
 
 final _participantAliasGenerator = UniqueNamesGenerator(
@@ -317,6 +320,297 @@ Future<void> _showIssuedInvitations(
   ),
 );
 
+Future<void> _showSignMessageDialog(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account, {
+  RoastSignedMessage? result,
+}) => showDialog<void>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => _SignMessageDialog(
+    controller: controller,
+    account: account,
+    initialResult: result,
+  ),
+);
+
+class const _SignMessageDialog({
+  required final WalletController controller,
+  required final WalletAccount account,
+  final RoastSignedMessage? initialResult,
+}) extends StatefulWidget {
+  @override
+  State<_SignMessageDialog> createState() => _SignMessageDialogState();
+}
+
+class _SignMessageDialogState extends State<_SignMessageDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _textController = TextEditingController();
+  final _noteController = TextEditingController();
+  bool _reviewing = false;
+  bool _submitting = false;
+  String? _error;
+  late RoastSignedMessage? _result;
+
+  @override
+  void initState() {
+    super.initState();
+    _result = widget.initialResult;
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _review() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      _reviewing = true;
+      _error = null;
+    });
+  }
+
+  Future<void> _sign() async {
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.controller.signRoastMessage(
+        widget.account,
+        text: _textController.text,
+        message: _noteController.text.trim(),
+      );
+      if (mounted) setState(() => _result = result);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _copyResult() async {
+    await Clipboard.setData(ClipboardData(text: _result!.encoded));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Signed message copied.')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    return PopScope(
+      canPop: true,
+      child: AlertDialog(
+        title: Text(
+          result == null ? 'Sign message with ROAST' : 'Message signed',
+        ),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: result != null
+                ? _buildResult(result)
+                : _reviewing
+                ? _buildReview()
+                : _buildForm(),
+          ),
+        ),
+        actions: [
+          if (result != null) ...[
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              key: const Key('copy-signed-message'),
+              onPressed: _copyResult,
+              icon: const Icon(Icons.copy_rounded),
+              label: const Text('Copy signed message'),
+            ),
+          ] else ...[
+            TextButton(
+              key: _submitting ? const Key('close-message-signing') : null,
+              onPressed: _submitting
+                  ? () => Navigator.pop(context)
+                  : _reviewing
+                  ? () => setState(() {
+                      _reviewing = false;
+                      _error = null;
+                    })
+                  : () => Navigator.pop(context),
+              child: Text(
+                _submitting
+                    ? 'Close'
+                    : _reviewing
+                    ? 'Back'
+                    : 'Cancel',
+              ),
+            ),
+            FilledButton(
+              key: Key(
+                _reviewing
+                    ? 'request-message-signatures'
+                    : 'review-message-signature',
+              ),
+              onPressed: _submitting
+                  ? null
+                  : _reviewing
+                  ? _sign
+                  : _review,
+              child: _submitting
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(_reviewing ? 'Request signatures' : 'Review'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildForm() => Form(
+    key: _formKey,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'The exact text is signed by the shared group key. It is not a '
+          'Peercoin transaction or an address-ownership proof.',
+          style: TextStyle(color: AppColors.inkMuted),
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          key: const Key('roast-signed-message-field'),
+          controller: _textController,
+          autofocus: true,
+          minLines: 4,
+          maxLines: 10,
+          maxLength: maxRoastSignedMessageBytes,
+          decoration: const InputDecoration(
+            labelText: 'Message to sign',
+            alignLabelWithHint: true,
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) return 'Enter a message.';
+            return utf8.encode(value).length > maxRoastSignedMessageBytes
+                ? 'Message must be no more than 1 KiB of UTF-8 text.'
+                : null;
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          key: const Key('roast-message-note-field'),
+          controller: _noteController,
+          minLines: 2,
+          maxLines: 4,
+          maxLength: maxRoastSigningMessageBytes,
+          decoration: const InputDecoration(
+            labelText: 'Note to signers (optional)',
+            helperText: 'Authenticated context; not part of the signed text.',
+            alignLabelWithHint: true,
+          ),
+          validator: (value) =>
+              utf8.encode(value?.trim() ?? '').length >
+                  maxRoastSigningMessageBytes
+              ? 'Note must be no more than 1 KiB of UTF-8 text.'
+              : null,
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(_error!, style: const TextStyle(color: AppColors.danger)),
+        ],
+      ],
+    ),
+  );
+
+  Widget _buildReview() => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Confirm the exact text below. Whitespace and line endings are part '
+        'of the signature.',
+        style: TextStyle(color: AppColors.inkMuted),
+      ),
+      const SizedBox(height: 16),
+      _MessageBox(label: 'EXACT TEXT TO SIGN', text: _textController.text),
+      if (_noteController.text.trim().isNotEmpty) ...[
+        const SizedBox(height: 12),
+        _MessageBox(
+          label: 'NOTE TO SIGNERS · AUTHENTICATED, NOT SIGNED TEXT',
+          text: _noteController.text.trim(),
+        ),
+      ],
+      if (_error != null) ...[
+        const SizedBox(height: 12),
+        Text(_error!, style: const TextStyle(color: AppColors.danger)),
+      ],
+    ],
+  );
+
+  Widget _buildResult(RoastSignedMessage result) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Row(
+        children: [
+          Icon(Icons.verified_rounded, color: AppColors.success),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Threshold signature completed and verified.',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      _MessageBox(label: 'SIGNED TEXT', text: result.text),
+      const SizedBox(height: 12),
+      _MessageBox(label: 'PORTABLE SIGNED MESSAGE', text: result.encoded),
+    ],
+  );
+}
+
+class const _MessageBox({
+  required final String label,
+  required final String text,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.canvas,
+      border: Border.all(color: AppColors.line),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.inkMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        SelectableText(text),
+      ],
+    ),
+  );
+}
+
 class const RoastSetupPanel({
   super.key,
   required final WalletController controller,
@@ -326,9 +620,11 @@ class const RoastSetupPanel({
   Widget build(BuildContext context) {
     final setup = controller.setupForAccount(account);
     if (setup == null) return const SizedBox.shrink();
-    final busy = controller.roastOperationInProgress(setup.id);
+    final messageSigning = controller.roastMessageSigningInProgress(setup.id);
+    final busy =
+        controller.roastOperationInProgress(setup.id) || messageSigning;
     final onlineSigners = controller.onlineSignerCount(setup);
-    final actions = _actions(context, setup, busy);
+    final actions = _actions(context, setup, busy, messageSigning);
     final errorMessage = _displayError(setup);
     return Card(
       child: Padding(
@@ -550,7 +846,12 @@ class const RoastSetupPanel({
     );
   }
 
-  List<Widget> _actions(BuildContext context, RoastSetup setup, bool busy) {
+  List<Widget> _actions(
+    BuildContext context,
+    RoastSetup setup,
+    bool busy,
+    bool messageSigning,
+  ) {
     final recoverableBroadcast = controller.recoverableBroadcastForSetup(
       setup.id,
     );
@@ -634,6 +935,36 @@ class const RoastSetupPanel({
                 ),
           icon: const Icon(Icons.refresh_rounded),
           label: const Text('Reconnect'),
+        ),
+      ];
+    }
+    if (setup.isActive) {
+      final completedMessage = controller.completedRoastMessage(setup.id);
+      return [
+        if (completedMessage != null)
+          OutlinedButton.icon(
+            key: const Key('view-signed-message'),
+            onPressed: () => _showSignMessageDialog(
+              context,
+              controller,
+              account,
+              result: completedMessage,
+            ),
+            icon: const Icon(Icons.verified_rounded),
+            label: const Text('View signed message'),
+          ),
+        OutlinedButton.icon(
+          key: const Key('sign-roast-message'),
+          onPressed: busy
+              ? null
+              : () => _showSignMessageDialog(context, controller, account),
+          icon: messageSigning
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.draw_outlined),
+          label: Text(messageSigning ? 'Signing message…' : 'Sign message'),
         ),
       ];
     }

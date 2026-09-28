@@ -332,22 +332,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final vault = _finalizedRoastVault();
-    final repository = MemoryWalletRepository()
-      ..value = vault.copyWith(
-        accounts: [
-          vault.accounts.single.copyWith(
-            address: 'pc1proast',
-            derivationPath: 'R/0/6/0/0/0/0',
-          ),
-        ],
-        roastSetups: [
-          vault.roastSetups.single.copyWith(
-            status: RoastSetupStatus.active,
-            groupKeyHex: 'group-key',
-          ),
-        ],
-      );
+    final repository = MemoryWalletRepository()..value = _activeRoastVault();
     final controller = WalletController(
       repository,
       networkServiceFactory: (_) async => null,
@@ -363,6 +348,227 @@ void main() {
     expect(find.text('Derivation path'), findsNothing);
     expect(find.text('R/0/6/0/0/0/0'), findsNothing);
   });
+
+  testWidgets('reviews the exact text before requesting message signatures', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = MemoryWalletRepository()..value = _activeRoastVault();
+    final controller = WalletController(
+      repository,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    final signMessage = find.byKey(const Key('sign-roast-message'));
+    await tester.ensureVisible(signMessage);
+    await tester.tap(signMessage);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('roast-signed-message-field')),
+      'Release 1.0\nexact text ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('roast-message-note-field')),
+      'Please verify this release.',
+    );
+    await tester.tap(find.byKey(const Key('review-message-signature')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('EXACT TEXT TO SIGN'), findsOneWidget);
+    expect(find.text('Release 1.0\nexact text '), findsOneWidget);
+    expect(
+      find.text('NOTE TO SIGNERS · AUTHENTICATED, NOT SIGNED TEXT'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('request-message-signatures')), findsOneWidget);
+  });
+
+  testWidgets('can close a pending message request and view its result later', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['02'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: 'group-key',
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _activeRoastVault(),
+      roastRuntime: runtime,
+      roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    final signMessage = find.byKey(const Key('sign-roast-message'));
+    await tester.ensureVisible(signMessage);
+    await tester.tap(signMessage);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('roast-signed-message-field')),
+      'Hello world',
+    );
+    await tester.tap(find.byKey(const Key('review-message-signature')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('request-message-signatures')));
+    await tester.pump();
+
+    final close = find.byKey(const Key('close-message-signing'));
+    expect(close, findsOneWidget);
+    await tester.tap(close);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Sign message with ROAST'), findsNothing);
+    expect(find.text('Signing message…'), findsOneWidget);
+    expect(find.text('Message signature requested'), findsOneWidget);
+
+    runtime.emit(
+      RoastRuntimeMessageSigningResultEvent(
+        'setup',
+        requestIdHex: 'cc' * 16,
+        creator: '02',
+        signedMessage: RoastSignedMessage(
+          text: 'Hello world',
+          publicKeyHex: '11' * 32,
+          signatureHex: '22' * 64,
+          encoded: '{"format":"noosphere-signed-message"}',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final viewResult = find.byKey(const Key('view-signed-message'));
+    expect(viewResult, findsOneWidget);
+    await tester.ensureVisible(viewResult);
+    await tester.tap(viewResult);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Message signed'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Hello world'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('{"format":"noosphere-signed-message"}'), findsOneWidget);
+  });
+
+  testWidgets('shows exact signed text separately from the request note', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: 'group-key',
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _activeRoastVault(),
+      roastRuntime: runtime,
+      roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    runtime.emit(
+      RoastRuntimeSigningRequestEvent(
+        'setup',
+        request: RoastSigningRequest(
+          idHex: 'aa' * 16,
+          proposalHex: 'bb',
+          creator: '01',
+          expiry: DateTime.now().add(const Duration(minutes: 5)),
+          kind: RoastSigningRequestKind.message,
+          hasTransactionMetadata: false,
+          usesSupportedSighash: false,
+          usesExpectedTaprootTweak: false,
+          usesUntweakedKey: true,
+          status: 'waiting',
+          inputSats: 0,
+          transactionInputCount: 0,
+          signedInputIndexes: const [],
+          previousOutputScripts: const [],
+          inputOutpoints: const [],
+          outputs: const [],
+          masterGroupKeys: const ['group-key'],
+          derivationPaths: const [[]],
+          message: 'Check the published release.',
+          signedMessageText: 'Release 1.0\nSHA256: abc123',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('MESSAGE SIGNATURE · ACTION REQUIRED'), findsOneWidget);
+    expect(find.text('EXACT MESSAGE TO SIGN'), findsOneWidget);
+    expect(find.text('Release 1.0\nSHA256: abc123'), findsOneWidget);
+    expect(find.text('REQUEST NOTE · AUTHENTICATED'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('roast-signing-request-message')),
+        matching: find.text('Check the published release.'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Network fee'), findsNothing);
+  });
+}
+
+WalletVault _activeRoastVault() {
+  final vault = _finalizedRoastVault();
+  return vault.copyWith(
+    accounts: [
+      vault.accounts.single.copyWith(
+        address: 'pc1proast',
+        derivationPath: 'R/0/6/0/0/0/0',
+      ),
+    ],
+    roastSetups: [
+      vault.roastSetups.single.copyWith(
+        status: RoastSetupStatus.active,
+        groupKeyHex: 'group-key',
+      ),
+    ],
+  );
 }
 
 WalletVault _finalizedRoastVault() => WalletVault(
@@ -436,6 +642,19 @@ final class _FakeRoastKeyService extends RoastKeyService {
   String normalizeParticipantPublicKey(String value) => value.trim();
 
   @override
+  RoastDerivedAddress deriveAddress({
+    required String groupKeyHex,
+    required int threshold,
+    required network,
+    required int accountIndex,
+  }) => RoastDerivedAddress(
+    path: const [0, 6, 0, 0, 0, 0],
+    pathLabel: 'R/0/6/0/0/0/0',
+    address: 'pc1proast',
+    internalKeyHex: 'internal-key',
+  );
+
+  @override
   RoastInvitation applyInvitation(RoastSetup draft, String invitation) {
     appliedInvitation = invitation;
     throw const FormatException('Invalid test invitation.');
@@ -483,10 +702,18 @@ final class _FakeRoastRuntime implements RoastRuntime {
   }) => throw UnimplementedError();
 
   @override
-  Future<void> requestTransactionSignatures(
+  RoastSigningProposal createMessageSigningProposal(
     setup,
-    RoastSigningProposal proposal,
-  ) => throw UnimplementedError();
+    String text, {
+    String message = '',
+  }) => RoastSigningProposal(
+    idHex: 'cc' * 16,
+    proposalHex: 'dd',
+    expiry: DateTime.now().add(const Duration(minutes: 1)),
+  );
+
+  @override
+  Future<void> requestSignatures(setup, RoastSigningProposal proposal) async {}
 
   @override
   Future<void> acceptSignatures(String setupId, String requestIdHex) =>

@@ -8,6 +8,8 @@ enum WalletActivityType {
   dkgFailed,
   transactionSigned,
   transactionBroadcast,
+  messageSignatureRequested,
+  messageSigned,
 }
 
 class WalletActivity({

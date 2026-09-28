@@ -124,6 +124,8 @@ class WalletController extends ChangeNotifier {
   final Map<String, _PendingRoastSend> _pendingRoastSends = {};
   final Map<String, List<RoastIssuedInvitation>> _issuedRoastInvitations = {};
   final Map<String, RoastSigningOperation> _storedRoastSigningOperations = {};
+  final Map<String, Completer<RoastSignedMessage>> _pendingRoastMessages = {};
+  final Map<String, RoastSignedMessage> _completedRoastMessages = {};
   final Map<String, _RoastPresence> _roastPresence = {};
   final Set<String> _announcedRoastActions = {};
 
@@ -166,6 +168,12 @@ class WalletController extends ChangeNotifier {
 
   bool roastOperationInProgress(String setupId) =>
       _roastOperations.contains(setupId);
+
+  bool roastMessageSigningInProgress(String setupId) =>
+      _pendingRoastMessages.keys.any((key) => key.startsWith('$setupId:'));
+
+  RoastSignedMessage? completedRoastMessage(String setupId) =>
+      _completedRoastMessages[setupId];
 
   List<RoastIssuedInvitation> issuedRoastInvitations(String setupId) =>
       _issuedRoastInvitations[setupId] ?? const [];
@@ -1173,6 +1181,17 @@ class WalletController extends ChangeNotifier {
               entry.value.completer.complete(_RoastSendOutcome(error: error));
             }
           }
+          final pendingMessageEntries = event.requestIdHex == null
+              ? _pendingRoastMessages.entries.where(
+                  (entry) => entry.key.startsWith('${event.setupId}:'),
+                )
+              : _pendingRoastMessages.entries.where(
+                  (entry) =>
+                      entry.key == '${event.setupId}:${event.requestIdHex}',
+                );
+          for (final entry in pendingMessageEntries) {
+            if (!entry.value.isCompleted) entry.value.completeError(error);
+          }
           if (event.requestIdHex case final requestId?) {
             _roastSigningRequests.remove('${event.setupId}:$requestId');
           }
@@ -1294,6 +1313,22 @@ class WalletController extends ChangeNotifier {
             ),
           );
         }
+      case RoastRuntimeMessageSigningResultEvent():
+        if (event.creator != setup.localParticipant.identifierHex) return;
+        _completedRoastMessages[setup.id] = event.signedMessage;
+        final pending =
+            _pendingRoastMessages['${setup.id}:${event.requestIdHex}'];
+        if (pending != null && !pending.isCompleted) {
+          pending.complete(event.signedMessage);
+        }
+        await _recordSetupActivity(
+          setup,
+          id: 'message-signed:${setup.id}:${event.requestIdHex}',
+          type: WalletActivityType.messageSigned,
+          reference: event.requestIdHex,
+          details: event.signedMessage.text,
+        );
+        notifyListeners();
     }
   }
 
@@ -1376,6 +1411,9 @@ class WalletController extends ChangeNotifier {
         (_roastOperations.contains(roastSetupId) ||
             _pendingRoastSends.keys.any(
               (key) => key.startsWith('$roastSetupId:'),
+            ) ||
+            _pendingRoastMessages.keys.any(
+              (key) => key.startsWith('$roastSetupId:'),
             ))) {
       throw StateError(
         'Finish the active ROAST operation before deleting this wallet.',
@@ -1425,6 +1463,10 @@ class WalletController extends ChangeNotifier {
         _storedRoastSigningOperations.removeWhere(
           (_, operation) => operation.setupId == roastSetupId,
         );
+        _pendingRoastMessages.removeWhere(
+          (key, _) => key.startsWith('$roastSetupId:'),
+        );
+        _completedRoastMessages.remove(roastSetupId);
       }
 
       final previousSelection = remainingAccounts.indexWhere(
@@ -1500,6 +1542,52 @@ class WalletController extends ChangeNotifier {
   }
 
   static String _utxoKey(ElectrumxUtxo utxo) => '${utxo.txHash}:${utxo.txPos}';
+
+  Future<RoastSignedMessage> signRoastMessage(
+    WalletAccount account, {
+    required String text,
+    String message = '',
+  }) async {
+    final setup = setupForAccount(account);
+    final runtime = _roastRuntime;
+    if (setup == null ||
+        runtime == null ||
+        !setup.isActive ||
+        setup.groupKeyHex == null) {
+      throw const WalletSigningUnavailable();
+    }
+    if (roastMessageSigningInProgress(setup.id)) {
+      throw StateError('A message signature request is already active.');
+    }
+    final proposal = runtime.createMessageSigningProposal(
+      setup,
+      text,
+      message: message,
+    );
+    final pendingKey = '${setup.id}:${proposal.idHex}';
+    if (_pendingRoastMessages.containsKey(pendingKey)) {
+      throw StateError('This message signature request is already active.');
+    }
+    final completer = Completer<RoastSignedMessage>();
+    _pendingRoastMessages[pendingKey] = completer;
+    notifyListeners();
+    try {
+      await _recordActivity(
+        id: 'message-signature-requested:$pendingKey',
+        accountId: account.id,
+        type: WalletActivityType.messageSignatureRequested,
+        reference: proposal.idHex,
+        details: text,
+      );
+      await runtime.requestSignatures(setup, proposal);
+      return await completer.future.timeout(
+        proposal.expiry.difference(DateTime.now()),
+      );
+    } finally {
+      _pendingRoastMessages.remove(pendingKey);
+      notifyListeners();
+    }
+  }
 
   Future<WalletSendResult> sendTransaction(
     WalletTransactionPreview preview,
@@ -1589,7 +1677,7 @@ class WalletController extends ChangeNotifier {
             state: RoastSigningOperationState.awaitingSignatures,
           );
           await _saveRoastSigningOperation(signingOperation);
-          await runtime.requestTransactionSignatures(setup, proposal);
+          await runtime.requestSignatures(setup, proposal);
           final outcome = await completer.future.timeout(
             proposal.expiry.difference(DateTime.now()),
           );
@@ -1838,12 +1926,30 @@ class WalletController extends ChangeNotifier {
     RoastSetup setup,
     RoastSigningRequest request,
   ) {
-    if (!request.hasTransactionMetadata ||
+    if (request.expiry.isBefore(DateTime.now())) {
+      throw const WalletTransactionRejected('The signing request is expired.');
+    }
+    if (request.kind == RoastSigningRequestKind.message) {
+      final validMessage =
+          request.signedMessageText != null &&
+          request.usesUntweakedKey &&
+          request.masterGroupKeys.length == 1 &&
+          request.masterGroupKeys.single == setup.groupKeyHex &&
+          request.derivationPaths.length == 1 &&
+          request.derivationPaths.single.isEmpty;
+      if (!validMessage) {
+        throw const WalletTransactionRejected(
+          'The message signature request does not belong to this setup.',
+        );
+      }
+      return;
+    }
+    if (request.kind != RoastSigningRequestKind.transaction ||
+        !request.hasTransactionMetadata ||
         !request.usesSupportedSighash ||
-        !request.usesExpectedTaprootTweak ||
-        request.expiry.isBefore(DateTime.now())) {
+        !request.usesExpectedTaprootTweak) {
       throw const WalletTransactionRejected(
-        'The signing request is expired or has unsupported metadata.',
+        'The transaction signature request has unsupported metadata.',
       );
     }
     final account = accounts.firstWhere(
@@ -2148,6 +2254,15 @@ class WalletController extends ChangeNotifier {
       }
     }
     _pendingRoastSends.clear();
+    for (final pending in _pendingRoastMessages.values) {
+      if (!pending.isCompleted) {
+        pending.completeError(
+          const WalletTransactionRejected('ROAST signer stopped.'),
+        );
+      }
+    }
+    _pendingRoastMessages.clear();
+    _completedRoastMessages.clear();
     _storedRoastSigningOperations.clear();
     _roastPresence.clear();
     for (final subscription in _syncSubscriptions.values) {

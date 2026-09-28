@@ -3,7 +3,12 @@ import 'dart:async';
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart'
-    show Expiry, HDKeyInfo, NewDkgDetails, SignaturesRequestDetails;
+    show
+        Expiry,
+        HDKeyInfo,
+        MessageSignatureMetadata,
+        NewDkgDetails,
+        SignaturesRequestDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
@@ -67,7 +72,7 @@ void main() {
     },
   );
 
-  test('uses serialized expiry precision for signing proposals', () async {
+  test('creates serialized transaction and message proposals', () async {
     final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
     final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
     final sourceAddress = const RoastKeyService()
@@ -150,6 +155,29 @@ void main() {
       ),
       throwsArgumentError,
     );
+
+    final messageProposal = runtime.createMessageSigningProposal(
+      _setup(
+        RoastSetupRole.host,
+        active: true,
+      ).copyWith(groupKeyHex: signingKey.pubkey.hex),
+      'Exact message\nwith preserved whitespace ',
+      message: 'Please verify the release note.',
+    );
+    final messageDetails = SignaturesRequestDetails.fromHex(
+      messageProposal.proposalHex,
+    );
+    final messageMetadata = messageDetails.metadata as MessageSignatureMetadata;
+    expect(messageProposal.expiry, messageDetails.expiry.time);
+    expect(messageProposal.idHex, bytesToHex(messageDetails.id.toBytes()));
+    expect(
+      messageMetadata.payload.text,
+      'Exact message\nwith preserved whitespace ',
+    );
+    expect(messageDetails.message, 'Please verify the release note.');
+    expect(messageDetails.requiredSigs.single.groupKey, signingKey.pubkey);
+    expect(messageDetails.requiredSigs.single.hdDerivation, isEmpty);
+    expect(messageDetails.requiredSigs.single.signDetails.mastHash, isNull);
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
@@ -560,6 +588,76 @@ void main() {
     controller.dispose();
   });
 
+  test(
+    'accepts message requests and returns the portable signed result',
+    () async {
+      final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+      runtime.signatureRequestGate = Completer<void>();
+      final controller = _controller(runtime: runtime, active: true);
+      await controller.load();
+      await _flushEvents();
+
+      final incoming = _messageSigningRequest('ee' * 16);
+      runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: incoming));
+      await _flushEvents();
+
+      expect(
+        controller.roastSigningRequests.single.request.signedMessageText,
+        'Deploy release 1.0',
+      );
+      await controller.acceptRoastSigningRequest(
+        controller.roastSigningRequests.single,
+      );
+
+      final signing = controller.signRoastMessage(
+        controller.accounts.single,
+        text: 'Ship build 42\nunchanged ',
+        message: 'Release approval',
+      );
+      await _flushEvents();
+      expect(runtime.messageText, 'Ship build 42\nunchanged ');
+      expect(runtime.messageNote, 'Release approval');
+      expect(controller.roastMessageSigningInProgress('setup'), isTrue);
+      expect(
+        controller.activitiesFor(controller.accounts.single).first.type,
+        WalletActivityType.messageSignatureRequested,
+      );
+
+      runtime.signatureRequestGate!.complete();
+      runtime.emit(
+        RoastRuntimeMessageSigningResultEvent(
+          'setup',
+          requestIdHex: 'cc' * 16,
+          creator: '02',
+          signedMessage: RoastSignedMessage(
+            text: 'Ship build 42\nunchanged ',
+            publicKeyHex: '11' * 32,
+            signatureHex: '22' * 64,
+            encoded: '{"format":"noosphere-signed-message"}',
+          ),
+        ),
+      );
+      final result = await signing;
+      await _flushEvents();
+
+      expect(result.text, 'Ship build 42\nunchanged ');
+      expect(result.encoded, contains('noosphere-signed-message'));
+      expect(controller.completedRoastMessage('setup'), same(result));
+      expect(controller.roastMessageSigningInProgress('setup'), isFalse);
+      expect(
+        controller
+            .activitiesFor(controller.accounts.single)
+            .take(2)
+            .map((activity) => activity.type),
+        [
+          WalletActivityType.messageSigned,
+          WalletActivityType.messageSignatureRequested,
+        ],
+      );
+      controller.dispose();
+    },
+  );
+
   test('rebroadcasts the exact persisted transaction after restart', () async {
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
     final operations = MemoryRoastSigningOperationRepository();
@@ -957,9 +1055,11 @@ RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
   proposalHex: 'dd',
   creator: '01',
   expiry: DateTime.now().add(const Duration(minutes: 5)),
+  kind: RoastSigningRequestKind.transaction,
   hasTransactionMetadata: true,
   usesSupportedSighash: true,
   usesExpectedTaprootTweak: true,
+  usesUntweakedKey: false,
   status: 'waiting',
   inputSats: 2000000,
   transactionInputCount: 1,
@@ -974,6 +1074,29 @@ RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
     [0, 6, 0, 0, 0, 0],
   ],
   message: 'Quarterly hosting bill',
+);
+
+RoastSigningRequest _messageSigningRequest(String idHex) => RoastSigningRequest(
+  idHex: idHex,
+  proposalHex: 'ee',
+  creator: '01',
+  expiry: DateTime.now().add(const Duration(minutes: 5)),
+  kind: RoastSigningRequestKind.message,
+  hasTransactionMetadata: false,
+  usesSupportedSighash: false,
+  usesExpectedTaprootTweak: false,
+  usesUntweakedKey: true,
+  status: 'waiting',
+  inputSats: 0,
+  transactionInputCount: 0,
+  signedInputIndexes: const [],
+  previousOutputScripts: const [],
+  inputOutpoints: const [],
+  outputs: const [],
+  masterGroupKeys: const ['expected-key'],
+  derivationPaths: const [[]],
+  message: 'Confirm the release text.',
+  signedMessageText: 'Deploy release 1.0',
 );
 
 final class _FakeRoastKeyService extends RoastKeyService {
@@ -1041,6 +1164,9 @@ final class _FakeRoastRuntime implements RoastRuntime {
   RoastRoomCreation? roomCreation;
   RoastSetup? createdRoomSetup;
   RoastRuntimeSnapshot? startSnapshot;
+  String? messageText;
+  String? messageNote;
+  Completer<void>? signatureRequestGate;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -1097,10 +1223,22 @@ final class _FakeRoastRuntime implements RoastRuntime {
   );
 
   @override
-  Future<void> requestTransactionSignatures(
+  RoastSigningProposal createMessageSigningProposal(
     setup,
-    RoastSigningProposal proposal,
-  ) async {
+    String text, {
+    String message = '',
+  }) {
+    messageText = text;
+    messageNote = message;
+    return RoastSigningProposal(
+      idHex: 'cc' * 16,
+      proposalHex: 'dd',
+      expiry: DateTime.now().add(const Duration(minutes: 1)),
+    );
+  }
+
+  @override
+  Future<void> requestSignatures(setup, RoastSigningProposal proposal) async {
     if (failSigningRequests) {
       _events.add(
         RoastRuntimeFailureEvent(
@@ -1111,6 +1249,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
         ),
       );
     }
+    await signatureRequestGate?.future;
   }
 
   @override
@@ -1217,7 +1356,14 @@ final class _SigningRoastRuntime(
   }
 
   @override
-  Future<void> requestTransactionSignatures(
+  RoastSigningProposal createMessageSigningProposal(
+    RoastSetup setup,
+    String text, {
+    String message = '',
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> requestSignatures(
     RoastSetup setup,
     RoastSigningProposal proposal,
   ) async {

@@ -1112,6 +1112,16 @@ class _ActivityRow extends StatelessWidget {
     icon: Icons.send_outlined,
     color: AppColors.success,
   ),
+  WalletActivityType.messageSignatureRequested => (
+    title: 'Message signature requested',
+    icon: Icons.pending_actions_outlined,
+    color: AppColors.greenDark,
+  ),
+  WalletActivityType.messageSigned => (
+    title: 'Message signed',
+    icon: Icons.verified_outlined,
+    color: AppColors.success,
+  ),
 };
 
 String _activityReference(WalletActivityType type, String value) {
@@ -1121,6 +1131,8 @@ String _activityReference(WalletActivityType type, String value) {
     WalletActivityType.dkgFailed => 'DKG',
     WalletActivityType.transactionSigned ||
     WalletActivityType.transactionBroadcast => 'Transaction',
+    WalletActivityType.messageSignatureRequested ||
+    WalletActivityType.messageSigned => 'Message request',
     _ => 'Request',
   };
   return '$label ${_shortTransactionId(value)}';
@@ -1966,8 +1978,8 @@ Future<void> _showRoastRequests(
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Approve only after verifying every recipient, amount, fee '
-                  'and change output.',
+                  'Approve only after verifying the exact signed message or '
+                  'every transaction recipient, amount, fee and change output.',
                   style: TextStyle(color: AppColors.inkMuted),
                 ),
                 const SizedBox(height: 16),
@@ -2023,6 +2035,7 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
   @override
   Widget build(BuildContext context) {
     final request = widget.item.request;
+    final signsMessage = request.kind == RoastSigningRequestKind.message;
     return Card(
       key: ValueKey('roast-signing-request-${request.idHex}'),
       child: Padding(
@@ -2030,17 +2043,19 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.approval_outlined,
                   color: AppColors.danger,
                   size: 20,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Text(
-                  'SIGNATURE REQUEST · ACTION REQUIRED',
-                  style: TextStyle(
+                  signsMessage
+                      ? 'MESSAGE SIGNATURE · ACTION REQUIRED'
+                      : 'TRANSACTION SIGNATURE · ACTION REQUIRED',
+                  style: const TextStyle(
                     color: AppColors.danger,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
@@ -2056,10 +2071,42 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Requested by ${_shortTransactionId(request.creator)} · '
-              '${request.masterGroupKeys.length} input(s)',
+              signsMessage
+                  ? 'Requested by ${_shortTransactionId(request.creator)} · '
+                        'shared group key'
+                  : 'Requested by ${_shortTransactionId(request.creator)} · '
+                        '${request.masterGroupKeys.length} input(s)',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
             ),
+            if (request.signedMessageText case final signedText?) ...[
+              const SizedBox(height: 12),
+              Container(
+                key: const Key('roast-signed-message-request-text'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.canvas,
+                  border: Border.all(color: AppColors.line),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'EXACT MESSAGE TO SIGN',
+                      style: TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SelectableText(signedText),
+                  ],
+                ),
+              ),
+            ],
             if (request.message.isNotEmpty) ...[
               const SizedBox(height: 12),
               Container(
@@ -2077,7 +2124,7 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'REQUEST MESSAGE · AUTHENTICATED',
+                      'REQUEST NOTE · AUTHENTICATED',
                       style: TextStyle(
                         color: AppColors.warningDark,
                         fontSize: 10,
@@ -2091,25 +2138,28 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                 ),
               ),
             ],
-            const Divider(height: 24),
-            for (var i = 0; i < request.outputs.length; i++)
+            if (!signsMessage) ...[
+              const Divider(height: 24),
+              for (var i = 0; i < request.outputs.length; i++)
+                _TransactionRow(
+                  label:
+                      widget.controller.isRoastChangeOutput(
+                        widget.item,
+                        request.outputs[i],
+                      )
+                      ? 'Change'
+                      : 'Recipient',
+                  value:
+                      '${widget.controller.roastOutputAddress(widget.item, request.outputs[i])}\n'
+                      '${_formatPpc(request.outputs[i].valueSats)} PPC',
+                  monospace: true,
+                ),
               _TransactionRow(
-                label:
-                    widget.controller.isRoastChangeOutput(
-                      widget.item,
-                      request.outputs[i],
-                    )
-                    ? 'Change'
-                    : 'Recipient',
-                value:
-                    '${widget.controller.roastOutputAddress(widget.item, request.outputs[i])}\n'
-                    '${_formatPpc(request.outputs[i].valueSats)} PPC',
-                monospace: true,
+                label: 'Network fee',
+                value: '${_formatPpc(request.feeSats)} PPC',
               ),
-            _TransactionRow(
-              label: 'Network fee',
-              value: '${_formatPpc(request.feeSats)} PPC',
-            ),
+            ] else
+              const SizedBox(height: 12),
             _TransactionRow(
               label: 'Expires',
               value: request.expiry.toLocal().toString(),

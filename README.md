@@ -13,8 +13,8 @@ participant ever holds the complete private key.
 - ElectrumX balance and UTXO synchronization, server failover, transaction
   construction, signing and broadcast.
 - ROAST shared wallets with participant-bound invitations, distributed key
-  generation (DKG), quorum health, signing approvals and persistent recovery
-  of interrupted operations.
+  generation (DKG), quorum health, transaction and message-signing approvals,
+  and persistent recovery of interrupted transaction operations.
 - A recent-activity feed for DKG, signature requests, signing and broadcast
   events.
 
@@ -45,6 +45,9 @@ Create or import recovery phrase
 7. When someone wants to spend, Sygnature asks the other signers to review and
    approve the transaction. As soon as enough people approve, the transaction
    is signed and sent to the Peercoin network through ElectrumX.
+8. An active ROAST setup can also sign exact text with its untweaked group key.
+   Signers review the exact text separately from the authenticated request note;
+   the requester receives a verified, portable Noosphere signed-message JSON.
 
 Wallet names are local labels and may differ between participants. Participant
 aliases are also editable; cryptographic identities and key fingerprints are
@@ -54,8 +57,8 @@ the authoritative identifiers.
 
 Noosphere delivers changes in a ROAST group as events, allowing every connected
 wallet to update its screen from the same coordinator state. A signature
-request event, for example, tells signers that a transaction needs approval and
-includes the authenticated transaction metadata, optional message and expiry.
+request event tells signers that a transaction or exact text needs approval and
+includes validated metadata, an optional authenticated note and an expiry.
 
 Other events report signer availability, DKG requests and progress, new signing
 rounds, completion, rejection or failure. Sygnature presents requests requiring
