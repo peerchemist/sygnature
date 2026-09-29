@@ -466,6 +466,80 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('requires exact local approval before coordinator switching', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _CoordinatorFlowRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _finalizedRoastVault(),
+      roastRuntime: runtime,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('coordinator-connected')), findsOneWidget);
+    await tester.tap(find.byTooltip('Wallet settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Coordinator'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CURRENT ENDPOINT ID'), findsOneWidget);
+    expect(find.text('coordinator'), findsWidgets);
+    expect(
+      find.textContaining('invitation or imported address is not approval'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('does not approve the coordinator for other group'),
+      findsOneWidget,
+    );
+    var switchButton = tester.widget<FilledButton>(
+      find.byKey(const Key('switch-coordinator')),
+    );
+    expect(switchButton.onPressed, isNull);
+
+    await tester.enterText(
+      find.byKey(const Key('coordinator-endpoint-id')),
+      'proposed-coordinator',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('PROPOSED ENDPOINT ID'), findsOneWidget);
+    expect(find.text('proposed-coordinator'), findsWidgets);
+    switchButton = tester.widget<FilledButton>(
+      find.byKey(const Key('switch-coordinator')),
+    );
+    expect(switchButton.onPressed, isNull);
+
+    await tester.tap(find.byKey(const Key('approve-coordinator-endpoint')));
+    await tester.pumpAndSettle();
+    switchButton = tester.widget<FilledButton>(
+      find.byKey(const Key('switch-coordinator')),
+    );
+    expect(switchButton.onPressed, isNotNull);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(runtime.switchCalls, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('hides the ROAST derivation path from account details', (
     tester,
   ) async {
@@ -860,7 +934,7 @@ final class _FakeRoastKeyService extends RoastKeyService {
   }
 }
 
-final class _FakeRoastRuntime implements RoastRuntime {
+class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   RoastRuntimeSnapshot? startSnapshot;
@@ -938,4 +1012,39 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<void> close() => _events.close();
+}
+
+final class _CoordinatorFlowRuntime extends _FakeRoastRuntime
+    implements RoastCoordinatorRuntime {
+  int switchCalls = 0;
+
+  @override
+  Future<RoastRuntimeSnapshot> switchCoordinator(
+    RoastSetup setup, {
+    required RoastCoordinatorAddress newCoordinator,
+    required Future<void> Function(RoastCoordinatorAddress address) persist,
+  }) async {
+    switchCalls++;
+    await persist(newCoordinator);
+    return RoastRuntimeSnapshot(
+      connected: true,
+      signerRunning: true,
+      onlineParticipantIds: setup.onlineParticipantIds,
+      coordinatorId: newCoordinator.id,
+      coordinatorRelayUrls: newCoordinator.relayUrls,
+      coordinatorIpAddrs: newCoordinator.ipAddrs,
+      groupKeyHex: setup.groupKeyHex,
+      pendingDkgProposalHex: null,
+    );
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> updateCoordinatorAddress(
+    RoastSetup setup,
+    RoastCoordinatorAddress coordinator,
+  ) => switchCoordinator(
+    setup,
+    newCoordinator: coordinator,
+    persist: (_) async {},
+  );
 }

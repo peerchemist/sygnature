@@ -5,6 +5,8 @@ extension WalletRoastSetupController on WalletController {
   List<WalletGroupTransition> get groupTransitions =>
       _vault?.groupTransitions ?? const [];
   bool get roastAvailable => _roastRuntime != null;
+  bool get roastCoordinatorSwitchAvailable =>
+      _roastRuntime is RoastCoordinatorRuntime;
   RoastSetup? setupForAccount(WalletAccount account) {
     final setupId = account.sourceId;
     if (account.keySource != WalletKeySource.roast || setupId == null) {
@@ -15,6 +17,31 @@ extension WalletRoastSetupController on WalletController {
 
   bool roastOperationInProgress(String setupId) =>
       _roastOperations.contains(setupId);
+  RoastCoordinatorLocalState roastCoordinatorState(String setupId) {
+    if (_roastCoordinatorSwitches.contains(setupId)) {
+      return RoastCoordinatorLocalState.switching;
+    }
+    if (_roastCoordinatorRecovery.containsKey(setupId)) {
+      return RoastCoordinatorLocalState.recoveryRequired;
+    }
+    final presence = _roastPresence[setupId];
+    return presence?.connected == true && presence?.signerRunning == true
+        ? RoastCoordinatorLocalState.connected
+        : RoastCoordinatorLocalState.stopped;
+  }
+
+  RoastCoordinatorSwitchFailure? roastCoordinatorRecovery(String setupId) =>
+      _roastCoordinatorRecovery[setupId];
+
+  RoastCoordinatorAddress parseRoastCoordinatorAddress({
+    required String id,
+    required Iterable<String> relayUrls,
+    required Iterable<String> ipAddrs,
+  }) => RoastCoordinatorAddress.parse(
+    id: id,
+    relayUrls: relayUrls,
+    ipAddrs: ipAddrs,
+  );
   List<RoastIssuedInvitation> issuedRoastInvitations(String setupId) =>
       _issuedRoastInvitations[setupId] ?? const [];
   int onlineSignerCount(RoastSetup setup) {
@@ -631,6 +658,9 @@ extension WalletRoastSetupController on WalletController {
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
       );
+      if (snapshot.connected && snapshot.signerRunning) {
+        _roastCoordinatorRecovery.remove(setup.id);
+      }
       await _replaceSetup(
         setup.copyWith(
           status: snapshot.connected
@@ -654,6 +684,100 @@ extension WalletRoastSetupController on WalletController {
     }
   }
 
+  Future<void> switchRoastCoordinator(
+    String setupId,
+    RoastCoordinatorAddress newCoordinator, {
+    required bool approved,
+  }) async {
+    if (!approved) {
+      throw StateError(
+        'Approve the exact coordinator endpoint ID before switching.',
+      );
+    }
+    final runtime = _roastRuntime;
+    if (runtime == null || runtime is! RoastCoordinatorRuntime) {
+      throw UnsupportedError('Coordinator switching is not available.');
+    }
+    final coordinatorRuntime = runtime as RoastCoordinatorRuntime;
+    final setup = _setupById(setupId);
+    if (!setup.isFinalized || setup.coordinatorId == null) {
+      throw StateError('The ROAST signer setup is not ready to switch.');
+    }
+    final unchangedIdentity = setup.coordinatorId == newCoordinator.id;
+    final unchangedAddress =
+        unchangedIdentity &&
+        _sameStrings(setup.coordinatorRelayUrls, newCoordinator.relayUrls) &&
+        _sameStrings(setup.coordinatorIpAddrs, newCoordinator.ipAddrs);
+    if (unchangedAddress) {
+      throw StateError('This coordinator address is already selected.');
+    }
+    if (!_roastOperations.add(setupId)) {
+      throw StateError('Another ROAST operation is already in progress.');
+    }
+    _roastCoordinatorSwitches.add(setupId);
+    _notifyListeners();
+    Future<void>? persistence;
+    try {
+      final RoastRuntimeSnapshot snapshot;
+      if (unchangedIdentity) {
+        final write = _persistCoordinatorSelection(setupId, newCoordinator);
+        persistence = write;
+        try {
+          await write;
+        } on Object catch (error, stackTrace) {
+          Error.throwWithStackTrace(
+            RoastCoordinatorSwitchFailure(
+              kind: RoastCoordinatorSwitchFailureKind.persistence,
+              code: 'host_state',
+              cause: error,
+            ),
+            stackTrace,
+          );
+        }
+        snapshot = await coordinatorRuntime.updateCoordinatorAddress(
+          _setupById(setupId),
+          newCoordinator,
+        );
+      } else {
+        snapshot = await coordinatorRuntime.switchCoordinator(
+          setup,
+          newCoordinator: newCoordinator,
+          persist: (address) {
+            final write = _persistCoordinatorSelection(setupId, address);
+            persistence = write;
+            return write;
+          },
+        );
+      }
+      _roastCoordinatorRecovery.remove(setupId);
+      await _applyCoordinatorSnapshot(setupId, snapshot);
+    } on RoastCoordinatorSwitchFailure catch (failure, stackTrace) {
+      if (failure.kind == RoastCoordinatorSwitchFailureKind.persistence) {
+        try {
+          await persistence;
+        } on Object {
+          // The durable repository is authoritative after an ambiguous write.
+        }
+        await _recoverCoordinatorPersistence(setupId, runtime, failure);
+      } else {
+        await _requireCoordinatorRecovery(setupId, failure);
+      }
+      Error.throwWithStackTrace(failure, stackTrace);
+    } on Object catch (error, stackTrace) {
+      final failure = RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.connection,
+        code: 'application_failure',
+        cause: error,
+      );
+      await _requireCoordinatorRecovery(setupId, failure);
+      Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      _roastCoordinatorSwitches.remove(setupId);
+      _roastOperations.remove(setupId);
+      _notifyListeners();
+    }
+  }
+
   Future<void> resumeRoastSetup(String setupId) async {
     final setup = _setupById(setupId);
     if (!setup.isFinalized || _roastOperations.contains(setupId)) return;
@@ -661,6 +785,124 @@ extension WalletRoastSetupController on WalletController {
       setup.copyWith(status: RoastSetupStatus.connecting),
     );
   }
+
+  Future<void> _persistCoordinatorSelection(
+    String setupId,
+    RoastCoordinatorAddress address,
+  ) async {
+    final current = _vault;
+    if (current == null) throw StateError('Wallet is not initialized.');
+    final existing = _setupById(setupId);
+    if (existing.coordinatorId == address.id &&
+        _sameStrings(existing.coordinatorRelayUrls, address.relayUrls) &&
+        _sameStrings(existing.coordinatorIpAddrs, address.ipAddrs)) {
+      return;
+    }
+    final replacement = existing.copyWith(
+      coordinatorId: address.id,
+      coordinatorRelayUrls: List.unmodifiable(address.relayUrls),
+      coordinatorIpAddrs: List.unmodifiable(address.ipAddrs),
+    );
+    final next = current.copyWith(
+      roastSetups: [
+        for (final setup in current.roastSetups)
+          if (setup.id == setupId) replacement else setup,
+      ],
+    );
+    await _repository.save(next);
+    _vault = next;
+    _notifyListeners();
+  }
+
+  Future<void> _recoverCoordinatorPersistence(
+    String setupId,
+    RoastRuntime runtime,
+    RoastCoordinatorSwitchFailure failure,
+  ) async {
+    try {
+      final stored = await _repository.load();
+      if (stored == null) throw StateError('The wallet vault is missing.');
+      final selected = stored.roastSetups.singleWhere(
+        (setup) => setup.id == setupId,
+      );
+      _vault = stored;
+      _notifyListeners();
+      final snapshot = await runtime.startSetup(selected);
+      _roastCoordinatorRecovery.remove(setupId);
+      await _applyCoordinatorSnapshot(setupId, snapshot);
+    } on Object catch (recoveryError) {
+      await _requireCoordinatorRecovery(
+        setupId,
+        RoastCoordinatorSwitchFailure(
+          kind: RoastCoordinatorSwitchFailureKind.persistence,
+          code: failure.code,
+          cause: recoveryError,
+        ),
+      );
+    }
+  }
+
+  Future<void> _requireCoordinatorRecovery(
+    String setupId,
+    RoastCoordinatorSwitchFailure failure,
+  ) async {
+    _roastCoordinatorRecovery[setupId] = failure;
+    _roastPresence.remove(setupId);
+    final setup = _setupById(setupId);
+    await _replaceSetup(
+      setup.copyWith(
+        status: RoastSetupStatus.interrupted,
+        errorMessage: _coordinatorSwitchError(failure),
+      ),
+    );
+  }
+
+  Future<void> _applyCoordinatorSnapshot(
+    String setupId,
+    RoastRuntimeSnapshot snapshot,
+  ) async {
+    _roastPresence[setupId] = _RoastPresence(
+      connected: snapshot.connected,
+      signerRunning: snapshot.signerRunning,
+    );
+    final setup = _setupById(setupId);
+    await _replaceSetup(
+      setup.copyWith(
+        status: snapshot.connected
+            ? setup.groupKeyHex == null
+                  ? RoastSetupStatus.ready
+                  : RoastSetupStatus.active
+            : RoastSetupStatus.interrupted,
+        onlineParticipantIds: snapshot.onlineParticipantIds,
+        coordinatorId: snapshot.coordinatorId,
+        coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
+        coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
+        clearError: snapshot.connected,
+      ),
+    );
+  }
+
+  static bool _sameStrings(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
+  static String _coordinatorSwitchError(
+    RoastCoordinatorSwitchFailure failure,
+  ) => switch (failure.kind) {
+    RoastCoordinatorSwitchFailureKind.pendingSigningOperations =>
+      'Coordinator switch stopped because signing operations or nonce records '
+          'are still pending. Reconcile them before retrying.',
+    RoastCoordinatorSwitchFailureKind.persistence =>
+      'Coordinator storage outcome requires recovery. The signer remains '
+          'stopped until the durable selection is reconciled.',
+    RoastCoordinatorSwitchFailureKind.connection =>
+      'The approved coordinator is saved but the signer could not connect. '
+          'Verify that it serves this exact group, then retry explicitly.',
+  };
 
   Future<void> startRoastDkg(String setupId) async {
     await _guardRoastOperation(setupId, () async {
@@ -799,6 +1041,9 @@ extension WalletRoastSetupController on WalletController {
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
       );
+      if (snapshot.connected && snapshot.signerRunning) {
+        _roastCoordinatorRecovery.remove(setup.id);
+      }
       final connected = setup.copyWith(
         status: snapshot.groupKeyHex == null
             ? snapshot.pendingDkgProposalHex == null

@@ -518,6 +518,318 @@ void main() {
   );
 
   test(
+    'requires exact local approval and serializes coordinator switching',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime()
+        ..switchGate = Completer<void>()
+        ..signatureRequestGate = Completer<void>();
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+      const next = RoastCoordinatorAddress(
+        id: 'approved-coordinator',
+        relayUrls: [],
+        ipAddrs: [],
+      );
+
+      await expectLater(
+        controller.switchRoastCoordinator('setup', next, approved: false),
+        throwsStateError,
+      );
+      expect(runtime.switchCalls, 0);
+
+      final switching = controller.switchRoastCoordinator(
+        'setup',
+        next,
+        approved: true,
+      );
+      await _flushEvents();
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.switching,
+      );
+      await expectLater(
+        controller.switchRoastCoordinator('setup', next, approved: true),
+        throwsStateError,
+      );
+      expect(runtime.switchCalls, 1);
+      runtime.switchGate!.complete();
+      await switching;
+
+      expect(controller.roastSetups.single.coordinatorId, next.id);
+      expect(controller.roastSetups.single.groupKeyHex, 'expected-key');
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.connected,
+      );
+
+      final signing = controller.signRoastMessage(
+        controller.accounts.single,
+        text: 'Coordinator switched',
+      );
+      await _flushEvents();
+      runtime.signatureRequestGate!.complete();
+      runtime.emit(
+        RoastRuntimeMessageSigningResultEvent(
+          'setup',
+          requestIdHex: 'cc' * 16,
+          creator: '01',
+          signedMessage: RoastSignedMessage(
+            text: 'Coordinator switched',
+            publicKeyHex: '11' * 32,
+            signatureHex: '22' * 64,
+            encoded: 'signed-after-switch',
+          ),
+        ),
+      );
+      expect((await signing).encoded, 'signed-after-switch');
+      await _flushEvents();
+      controller.dispose();
+    },
+  );
+
+  test(
+    'uses address update when the approved endpoint ID is unchanged',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime();
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+
+      await controller.switchRoastCoordinator(
+        'setup',
+        const RoastCoordinatorAddress(
+          id: 'coordinator',
+          relayUrls: ['https://relay.example'],
+          ipAddrs: ['127.0.0.1:443'],
+        ),
+        approved: true,
+      );
+
+      expect(runtime.addressUpdateCalls, 1);
+      expect(runtime.switchCalls, 0);
+      expect(controller.roastSetups.single.coordinatorRelayUrls, [
+        'https://relay.example',
+      ]);
+      controller.dispose();
+    },
+  );
+
+  test('pending signing state stops switching before persistence', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime()
+      ..switchFailure = RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.pendingSigningOperations,
+        code: 'pending_signing_operations',
+        cause: StateError('pending signing state'),
+      );
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+
+    await expectLater(
+      controller.switchRoastCoordinator(
+        'setup',
+        const RoastCoordinatorAddress(
+          id: 'new-coordinator',
+          relayUrls: [],
+          ipAddrs: [],
+        ),
+        approved: true,
+      ),
+      throwsA(isA<RoastCoordinatorSwitchFailure>()),
+    );
+
+    expect(repository.value!.roastSetups.single.coordinatorId, 'coordinator');
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.recoveryRequired,
+    );
+    expect(
+      controller.roastSetups.single.errorMessage,
+      contains('signing operations or nonce records'),
+    );
+    controller.dispose();
+  });
+
+  for (final testCase in [
+    (
+      failure: _CoordinatorSaveFailure.beforeCommit,
+      expectedCoordinator: 'coordinator',
+    ),
+    (
+      failure: _CoordinatorSaveFailure.afterCommit,
+      expectedCoordinator: 'new-coordinator',
+    ),
+  ]) {
+    test(
+      'recovers from ${testCase.failure.name} coordinator storage failure',
+      () async {
+        final repository = _CoordinatorRepository();
+        final runtime = _CoordinatorRoastRuntime();
+        final controller = _coordinatorController(repository, runtime);
+        await controller.load();
+        await _flushEvents();
+        repository.failure = testCase.failure;
+
+        await expectLater(
+          controller.switchRoastCoordinator(
+            'setup',
+            const RoastCoordinatorAddress(
+              id: 'new-coordinator',
+              relayUrls: [],
+              ipAddrs: [],
+            ),
+            approved: true,
+          ),
+          throwsA(isA<RoastCoordinatorSwitchFailure>()),
+        );
+
+        expect(
+          repository.value!.roastSetups.single.coordinatorId,
+          testCase.expectedCoordinator,
+        );
+        expect(
+          runtime.startedCoordinatorIds.last,
+          testCase.expectedCoordinator,
+        );
+        expect(
+          controller.roastCoordinatorState('setup'),
+          RoastCoordinatorLocalState.connected,
+        );
+        controller.dispose();
+      },
+    );
+  }
+
+  test('waits for a late coordinator commit after host timeout', () async {
+    final repository = _CoordinatorRepository()
+      ..coordinatorWriteGate = Completer<void>();
+    final runtime = _CoordinatorRoastRuntime()
+      ..failBeforePersistenceSettles = true;
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+    var completed = false;
+
+    final switching = controller
+        .switchRoastCoordinator(
+          'setup',
+          const RoastCoordinatorAddress(
+            id: 'late-coordinator',
+            relayUrls: [],
+            ipAddrs: [],
+          ),
+          approved: true,
+        )
+        .whenComplete(() => completed = true);
+    await _flushEvents();
+    expect(completed, isFalse);
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.switching,
+    );
+
+    repository.coordinatorWriteGate!.complete();
+    await expectLater(switching, throwsA(isA<RoastCoordinatorSwitchFailure>()));
+    expect(
+      repository.value!.roastSetups.single.coordinatorId,
+      'late-coordinator',
+    );
+    expect(runtime.startedCoordinatorIds.last, 'late-coordinator');
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.connected,
+    );
+    controller.dispose();
+  });
+
+  for (final code in ['connection_refused', 'group_mismatch']) {
+    test('keeps the approved pin after coordinator $code', () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime()
+        ..switchFailure = RoastCoordinatorSwitchFailure(
+          kind: RoastCoordinatorSwitchFailureKind.connection,
+          code: code,
+          cause: StateError(code),
+        );
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+
+      await expectLater(
+        controller.switchRoastCoordinator(
+          'setup',
+          const RoastCoordinatorAddress(
+            id: 'approved-new-coordinator',
+            relayUrls: [],
+            ipAddrs: [],
+          ),
+          approved: true,
+        ),
+        throwsA(isA<RoastCoordinatorSwitchFailure>()),
+      );
+
+      expect(
+        repository.value!.roastSetups.single.coordinatorId,
+        'approved-new-coordinator',
+      );
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.recoveryRequired,
+      );
+      runtime.switchFailure = null;
+      await controller.resumeRoastSetup('setup');
+      expect(runtime.startedCoordinatorIds.last, 'approved-new-coordinator');
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.connected,
+      );
+      controller.dispose();
+    });
+  }
+
+  test('loads a saved coordinator pin before restart setup', () async {
+    final repository = _CoordinatorRepository();
+    final firstRuntime = _CoordinatorRoastRuntime()
+      ..switchFailure = RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.connection,
+        code: 'connection_refused',
+        cause: StateError('offline'),
+      );
+    final first = _coordinatorController(repository, firstRuntime);
+    await first.load();
+    await _flushEvents();
+    await expectLater(
+      first.switchRoastCoordinator(
+        'setup',
+        const RoastCoordinatorAddress(
+          id: 'saved-coordinator',
+          relayUrls: [],
+          ipAddrs: [],
+        ),
+        approved: true,
+      ),
+      throwsA(isA<RoastCoordinatorSwitchFailure>()),
+    );
+    first.dispose();
+
+    final restartedRuntime = _CoordinatorRoastRuntime();
+    final restarted = _coordinatorController(repository, restartedRuntime);
+    await restarted.load();
+    await _flushEvents();
+
+    expect(
+      restartedRuntime.startedCoordinatorIds,
+      contains('saved-coordinator'),
+    );
+    expect(restarted.roastSetups.single.coordinatorId, 'saved-coordinator');
+    restarted.dispose();
+  });
+
+  test(
     'distinguishes enrollment rejection and interruption without retrying',
     () async {
       final cases = <({RoastEnrollmentFailure failure, String message})>[
@@ -1311,6 +1623,38 @@ void main() {
   );
 }
 
+WalletController _coordinatorController(
+  _CoordinatorRepository repository,
+  _CoordinatorRoastRuntime runtime,
+) {
+  repository.value ??= WalletVault(
+    accounts: [
+      WalletAccount(
+        id: 'shared',
+        name: 'Shared wallet',
+        accountIndex: 0,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        derivationState: WalletDerivationState.ready,
+        keySource: WalletKeySource.roast,
+        sourceId: 'setup',
+        keyId: 'setup:generation:1',
+        derivationPath: 'R/0/6/0/0/0/0',
+        address: 'pc1pshared',
+        createdAt: DateTime.utc(2026),
+      ),
+    ],
+    nextAccountIndex: 0,
+    roastSetups: [_setup(RoastSetupRole.host, active: true)],
+  );
+  return WalletController(
+    repository,
+    roastRuntime: runtime,
+    roastKeyService: _FakeRoastKeyService(),
+    networkServiceFactory: (_) async => null,
+  );
+}
+
 WalletController _activeController({
   required _FakeRoastRuntime runtime,
   required RoastSigningOperationRepository operations,
@@ -1558,7 +1902,7 @@ final class _FixedRoastKeyService(final RoastDerivedAddress address)
   }) => address;
 }
 
-final class _FakeRoastRuntime implements RoastRuntime {
+class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final List<String> requestedDkgSetupIds = [];
@@ -1708,6 +2052,121 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<void> close() => _events.close();
+}
+
+final class _CoordinatorRoastRuntime extends _FakeRoastRuntime
+    implements RoastCoordinatorRuntime {
+  int switchCalls = 0;
+  int addressUpdateCalls = 0;
+  final List<String?> startedCoordinatorIds = [];
+  RoastCoordinatorSwitchFailure? switchFailure;
+  Completer<void>? switchGate;
+  bool failBeforePersistenceSettles = false;
+  Object? startFailure;
+
+  @override
+  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+    startedCoordinatorIds.add(setup.coordinatorId);
+    final error = startFailure;
+    if (error != null) throw error;
+    return _snapshotFor(setup.coordinatorId, groupKeyHex: setup.groupKeyHex);
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> switchCoordinator(
+    RoastSetup setup, {
+    required RoastCoordinatorAddress newCoordinator,
+    required Future<void> Function(RoastCoordinatorAddress address) persist,
+  }) async {
+    switchCalls++;
+    final failure = switchFailure;
+    if (failure?.kind ==
+        RoastCoordinatorSwitchFailureKind.pendingSigningOperations) {
+      throw failure!;
+    }
+    final persistence = persist(newCoordinator);
+    if (failBeforePersistenceSettles) {
+      unawaited(persistence);
+      throw RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.persistence,
+        code: 'host_timeout',
+        cause: TimeoutException('host persistence timed out'),
+      );
+    }
+    try {
+      await persistence;
+    } catch (error) {
+      throw RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.persistence,
+        code: 'host_state',
+        cause: error,
+      );
+    }
+    await switchGate?.future;
+    if (failure != null) throw failure;
+    return _snapshotFor(
+      newCoordinator.id,
+      groupKeyHex: setup.groupKeyHex,
+      relayUrls: newCoordinator.relayUrls,
+      ipAddrs: newCoordinator.ipAddrs,
+    );
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> updateCoordinatorAddress(
+    RoastSetup setup,
+    RoastCoordinatorAddress coordinator,
+  ) async {
+    addressUpdateCalls++;
+    return _snapshotFor(
+      coordinator.id,
+      groupKeyHex: setup.groupKeyHex,
+      relayUrls: coordinator.relayUrls,
+      ipAddrs: coordinator.ipAddrs,
+    );
+  }
+
+  static RoastRuntimeSnapshot _snapshotFor(
+    String? coordinatorId, {
+    required String? groupKeyHex,
+    List<String> relayUrls = const [],
+    List<String> ipAddrs = const [],
+  }) => RoastRuntimeSnapshot(
+    connected: true,
+    signerRunning: true,
+    onlineParticipantIds: const ['01', '02'],
+    coordinatorId: coordinatorId,
+    coordinatorRelayUrls: relayUrls,
+    coordinatorIpAddrs: ipAddrs,
+    groupKeyHex: groupKeyHex,
+    pendingDkgProposalHex: null,
+  );
+}
+
+enum _CoordinatorSaveFailure { none, beforeCommit, afterCommit }
+
+final class _CoordinatorRepository extends MemoryWalletRepository {
+  _CoordinatorSaveFailure failure = _CoordinatorSaveFailure.none;
+  Completer<void>? coordinatorWriteGate;
+
+  @override
+  Future<void> save(WalletVault vault) async {
+    final previousId = value?.roastSetups.singleOrNull?.coordinatorId;
+    final nextId = vault.roastSetups.singleOrNull?.coordinatorId;
+    final coordinatorChanged = previousId != nextId;
+    if (!coordinatorChanged) {
+      value = vault;
+      return;
+    }
+    await coordinatorWriteGate?.future;
+    if (failure == _CoordinatorSaveFailure.beforeCommit) {
+      throw StateError('storage failed before commit');
+    }
+    value = vault;
+    if (failure == _CoordinatorSaveFailure.afterCommit) {
+      throw StateError('storage failed after commit');
+    }
+  }
 }
 
 final class _FakeElectrumxService implements ElectrumxService {

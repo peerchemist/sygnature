@@ -163,6 +163,50 @@ class RoastRoomCreation({
   required final List<String> coordinatorIpAddrs,
 });
 
+class const RoastCoordinatorAddress({
+  required final String id,
+  required final List<String> relayUrls,
+  required final List<String> ipAddrs,
+}) {
+  factory RoastCoordinatorAddress.parse({
+    required String id,
+    required Iterable<String> relayUrls,
+    required Iterable<String> ipAddrs,
+  }) {
+    final endpoint = EndpointAddr(
+      PublicKey.fromZ32(id.trim()),
+      relayUrls: [
+        for (final value in relayUrls)
+          if (value.trim().isNotEmpty) RelayUrl.parse(value.trim()),
+      ],
+      ipAddrs: [
+        for (final value in ipAddrs)
+          if (value.trim().isNotEmpty) value.trim(),
+      ],
+    );
+    return RoastCoordinatorAddress(
+      id: endpoint.id.toZ32(),
+      relayUrls: [for (final relay in endpoint.relayUrls) relay.value],
+      ipAddrs: List.unmodifiable(endpoint.ipAddrs),
+    );
+  }
+}
+
+enum RoastCoordinatorSwitchFailureKind {
+  pendingSigningOperations,
+  persistence,
+  connection,
+}
+
+final class RoastCoordinatorSwitchFailure({
+  required final RoastCoordinatorSwitchFailureKind kind,
+  required final String code,
+  required final Object cause,
+}) implements Exception {
+  @override
+  String toString() => 'RoastCoordinatorSwitchFailure($code): $cause';
+}
+
 enum RoastEnrollmentFailureKind {
   rejected,
   timeout,
@@ -223,10 +267,23 @@ abstract interface class RoastRuntime {
   Future<void> close();
 }
 
+abstract interface class RoastCoordinatorRuntime {
+  Future<RoastRuntimeSnapshot> switchCoordinator(
+    RoastSetup setup, {
+    required RoastCoordinatorAddress newCoordinator,
+    required Future<void> Function(RoastCoordinatorAddress address) persist,
+  });
+
+  Future<RoastRuntimeSnapshot> updateCoordinatorAddress(
+    RoastSetup setup,
+    RoastCoordinatorAddress coordinator,
+  );
+}
+
 enum _ExistingDkgResolution { none, resumed, cancelled }
 
 final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
-    implements RoastRuntime {
+    implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
@@ -236,6 +293,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   final Map<String, String> _emittedGroupKeys = {};
   final Set<String> _serverSetups = {};
   final Set<String> _signerSetups = {};
+  final Map<String, RoastCoordinatorAddress> _signerCoordinators = {};
   final Map<String, NoosphereNode> _roomServers = {};
   final Map<String, StreamSubscription<RoomSnapshot>> _roomSubscriptions = {};
   final Set<String> _freezingRooms = {};
@@ -375,27 +433,38 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       serverSnapshot = await worker.snapshot(setup.id);
     }
 
-    final coordinator = roomCoordinator ?? serverSnapshot?.coordinator;
-    final coordinatorId = setup.role == RoastSetupRole.host
-        ? coordinator?.id
-        : setup.coordinatorId;
-    if (coordinatorId == null) {
+    final embeddedCoordinator = roomCoordinator ?? serverSnapshot?.coordinator;
+    final selectedCoordinator = setup.coordinatorId == null
+        ? embeddedCoordinator == null
+              ? null
+              : RoastCoordinatorAddress(
+                  id: embeddedCoordinator.id,
+                  relayUrls: embeddedCoordinator.relayUrls,
+                  ipAddrs: embeddedCoordinator.ipAddrs,
+                )
+        : RoastCoordinatorAddress(
+            id: setup.coordinatorId!,
+            relayUrls: setup.coordinatorRelayUrls,
+            ipAddrs: setup.coordinatorIpAddrs,
+          );
+    if (selectedCoordinator == null) {
       throw StateError('The coordinator did not publish an Iroh identity.');
     }
-    final relayUrls = setup.role == RoastSetupRole.host
-        ? coordinator?.relayUrls ?? const <String>[]
-        : setup.coordinatorRelayUrls;
-    final ipAddrs = setup.role == RoastSetupRole.host
-        ? coordinator?.ipAddrs ?? const <String>[]
-        : setup.coordinatorIpAddrs;
-    final pinnedId = PublicKey.fromZ32(coordinatorId);
-    final address = EndpointAddr(
-      pinnedId,
-      relayUrls: [for (final value in relayUrls) RelayUrl.parse(value)],
-      ipAddrs: ipAddrs,
-    );
+    final address = _endpointAddress(selectedCoordinator);
+    final pinnedId = address.id;
+    _signerCoordinators[setup.id] = selectedCoordinator;
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
+    );
+    final clientOptions = ClientNodeOptions(
+      clientConfig: ClientConfig(
+        group: group,
+        id: Identifier.fromHex(setup.localParticipant.identifierHex),
+      ),
+      bootstrapAddress: address,
+      pinnedServerId: pinnedId,
+      storage: persistence.clientStorage(setup.id),
+      getPrivateKey: (_) async => privateKey,
     );
     late final NoosphereWorkerSnapshot snapshot;
     try {
@@ -403,16 +472,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           ? await worker.snapshot(setup.id)
           : await worker.startSetup(
               setupId: setup.id,
-              client: ClientNodeOptions(
-                clientConfig: ClientConfig(
-                  group: group,
-                  id: Identifier.fromHex(setup.localParticipant.identifierHex),
-                ),
-                bootstrapAddress: address,
-                pinnedServerId: pinnedId,
-                storage: persistence.clientStorage(setup.id),
-                getPrivateKey: (_) async => privateKey,
-              ),
+              client: clientOptions.withCoordinator(address),
             );
     } on Object catch (error) {
       if (scheduleRoomRetry &&
@@ -430,6 +490,72 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _signerSetups.add(setup.id);
     AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
     return _snapshot(snapshot, setup, publishDkgs: publishDkgs);
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> switchCoordinator(
+    RoastSetup setup, {
+    required RoastCoordinatorAddress newCoordinator,
+    required Future<void> Function(RoastCoordinatorAddress address) persist,
+  }) async {
+    final worker = await _ensureWorker();
+    if (!_signerSetups.contains(setup.id)) {
+      throw StateError('The ROAST signer is not running.');
+    }
+    try {
+      final snapshot = await worker.switchCoordinator(
+        setup.id,
+        newCoordinator: _endpointAddress(newCoordinator),
+        persist: (_) async {
+          await persist(newCoordinator);
+          _signerCoordinators[setup.id] = newCoordinator;
+          _setups[setup.id] = setup.copyWith(
+            coordinatorId: newCoordinator.id,
+            coordinatorRelayUrls: newCoordinator.relayUrls,
+            coordinatorIpAddrs: newCoordinator.ipAddrs,
+          );
+        },
+      );
+      _signerSetups.add(setup.id);
+      return await _snapshot(snapshot, _setups[setup.id] ?? setup);
+    } on NoosphereWorkerException catch (error, stackTrace) {
+      _signerSetups.remove(setup.id);
+      Error.throwWithStackTrace(
+        RoastCoordinatorSwitchFailure(
+          kind: switch (error.code) {
+            'pending_signing_operations' =>
+              RoastCoordinatorSwitchFailureKind.pendingSigningOperations,
+            'host_state' ||
+            'host_timeout' ||
+            'host_argument' ||
+            'host_failure' => RoastCoordinatorSwitchFailureKind.persistence,
+            _ => RoastCoordinatorSwitchFailureKind.connection,
+          },
+          code: error.code,
+          cause: error,
+        ),
+        stackTrace,
+      );
+    }
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> updateCoordinatorAddress(
+    RoastSetup setup,
+    RoastCoordinatorAddress coordinator,
+  ) async {
+    final worker = await _ensureWorker();
+    if (!_signerSetups.contains(setup.id)) {
+      throw StateError('The ROAST signer is not running.');
+    }
+    await worker.updateSignerAddress(setup.id, _endpointAddress(coordinator));
+    _signerCoordinators[setup.id] = coordinator;
+    _setups[setup.id] = setup.copyWith(
+      coordinatorId: coordinator.id,
+      coordinatorRelayUrls: coordinator.relayUrls,
+      coordinatorIpAddrs: coordinator.ipAddrs,
+    );
+    return _snapshot(await worker.snapshot(setup.id), _setups[setup.id]!);
   }
 
   @override
@@ -723,6 +849,15 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       WorkerCoordinatorAddress(
         id: address.id.toZ32(),
         relayUrls: [for (final relay in address.relayUrls) relay.value],
+        ipAddrs: address.ipAddrs,
+      );
+
+  static EndpointAddr _endpointAddress(RoastCoordinatorAddress address) =>
+      EndpointAddr(
+        PublicKey.fromZ32(address.id),
+        relayUrls: [
+          for (final value in address.relayUrls) RelayUrl.parse(value),
+        ],
         ipAddrs: address.ipAddrs,
       );
 
@@ -1041,6 +1176,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _emittedGroupKeys.remove(setupId);
     _serverSetups.remove(setupId);
     _signerSetups.remove(setupId);
+    _signerCoordinators.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
     await _roomServers.remove(setupId)?.close();
@@ -1472,7 +1608,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   }
 
   void _emitSnapshot(NoosphereWorkerSnapshot snapshot) {
-    final coordinator = snapshot.coordinator;
+    final coordinator = _selectedCoordinator(snapshot.setupId);
     _events.add(
       RoastRuntimeSnapshotEvent(
         snapshot.setupId,
@@ -1492,7 +1628,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     bool publishDkgs = true,
   }) async {
     if (publishDkgs) _rememberDkgs(snapshot);
-    final coordinator = snapshot.coordinator;
+    final coordinator = _selectedCoordinator(snapshot.setupId);
     final matchingKeys = snapshot.keys
         .where(
           (key) =>
@@ -1548,6 +1684,20 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
             : bytesEqual(status.proposalBytes, approved));
   }
 
+  RoastCoordinatorAddress? _selectedCoordinator(String setupId) {
+    final selected = _signerCoordinators[setupId];
+    if (selected != null) return selected;
+    final setup = _setups[setupId];
+    final id = setup?.coordinatorId;
+    return id == null
+        ? null
+        : RoastCoordinatorAddress(
+            id: id,
+            relayUrls: setup!.coordinatorRelayUrls,
+            ipAddrs: setup.coordinatorIpAddrs,
+          );
+  }
+
   static GroupConfig _group(RoastSetup setup) => GroupConfig(
     id: setup.groupId,
     participants: {
@@ -1578,6 +1728,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _emittedGroupKeys.clear();
     _serverSetups.clear();
     _signerSetups.clear();
+    _signerCoordinators.clear();
     for (final subscription in _roomSubscriptions.values) {
       await subscription.cancel();
     }

@@ -53,6 +53,13 @@ part 'wallet_controller_sync.dart';
 
 enum AccountSyncStatus { unavailable, syncing, synced, error }
 
+enum RoastCoordinatorLocalState {
+  switching,
+  connected,
+  stopped,
+  recoveryRequired,
+}
+
 class RoastSigningInboxItem({
   required final String setupId,
   required final String walletName,
@@ -153,6 +160,9 @@ class WalletController extends ChangeNotifier {
   Future<void> _roastEventQueue = Future.value();
   Future<void> _utxoReconciliationQueue = Future.value();
   final Set<String> _roastOperations = {};
+  final Set<String> _roastCoordinatorSwitches = {};
+  final Map<String, RoastCoordinatorSwitchFailure> _roastCoordinatorRecovery =
+      {};
   final Map<String, RoastSigningInboxItem> _roastSigningRequests = {};
   final Map<String, _PendingRoastSend> _pendingRoastSends = {};
   final Map<String, List<RoastIssuedInvitation>> _issuedRoastInvitations = {};

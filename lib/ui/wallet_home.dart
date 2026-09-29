@@ -370,6 +370,16 @@ class _WalletDashboard extends StatelessWidget {
                           roastSetup!,
                         )
                       : null,
+                  onSwitchCoordinator:
+                      roastSetup?.isFinalized == true &&
+                          roastSetup?.coordinatorId != null &&
+                          controller.roastCoordinatorSwitchAvailable
+                      ? () => showRoastCoordinatorSwitch(
+                          context,
+                          controller,
+                          roastSetup!,
+                        )
+                      : null,
                 ),
                 if (roastSetup != null) ...[
                   const SizedBox(height: 18),
@@ -537,12 +547,14 @@ class _DashboardHeader extends StatelessWidget {
     required this.onDelete,
     required this.onRename,
     this.onChangeSignerGroup,
+    this.onSwitchCoordinator,
   });
   final WalletAccount account;
   final AccountSyncStatus syncStatus;
   final VoidCallback onDelete;
   final VoidCallback onRename;
   final VoidCallback? onChangeSignerGroup;
+  final VoidCallback? onSwitchCoordinator;
 
   @override
   Widget build(BuildContext context) {
@@ -629,6 +641,7 @@ class _DashboardHeader extends StatelessWidget {
               onSelected: (value) {
                 if (value == 'rename') onRename();
                 if (value == 'signers') onChangeSignerGroup?.call();
+                if (value == 'coordinator') onSwitchCoordinator?.call();
                 if (value == 'delete') onDelete();
               },
               itemBuilder: (_) => [
@@ -650,6 +663,17 @@ class _DashboardHeader extends StatelessWidget {
                         Icon(Icons.manage_accounts_outlined),
                         SizedBox(width: 10),
                         Text('Change signers'),
+                      ],
+                    ),
+                  ),
+                if (onSwitchCoordinator != null)
+                  const PopupMenuItem(
+                    value: 'coordinator',
+                    child: Row(
+                      children: [
+                        Icon(Icons.swap_horiz_rounded),
+                        SizedBox(width: 10),
+                        Text('Coordinator'),
                       ],
                     ),
                   ),
