@@ -907,15 +907,6 @@ class _AccountDetails extends StatelessWidget {
               label: 'Network',
               value: controller.networkForAccount(account).label,
             ),
-            const SizedBox(height: 13),
-            _DetailRow(
-              label: 'Key source',
-              value: switch (account.keySource) {
-                WalletKeySource.personal => 'Personal BIP-86 seed',
-                WalletKeySource.watchOnly => 'Imported watch-only address',
-                WalletKeySource.roast => 'ROAST threshold key',
-              },
-            ),
             if (account.keySource != WalletKeySource.watchOnly) ...[
               const SizedBox(height: 13),
               _DetailRow(
