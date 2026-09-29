@@ -673,7 +673,7 @@ class _DashboardHeader extends StatelessWidget {
                       children: [
                         Icon(Icons.swap_horiz_rounded),
                         SizedBox(width: 10),
-                        Text('Coordinator'),
+                        Flexible(child: Text('Change ROAST coordinator')),
                       ],
                     ),
                   ),

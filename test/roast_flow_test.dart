@@ -497,7 +497,7 @@ void main() {
     expect(find.byKey(const Key('coordinator-connected')), findsOneWidget);
     await tester.tap(find.byTooltip('Wallet settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Coordinator'));
+    await tester.tap(find.text('Change ROAST coordinator'));
     await tester.pumpAndSettle();
 
     expect(find.text('CURRENT ENDPOINT ID'), findsOneWidget);
