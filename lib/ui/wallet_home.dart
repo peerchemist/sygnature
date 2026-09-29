@@ -1391,8 +1391,10 @@ class _SendDialogState extends State<_SendDialog> {
   @override
   Widget build(BuildContext context) {
     final preview = _preview;
+    final canClosePendingRequest =
+        _submitting && widget.account.keySource == WalletKeySource.roast;
     return PopScope(
-      canPop: !_submitting,
+      canPop: !_submitting || canClosePendingRequest,
       child: AlertDialog(
         title: Text(preview == null ? 'Send Peercoin' : 'Review transaction'),
         content: ConstrainedBox(
@@ -1403,15 +1405,24 @@ class _SendDialogState extends State<_SendDialog> {
         ),
         actions: [
           TextButton(
+            key: const Key('send-dismiss-button'),
             onPressed: _submitting
-                ? null
+                ? canClosePendingRequest
+                      ? () => Navigator.pop(context)
+                      : null
                 : preview == null
                 ? () => Navigator.pop(context)
                 : () => setState(() {
                     _preview = null;
                     _error = null;
                   }),
-            child: Text(preview == null ? 'Cancel' : 'Back'),
+            child: Text(
+              canClosePendingRequest
+                  ? 'Close'
+                  : preview == null
+                  ? 'Cancel'
+                  : 'Back',
+            ),
           ),
           FilledButton(
             key: Key(
@@ -1569,6 +1580,14 @@ class _SendDialogState extends State<_SendDialog> {
         label: 'Inputs',
         value: '${preview.selectedUtxos.length}',
       ),
+      if (_submitting && widget.account.keySource == WalletKeySource.roast) ...[
+        const SizedBox(height: 12),
+        const Text(
+          'You can close this window. The approval request will continue in '
+          'the wallet.',
+          style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        ),
+      ],
       if (_error != null) ...[
         const SizedBox(height: 12),
         Text(_error!, style: const TextStyle(color: Colors.red)),

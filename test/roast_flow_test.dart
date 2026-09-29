@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:coinlib/coinlib.dart'
+    show ECPrivateKey, Network, P2TRAddress, Taproot, loadCoinlib;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,16 +10,20 @@ import 'package:noosphere/domain.dart'
     show GroupTransitionKeyPlan, NewDkgDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
+import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
+import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/app_theme.dart';
 
 void main() {
+  setUpAll(loadCoinlib);
+
   testWidgets('adds a pending ROAST wallet after personal wallet setup', (
     tester,
   ) async {
@@ -881,6 +887,118 @@ void main() {
     );
     expect(find.text('Network fee'), findsNothing);
   });
+
+  testWidgets('can close a transaction while ROAST approvals are pending', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
+    final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
+    final sourceAddress = P2TRAddress.fromTaproot(
+      Taproot(internalKey: signingKey.pubkey),
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final destinationAddress = P2TRAddress.fromTweakedKey(
+      destinationKey.pubkey,
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final vault = _activeRoastVault();
+    final electrumx = _FlowElectrumxService(
+      PeercoinElectrumxUtxoSnapshot(
+        address: sourceAddress,
+        utxos: [
+          ElectrumxUtxo(
+            address: sourceAddress,
+            txHash: 'd' * 64,
+            txPos: 0,
+            height: 100,
+            value: 2000000,
+          ),
+        ],
+      ),
+    );
+    final runtime = _FakeRoastRuntime()
+      ..signatureRequestGate = Completer<void>()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: signingKey.pubkey.hex,
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()
+        ..value = vault.copyWith(
+          accounts: [vault.accounts.single.copyWith(address: sourceAddress)],
+          roastSetups: [
+            vault.roastSetups.single.copyWith(
+              groupKeyHex: signingKey.pubkey.hex,
+            ),
+          ],
+        ),
+      roastRuntime: runtime,
+      roastKeyService: _FlowRoastKeyService(
+        RoastDerivedAddress(
+          path: const [0, 6, 0, 0, 0, 0],
+          pathLabel: 'R/0/6/0/0/0/0',
+          address: sourceAddress,
+          internalKeyHex: signingKey.pubkey.hex,
+        ),
+      ),
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      controller.syncStatusFor(controller.accounts.single),
+      AccountSyncStatus.synced,
+    );
+    expect(
+      controller.availableBalanceSatsFor(controller.accounts.single),
+      2000000,
+    );
+
+    await tester.tap(find.text('Send'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+      find.byKey(const Key('send-address-field')),
+      destinationAddress,
+    );
+    await tester.enterText(find.byKey(const Key('send-amount-field')), '1.0');
+    await tester.tap(find.byKey(const Key('send-review-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('send-confirm-button')));
+    await tester.pump();
+
+    expect(find.text('Close'), findsOneWidget);
+    expect(
+      find.textContaining('approval request will continue'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('send-dismiss-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Review transaction'), findsNothing);
+
+    runtime.signatureRequestError = StateError('end test request');
+    runtime.signatureRequestGate!.complete();
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
 }
 
 WalletVault _activeRoastVault() {
@@ -1001,11 +1119,43 @@ final class _FakeRoastKeyService extends RoastKeyService {
   }
 }
 
+final class _FlowRoastKeyService(final RoastDerivedAddress derived)
+    extends RoastKeyService {
+  @override
+  RoastDerivedAddress deriveAddress({
+    required String groupKeyHex,
+    required int threshold,
+    required network,
+    required int accountIndex,
+    String? pathLabel,
+  }) => derived;
+}
+
+final class _FlowElectrumxService(final PeercoinElectrumxUtxoSnapshot snapshot)
+    implements ElectrumxService {
+  @override
+  Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
+    Iterable<String> addresses,
+  ) => Stream.value(snapshot);
+
+  @override
+  Future<List<ElectrumxUtxo>> fetchUtxos(String address) async => const [];
+
+  @override
+  Future<String> broadcastTransaction(String rawTransactionHex) async =>
+      'transaction-id';
+
+  @override
+  Future<void> close() async {}
+}
+
 class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   RoastRuntimeSnapshot? startSnapshot;
   RoastRuntimeSnapshot? joinSnapshot;
+  Completer<void>? signatureRequestGate;
+  Object? signatureRequestError;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -1047,7 +1197,11 @@ class _FakeRoastRuntime implements RoastRuntime {
     transaction,
     List<int> derivationPath, {
     String message = '',
-  }) => throw UnimplementedError();
+  }) => RoastSigningProposal(
+    idHex: 'aa' * 16,
+    proposalHex: 'bb',
+    expiry: DateTime.now().add(const Duration(minutes: 1)),
+  );
 
   @override
   RoastSigningProposal createMessageSigningProposal(
@@ -1061,7 +1215,11 @@ class _FakeRoastRuntime implements RoastRuntime {
   );
 
   @override
-  Future<void> requestSignatures(setup, RoastSigningProposal proposal) async {}
+  Future<void> requestSignatures(setup, RoastSigningProposal proposal) async {
+    await signatureRequestGate?.future;
+    final error = signatureRequestError;
+    if (error != null) throw error;
+  }
 
   @override
   Future<void> acceptSignatures(String setupId, String requestIdHex) =>
