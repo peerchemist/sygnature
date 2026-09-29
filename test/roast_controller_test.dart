@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart'
     show
         Expiry,
+        GroupTransitionKeyPlan,
         HDKeyInfo,
         MessageSignatureMetadata,
         NewDkgDetails,
@@ -1302,7 +1303,11 @@ final class _FakeRoastRuntime implements RoastRuntime {
       throw UnimplementedError();
 
   @override
-  Future<void> requestDkg(RoastSetup setup) async {
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) async {
     requestedDkgSetupIds.add(setup.id);
   }
 
@@ -1505,7 +1510,11 @@ final class _SigningRoastRuntime(
   }
 
   @override
-  Future<void> requestDkg(RoastSetup setup) async {}
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) async {}
 
   @override
   Future<void> acceptDkg(String setupId, String proposalHex) async {}

@@ -44,6 +44,8 @@ dependencies:
   web_socket_channel: ^3.0.3
   noosphere_flutter:
     path: ../noosphere
+  noosphere:
+    path: ../noosphere/packages/noosphere
   flutter_local_notifications: ^22.3.1
 
 dependency_overrides:

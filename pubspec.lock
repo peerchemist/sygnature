@@ -497,7 +497,7 @@ packages:
     source: hosted
     version: "1.0.7"
   noosphere:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       path: "../noosphere/packages/noosphere"
       relative: true

@@ -31,7 +31,7 @@ void main() {
       ],
     );
 
-    expect(vault.toJson()['schemaVersion'], 1);
+    expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
     final restored = WalletVault.fromJson(vault.toJson());
 
     expect(restored.accounts.single.blockchainId, 'peercoin');
@@ -60,6 +60,30 @@ void main() {
     final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson();
 
     expect(WalletVault.fromJson(json).activities, isEmpty);
+  });
+
+  test('reads the development schema 5 vault for migration', () {
+    final json =
+        WalletVault(
+            accounts: const [],
+            nextAccountIndex: 0,
+            activities: [
+              WalletActivity(
+                id: 'legacy',
+                accountId: 'account',
+                type: WalletActivityType.transactionSigned,
+                occurredAt: DateTime.utc(2026),
+              ),
+            ],
+          ).toJson()
+          ..['schemaVersion'] = 5
+          ..remove('groupTransitions');
+
+    final restored = WalletVault.fromJson(json);
+
+    expect(restored.groupTransitions, isEmpty);
+    expect(restored.activities.single.id, 'legacy');
+    expect(restored.toJson()['schemaVersion'], WalletVault.schemaVersion);
   });
 
   test('migrates legacy nullable derivation data to explicit states', () {
@@ -125,7 +149,7 @@ void main() {
   });
 
   test('rejects unsupported schemas', () {
-    for (final version in [0, 2, 3, 4, 5]) {
+    for (final version in [0, 2, 3, 4, 6]) {
       expect(
         () => WalletVault.fromJson({'schemaVersion': version}),
         throwsStateError,

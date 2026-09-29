@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:coinlib/coinlib.dart' show TaprootKeySignDetails, bytesToHex;
+import 'package:coinlib/coinlib.dart'
+    show TaprootKeySignDetails, bytesEqual, bytesToHex;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import '../models/roast_setup.dart';
@@ -167,7 +168,11 @@ abstract interface class RoastRuntime {
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup);
   Future<RoastRoomCreation> createRoom(RoastSetup setup);
   Future<RoastRuntimeSnapshot> joinRoom(RoastSetup setup, String encodedInvite);
-  Future<void> requestDkg(RoastSetup setup);
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  });
   Future<void> acceptDkg(String setupId, String proposalHex);
   Future<void> rejectDkg(String setupId, String proposalHex);
   RoastSigningProposal createTransactionSigningProposal(
@@ -211,6 +216,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   final Map<String, Timer> _roomSignerTimers = {};
   final Set<String> _connectingRoomSigners = {};
   final Set<String> _synchronizingDkgSetups = {};
+  final Map<String, Uint8List> _approvedDkgDetailsBySetup = {};
   final Map<String, Timer> _keyReadinessTimers = {};
   NoosphereWorker? _worker;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
@@ -640,8 +646,33 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       );
 
   @override
-  Future<void> requestDkg(RoastSetup setup) async {
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) async {
     AppLogger.info('${_roastScope(setup.id)} Requesting DKG');
+    if ((approvedDetails == null) != (transitionKeyPlan == null)) {
+      throw ArgumentError(
+        'Approved DKG details and transition key plan must be provided together.',
+      );
+    }
+    if (approvedDetails != null) {
+      if (approvedDetails.expiry.isExpired ||
+          approvedDetails.name != setup.keyName ||
+          approvedDetails.threshold != setup.threshold ||
+          transitionKeyPlan!.targetThreshold != setup.threshold ||
+          !transitionKeyPlan.matchesDkgDetails(approvedDetails)) {
+        throw StateError(
+          'The DKG does not match the approved transition plan.',
+        );
+      }
+      _approvedDkgDetailsBySetup[setup.id] = Uint8List.fromList(
+        approvedDetails.toBytes(),
+      );
+    } else {
+      _approvedDkgDetailsBySetup.remove(setup.id);
+    }
     final worker = await _ensureWorker();
     final existing = await _resolveExistingDkg(
       worker,
@@ -650,12 +681,14 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     );
     if (existing == _ExistingDkgResolution.resumed) return;
 
-    final details = NewDkgDetails(
-      name: setup.keyName,
-      description: roastKeyDescription(setup),
-      threshold: setup.threshold,
-      expiry: Expiry(roastDkgAttemptTtl),
-    );
+    final details =
+        approvedDetails ??
+        NewDkgDetails(
+          name: setup.keyName,
+          description: roastKeyDescription(setup),
+          threshold: setup.threshold,
+          expiry: Expiry(roastDkgAttemptTtl),
+        );
     try {
       await worker.requestDkg(setup.id, details);
     } catch (error, stackTrace) {
@@ -1423,12 +1456,16 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     );
   }
 
-  static bool _dkgMatchesSetup(WorkerDkgStatus status, RoastSetup setup) =>
-      status.name == setup.keyName &&
-      status.threshold == setup.threshold &&
-      status.creator == setup.hostParticipantId &&
-      status.description == roastKeyDescription(setup) &&
-      status.expiry.isAfter(DateTime.now());
+  bool _dkgMatchesSetup(WorkerDkgStatus status, RoastSetup setup) {
+    final approved = _approvedDkgDetailsBySetup[setup.id];
+    return status.name == setup.keyName &&
+        status.threshold == setup.threshold &&
+        status.creator == setup.hostParticipantId &&
+        status.expiry.isAfter(DateTime.now()) &&
+        (approved == null
+            ? status.description == roastKeyDescription(setup)
+            : bytesEqual(status.proposalBytes, approved));
+  }
 
   static GroupConfig _group(RoastSetup setup) => GroupConfig(
     id: setup.groupId,

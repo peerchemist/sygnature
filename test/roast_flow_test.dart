@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noosphere/domain.dart'
+    show GroupTransitionKeyPlan, NewDkgDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
@@ -687,7 +689,11 @@ final class _FakeRoastRuntime implements RoastRuntime {
       throw UnimplementedError();
 
   @override
-  Future<void> requestDkg(setup) => throw UnimplementedError();
+  Future<void> requestDkg(
+    setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> acceptDkg(String setupId, String proposalHex) =>
