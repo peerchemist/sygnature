@@ -285,6 +285,7 @@ abstract final class RoastExchangeCodec {
     required String roomInvite,
     required String participantPublicKeyHex,
     required DateTime expiresAt,
+    String? transitionSourceGroupId,
   }) {
     if (!setup.isFinalized ||
         setup.coordinatorId == null ||
@@ -309,6 +310,7 @@ abstract final class RoastExchangeCodec {
       'participantPublicKeyHex': participantPublicKeyHex,
       'roomInvite': roomInvite,
       'expiresAt': expiresAt.toUtc().toIso8601String(),
+      'transitionSourceGroupId': ?transitionSourceGroupId,
       'participants': setup.participants.map((item) => item.toJson()).toList(),
     });
   }

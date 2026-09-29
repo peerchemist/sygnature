@@ -241,6 +241,78 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('reuses a retained signer identity from a transition app link', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final keyService = _FakeRoastKeyService()..acceptInvitation = true;
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: 'group-key',
+        pendingDkgProposalHex: null,
+      )
+      ..joinSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const [],
+        coordinatorId: 'successor-coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _activeRoastVault(),
+      roastRuntime: runtime,
+      roastKeyService: keyService,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    final source = controller.roastSetups.single;
+    final invitation =
+        '${RoastExchangeCodec.uriScheme}:'
+        '${base64Url.encode(utf8.encode(jsonEncode({'version': RoastExchangeCodec.version, 'type': 'room-invitation', 'setupName': 'Successor wallet', 'threshold': 2, 'participantCount': 2, 'participantPublicKeyHex': source.localParticipant.publicKeyHex, 'transitionSourceGroupId': source.groupId})))}';
+
+    await tester.pumpWidget(
+      SygnatureApp(
+        controllerFactory: () async => controller,
+        incomingLinks: Stream.value(Uri.parse(invitation)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Join shared wallet?'), findsOneWidget);
+    expect(find.textContaining('existing signer identity'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('roast-invite-link-join')));
+    await tester.pumpAndSettle();
+
+    expect(controller.roastSetups, hasLength(2));
+    final successor = controller.roastSetups.singleWhere(
+      (setup) => setup.id != source.id,
+    );
+    expect(successor.localCardId, source.localCardId);
+    expect(
+      successor.localParticipantPrivateKeyHex,
+      source.localParticipantPrivateKeyHex,
+    );
+    expect(
+      successor.localParticipant.publicKeyHex,
+      source.localParticipant.publicKeyHex,
+    );
+    expect(keyService.appliedInvitation, invitation);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('shows healthy and unavailable ROAST swarm states', (
     tester,
   ) async {
@@ -412,7 +484,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('ROAST threshold key'), findsOneWidget);
+    expect(find.text('Account details'), findsOneWidget);
     expect(find.text('Derivation path'), findsNothing);
     expect(find.text('R/0/6/0/0/0/0'), findsNothing);
   });
@@ -456,6 +528,55 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('request-message-signatures')), findsOneWidget);
+  });
+
+  testWidgets('opens signer-group changes from active wallet settings', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: 'group-key',
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _activeRoastVault(),
+      roastRuntime: runtime,
+      roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Wallet settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Change signers'), findsOneWidget);
+    await tester.tap(find.text('Change signers'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('transition-wallet-name')), findsOneWidget);
+    expect(find.text('This device (this device)'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(AlertDialog), matching: find.text('Bob')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('transition-add-signer')), findsOneWidget);
+    expect(find.textContaining('balance is not moved automatically'), findsOne);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('can close a pending message request and view its result later', (

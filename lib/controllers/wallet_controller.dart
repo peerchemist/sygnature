@@ -18,7 +18,8 @@ import 'package:noosphere/domain.dart'
         GroupTransitionKeyPlan,
         GroupTransitionProposal,
         Identifier,
-        NewDkgDetails;
+        NewDkgDetails,
+        thresholdBip86DerivationPath;
 import 'package:noosphere_flutter/noosphere_flutter.dart'
     show NoosphereWorkerException;
 

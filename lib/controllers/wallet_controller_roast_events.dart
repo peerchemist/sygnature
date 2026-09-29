@@ -158,6 +158,7 @@ extension WalletRoastEventController on WalletController {
         );
         await _replaceSetup(active);
         await _activateRoastAccount(active, event.groupKeyHex);
+        await _markTransitionReadyForSetup(setup.id);
         await _recordSetupActivity(
           active,
           id: 'dkg-completed:${setup.id}:${event.keyName}',

@@ -415,22 +415,16 @@ void main() {
         otherParticipants: [
           (name: 'Original host', publicKeyHex: remotePublicKey.hex),
         ],
-        migrationPolicy: SygnatureWalletTransitionPolicy(
-          sourceAccountId: 'shared',
-          blockchainId: 'peercoin',
-          networkId: 'mainnet',
-          keyId: sourceSetup.keyName,
-          destinationDerivationPath: const [0, 6, 0, 0, 0, 0],
-          maxTotalFeeSats: 50000,
-          maxFeeRateSatsPerKb: 100000,
-          minimumConfirmations: 6,
-          maxMigrationAttempts: 2,
-          sweepLateDeposits: true,
-        ),
       );
 
       expect(proposalWasPersistedBeforeInvitations, isTrue);
       expect(created.invitations, hasLength(1));
+      expect(
+        RoastExchangeCodec.decodeInvitation(
+          created.invitations.single.encoded,
+        )['transitionSourceGroupId'],
+        sourceSetup.groupId,
+      );
       final successor = controller.roastSetups.singleWhere(
         (setup) => setup.id == created.successorSetupId,
       );
@@ -453,7 +447,72 @@ void main() {
         transition.signedApprovalsHexByParticipant,
         contains(localPublicKey.hex),
       );
+      final policy = SygnatureWalletTransitionPolicy.fromBytes(
+        transition.proposal.migrationPolicy.payload,
+      );
+      expect(policy.maxTotalFeeSats, 0);
+      expect(policy.destinationDerivationPath, [86, 6, 0, 0, 0]);
       expect(runtime.createdRoomSetup?.localCardId, sourceSetup.localCardId);
+
+      runtime.emit(
+        RoastRuntimeSnapshotEvent(
+          successor.id,
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: successor.participants
+              .map((participant) => participant.identifierHex)
+              .toList(),
+          coordinatorId: successor.coordinatorId,
+          coordinatorRelayUrls: successor.coordinatorRelayUrls,
+          coordinatorIpAddrs: successor.coordinatorIpAddrs,
+        ),
+      );
+      await _flushEvents();
+      await controller.startRoastDkg(successor.id);
+
+      expect(runtime.requestedDkgSetupIds, contains(successor.id));
+      expect(runtime.lastApprovedDkgDetails?.name, successor.keyName);
+      expect(runtime.lastTransitionKeyPlan?.keyId, sourceSetup.keyName);
+      expect(
+        controller.groupTransitions.single.phase,
+        WalletGroupTransitionPhase.preparing,
+      );
+
+      runtime.emit(
+        RoastRuntimeKeyEvent(
+          successor.id,
+          groupKeyHex: ECCompressedPublicKey.fromPubkey(
+            ECPrivateKey.generate().pubkey,
+          ).hex,
+          keyName: successor.keyName,
+          description: roastKeyDescription(successor),
+        ),
+      );
+      await _flushEvents();
+      expect(
+        controller.groupTransitions.single.phase,
+        WalletGroupTransitionPhase.ready,
+      );
+
+      final retainedDraftId = await controller.createRoastTransitionJoinDraft(
+        sourceSetupId: sourceSetup.id,
+        walletName: 'Next treasury',
+        threshold: 2,
+        participantCount: 2,
+      );
+      final retainedDraft = controller.roastSetups.singleWhere(
+        (setup) => setup.id == retainedDraftId,
+      );
+      expect(retainedDraft.role, RoastSetupRole.member);
+      expect(retainedDraft.localCardId, sourceSetup.localCardId);
+      expect(
+        retainedDraft.localParticipantPrivateKeyHex,
+        sourceSetup.localParticipantPrivateKeyHex,
+      );
+      expect(
+        retainedDraft.localParticipant.publicKeyHex,
+        sourceSetup.localParticipant.publicKeyHex,
+      );
       controller.dispose();
     },
   );
@@ -1511,6 +1570,8 @@ final class _FakeRoastRuntime implements RoastRuntime {
   bool failSigningRequests = false;
   RoastRoomCreation? roomCreation;
   RoastSetup? createdRoomSetup;
+  NewDkgDetails? lastApprovedDkgDetails;
+  GroupTransitionKeyPlan? lastTransitionKeyPlan;
   RoastRuntimeSnapshot? startSnapshot;
   void Function()? afterRoomPrepared;
   Object? joinRoomError;
@@ -1573,6 +1634,8 @@ final class _FakeRoastRuntime implements RoastRuntime {
     GroupTransitionKeyPlan? transitionKeyPlan,
   }) async {
     requestedDkgSetupIds.add(setup.id);
+    lastApprovedDkgDetails = approvedDetails;
+    lastTransitionKeyPlan = transitionKeyPlan;
   }
 
   @override

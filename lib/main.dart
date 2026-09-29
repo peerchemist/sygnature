@@ -156,13 +156,25 @@ class _SygnatureAppState extends State<SygnatureApp> {
               setup.localParticipant.publicKeyHex == participantPublicKey,
         )
         .toList(growable: false);
-    if (matchingDrafts.length != 1) {
+    final transitionSourceGroupId = decoded['transitionSourceGroupId'];
+    final matchingSources = transitionSourceGroupId is String
+        ? controller.roastSetups
+              .where(
+                (setup) =>
+                    setup.groupId == transitionSourceGroupId &&
+                    setup.isActive &&
+                    setup.localParticipant.publicKeyHex == participantPublicKey,
+              )
+              .toList(growable: false)
+        : const <RoastSetup>[];
+    if (matchingDrafts.length > 1 ||
+        (matchingDrafts.isEmpty && matchingSources.length != 1)) {
       throw const FormatException(
         'This invitation is bound to a different signer. Open the member '
         'wallet whose public key was shared with the host.',
       );
     }
-    final setup = matchingDrafts.single;
+    var setup = matchingDrafts.firstOrNull;
     final setupName = decoded['setupName'] is String
         ? decoded['setupName']! as String
         : 'Shared wallet';
@@ -189,8 +201,16 @@ class _SygnatureAppState extends State<SygnatureApp> {
             Text(signerSummary),
             const SizedBox(height: 12),
             const Text(
-              'This invitation matches the signer key stored on this device.',
+              'This invitation matches the signer identity stored on this '
+              'device.',
             ),
+            if (setup == null) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'The existing signer identity will be reused in a new '
+                'successor wallet.',
+              ),
+            ],
           ],
         ),
         actions: [
@@ -207,8 +227,22 @@ class _SygnatureAppState extends State<SygnatureApp> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (setup == null) {
+      if (threshold is! int || participantCount is! int) {
+        throw const FormatException(
+          'The successor invitation is missing its signing policy.',
+        );
+      }
+      final setupId = await controller.createRoastTransitionJoinDraft(
+        sourceSetupId: matchingSources.single.id,
+        walletName: setupName,
+        threshold: threshold,
+        participantCount: participantCount,
+      );
+      setup = controller.roastSetups.singleWhere((item) => item.id == setupId);
+    }
     final accountIndex = controller.accounts.indexWhere(
-      (account) => account.sourceId == setup.id,
+      (account) => account.sourceId == setup!.id,
     );
     if (accountIndex >= 0) controller.selectAccount(accountIndex);
     try {

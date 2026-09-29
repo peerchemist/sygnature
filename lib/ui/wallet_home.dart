@@ -362,6 +362,14 @@ class _WalletDashboard extends StatelessWidget {
                       _confirmDeleteWallet(context, controller, account),
                   onRename: () =>
                       _showRenameWallet(context, controller, account),
+                  onChangeSignerGroup:
+                      roastSetup?.isActive == true && controller.roastAvailable
+                      ? () => showRoastGroupTransition(
+                          context,
+                          controller,
+                          roastSetup!,
+                        )
+                      : null,
                 ),
                 if (roastSetup != null) ...[
                   const SizedBox(height: 18),
@@ -528,11 +536,13 @@ class _DashboardHeader extends StatelessWidget {
     required this.syncStatus,
     required this.onDelete,
     required this.onRename,
+    this.onChangeSignerGroup,
   });
   final WalletAccount account;
   final AccountSyncStatus syncStatus;
   final VoidCallback onDelete;
   final VoidCallback onRename;
+  final VoidCallback? onChangeSignerGroup;
 
   @override
   Widget build(BuildContext context) {
@@ -618,6 +628,7 @@ class _DashboardHeader extends StatelessWidget {
               ),
               onSelected: (value) {
                 if (value == 'rename') onRename();
+                if (value == 'signers') onChangeSignerGroup?.call();
                 if (value == 'delete') onDelete();
               },
               itemBuilder: (_) => [
@@ -631,6 +642,17 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (onChangeSignerGroup != null)
+                  const PopupMenuItem(
+                    value: 'signers',
+                    child: Row(
+                      children: [
+                        Icon(Icons.manage_accounts_outlined),
+                        SizedBox(width: 10),
+                        Text('Change signers'),
+                      ],
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: 'delete',
                   child: Row(
