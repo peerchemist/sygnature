@@ -187,7 +187,7 @@ extension WalletActivityController on WalletController {
     List<ElectrumxTransactionHistoryEntry> history,
   ) async {
     final current = _vault;
-    if (current == null || history.isEmpty) return;
+    if (current == null) return;
     final accountIds = accounts
         .where((account) => account.address == address)
         .map((account) => account.id)
@@ -200,15 +200,21 @@ extension WalletActivityController on WalletController {
     for (final activity in current.activities) {
       final entry = transactions[activity.reference];
       if (activity.type != WalletActivityType.transactionBroadcast ||
-          !accountIds.contains(activity.accountId) ||
-          entry == null) {
+          !accountIds.contains(activity.accountId)) {
         activities.add(activity);
         continue;
       }
-      final status = entry.isConfirmed
+      final status = entry == null
+          ? switch (activity.transactionStatus) {
+              WalletTransactionStatus.confirmed ||
+              WalletTransactionStatus.mempool =>
+                WalletTransactionStatus.broadcast,
+              _ => activity.transactionStatus,
+            }
+          : entry.isConfirmed
           ? WalletTransactionStatus.confirmed
           : WalletTransactionStatus.mempool;
-      final blockHeight = entry.isConfirmed ? entry.height : null;
+      final blockHeight = entry?.isConfirmed ?? false ? entry!.height : null;
       if (activity.transactionStatus == status &&
           activity.blockHeight == blockHeight) {
         activities.add(activity);

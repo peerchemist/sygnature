@@ -462,6 +462,35 @@ void main() {
         .first;
     expect(confirmed.transactionStatus, WalletTransactionStatus.confirmed);
     expect(confirmed.blockHeight, 123);
+
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(
+        address: 'pc1paccount0',
+        utxos: [],
+        history: [
+          ElectrumxTransactionHistoryEntry(
+            transactionId: 'local-transaction-id',
+            height: 0,
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    final unconfirmed = controller
+        .activitiesFor(controller.accounts.single)
+        .first;
+    expect(unconfirmed.transactionStatus, WalletTransactionStatus.mempool);
+    expect(unconfirmed.blockHeight, isNull);
+
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(address: 'pc1paccount0', utxos: []),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    final missing = controller.activitiesFor(controller.accounts.single).first;
+    expect(missing.transactionStatus, WalletTransactionStatus.broadcast);
+    expect(missing.blockHeight, isNull);
     await expectLater(
       controller.sendTransaction(preview),
       throwsA(isA<WalletTransactionRejected>()),
