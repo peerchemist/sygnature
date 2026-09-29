@@ -1,0 +1,65 @@
+# Flatpak exposes freedesktop-sdk-26.08.2 through the 26.08 runtime branch.
+app-id: com.github.peerchemist.sygnature
+runtime: org.freedesktop.Platform
+runtime-version: "26.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm22
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: sygnature
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets
+
+modules:
+  - name: sygnature
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+      append-path: /run/build/sygnature/rustup-wrapper:/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm22/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
+      env:
+        CARGO_HOME: /run/build/sygnature/.cargo
+        PUB_CACHE: /run/build/sygnature/.pub-cache
+    build-commands:
+      - flutter/bin/flutter config --no-analytics
+      - cd app && ../flutter/bin/flutter pub get
+      - cd app && ../flutter/bin/flutter build linux --release --no-pub
+      - install -d /app/lib/sygnature /app/bin
+      - cp -a app/build/linux/*/release/bundle/. /app/lib/sygnature/
+      - ln -s /app/lib/sygnature/sygnature_ng /app/bin/sygnature
+      - install -Dm644 app/.flatpak/com.github.peerchemist.sygnature.desktop /app/share/applications/com.github.peerchemist.sygnature.desktop
+      - install -Dm644 app/.flatpak/com.github.peerchemist.sygnature.metainfo.xml /app/share/metainfo/com.github.peerchemist.sygnature.metainfo.xml
+      - install -Dm644 app/web/icons/Icon-512.png /app/share/icons/hicolor/512x512/apps/com.github.peerchemist.sygnature.png
+    sources:
+      - type: dir
+        path: ..
+        dest: app
+        skip:
+          - .dart_tool
+          - .flatpak-builder
+          - .git
+          - build
+      - type: dir
+        path: ../../noosphere
+        dest: noosphere
+        skip:
+          - .dart_tool
+          - .git
+          - build
+      - type: git
+        url: https://github.com/flutter/flutter.git
+        commit: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
+        tag: 3.47.5
+        dest: flutter
+      - type: file
+        path: rustup
+        dest: rustup-wrapper

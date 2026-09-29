@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sygnature
+Comment=Peercoin wallet with ROAST threshold signing
+Exec=sygnature
+Icon=com.github.peerchemist.sygnature
+Terminal=false
+Categories=Finance;Network;
+Keywords=Peercoin;wallet;cryptocurrency;ROAST;
+StartupNotify=true

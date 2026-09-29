@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+actual="$(rustc --version | awk '{print $2}')"
+host="$(rustc -vV | awk '/^host: / {print $2}')"
+
+if [ "${1:-}" = show ] && [ "${2:-}" = active-toolchain ]; then
+    printf '%s-flatpak-sdk\n' "$actual"
+elif [ "${1:-}" = toolchain ] && [ "${2:-}" = list ]; then
+    printf 'stable-%s (default)\n' "$host"
+elif [ "${1:-}" = target ] &&
+     [ "${2:-}" = list ] &&
+     [ "${5:-}" = --installed ]; then
+    printf '%s\n' "$host"
+elif [ "${1:-}" = run ] &&
+     [ "${3:-}" = cargo ]; then
+    shift 3
+    exec cargo "$@"
+else
+    echo "Unsupported rustup invocation: $*" >&2
+    exit 1
+fi

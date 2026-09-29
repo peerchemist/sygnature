@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly app_id="com.github.peerchemist.sygnature"
+readonly runtime_branch="26.08"
+readonly sdk_release="freedesktop-sdk-26.08.2"
+readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly manifest="$project_dir/.flatpak/$app_id.yml"
+readonly output_dir="$project_dir/build/flatpak"
+readonly build_dir="$output_dir/build"
+readonly repo_dir="$output_dir/repo"
+readonly bundle="$output_dir/$app_id.flatpak"
+
+for tool in flatpak flatpak-builder; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "error: required command not found: $tool" >&2
+    exit 1
+  fi
+done
+
+if [[ ! -d "$project_dir/../noosphere" ]]; then
+  echo "error: expected the noosphere checkout at $project_dir/../noosphere" >&2
+  exit 1
+fi
+
+if ! flatpak remotes --user --columns=name | grep -Fxq flathub; then
+  flatpak remote-add --user --if-not-exists flathub \
+    https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
+
+for runtime in org.freedesktop.Platform org.freedesktop.Sdk; do
+  if ! flatpak info --user "$runtime//$runtime_branch" >/dev/null 2>&1; then
+    flatpak install --user --noninteractive flathub "$runtime//$runtime_branch"
+  fi
+
+  installed_release="$(
+    flatpak list --user --runtime --columns=application,version,branch |
+      awk -F '\t' -v id="$runtime" -v branch="$runtime_branch" \
+        '$1 == id && $3 == branch { print $2; exit }'
+  )"
+  if [[ "$installed_release" != "$sdk_release" ]]; then
+    echo "error: $runtime//$runtime_branch is $installed_release; expected $sdk_release" >&2
+    exit 1
+  fi
+done
+
+mkdir -p "$output_dir" "$repo_dir"
+
+flatpak-builder \
+  --user \
+  --force-clean \
+  --install-deps-from=flathub \
+  --repo="$repo_dir" \
+  "$build_dir" \
+  "$manifest"
+
+temporary_bundle="$bundle.tmp"
+trap 'rm -f -- "$temporary_bundle"' EXIT
+flatpak build-bundle "$repo_dir" "$temporary_bundle" "$app_id"
+mv -f -- "$temporary_bundle" "$bundle"
+trap - EXIT
+
+echo "Flatpak bundle: $bundle"

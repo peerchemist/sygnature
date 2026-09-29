@@ -115,3 +115,12 @@ flutter analyze
 flutter test
 flutter run -d linux
 ```
+
+Build the Linux Flatpak bundle with Freedesktop SDK 26.08.2:
+
+```sh
+scripts/build_flatpak
+```
+
+The bundle is written to
+`build/flatpak/com.github.peerchemist.sygnature.flatpak`.
