@@ -13,7 +13,7 @@ class WalletVault {
     this.mnemonicWordCount,
   });
 
-  static const schemaVersion = 5;
+  static const schemaVersion = 1;
 
   /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;
@@ -52,7 +52,7 @@ class WalletVault {
 
   factory WalletVault.fromJson(Map<Object?, Object?> json) {
     final version = json['schemaVersion'] as int? ?? 0;
-    if (version < 1 || version > schemaVersion) {
+    if (version != schemaVersion) {
       throw StateError('Unsupported wallet vault schema: $version');
     }
     return WalletVault(
@@ -63,16 +63,12 @@ class WalletVault {
           .map((account) => WalletAccount.fromJson(account as Map))
           .toList(growable: false),
       nextAccountIndex: json['nextAccountIndex']! as int,
-      roastSetups: version == 1
-          ? const []
-          : (json['roastSetups']! as List)
-                .map((setup) => RoastSetup.fromJson(setup as Map))
-                .toList(growable: false),
-      activities: version < 4
-          ? const []
-          : (json['activities']! as List)
-                .map((activity) => WalletActivity.fromJson(activity as Map))
-                .toList(growable: false),
+      roastSetups: (json['roastSetups']! as List)
+          .map((setup) => RoastSetup.fromJson(setup as Map))
+          .toList(growable: false),
+      activities: (json['activities']! as List)
+          .map((activity) => WalletActivity.fromJson(activity as Map))
+          .toList(growable: false),
     );
   }
 }

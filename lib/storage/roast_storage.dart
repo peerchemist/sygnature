@@ -38,7 +38,7 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   static const _boxName = 'sygnature_roast_private_v1';
   static const _cipherKeyName = 'sygnature_roast_hive_key_v1';
   static const _signingOperationsKey = 'wallet-signing-operations-v1';
-  static const _serverStateStorageVersion = 2;
+  static const _serverStateStorageVersion = 1;
 
   final SecureKeyStore _keyStore;
   Future<RoastPersistence>? _opening;
@@ -144,7 +144,6 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
     final persistence = await open();
     await persistence._box.deleteAll([
       'client:$setupId',
-      'server:$setupId',
       'server-v$_serverStateStorageVersion:$setupId',
       'rooms:$setupId',
     ]);
@@ -214,10 +213,6 @@ extension RoastPersistenceAccess on RoastPersistence {
   ServerPersistence serverPersistence(String setupId) =>
       _serverStores.putIfAbsent(
         setupId,
-        // Version 2 uses Noosphere signature requests with the optional
-        // authenticated message field. Older opaque snapshots cannot be
-        // decoded with the new request wire format and are intentionally not
-        // restored; room state, identities and local key shares are separate.
         () => _HiveServerPersistence(
           _box,
           'server-v${RoastPersistenceFactory._serverStateStorageVersion}:'

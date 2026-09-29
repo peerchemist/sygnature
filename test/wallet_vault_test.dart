@@ -31,6 +31,7 @@ void main() {
       ],
     );
 
+    expect(vault.toJson()['schemaVersion'], 1);
     final restored = WalletVault.fromJson(vault.toJson());
 
     expect(restored.accounts.single.blockchainId, 'peercoin');
@@ -55,10 +56,8 @@ void main() {
     );
   });
 
-  test('migrates older vaults with an empty activity feed', () {
-    final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson()
-      ..['schemaVersion'] = 3
-      ..remove('activities');
+  test('round trips a vault with an empty activity feed', () {
+    final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson();
 
     expect(WalletVault.fromJson(json).activities, isEmpty);
   });
@@ -82,7 +81,7 @@ void main() {
     };
 
     final restored = WalletVault.fromJson({
-      'schemaVersion': 4,
+      'schemaVersion': 1,
       'accounts': [
         account(id: 'ready', address: 'pc1pready', privateKeyHex: 'secret'),
         account(id: 'watch', address: 'pc1pwatch'),
@@ -126,6 +125,11 @@ void main() {
   });
 
   test('rejects unsupported schemas', () {
-    expect(() => WalletVault.fromJson({'schemaVersion': 0}), throwsStateError);
+    for (final version in [0, 2, 3, 4, 5]) {
+      expect(
+        () => WalletVault.fromJson({'schemaVersion': version}),
+        throwsStateError,
+      );
+    }
   });
 }

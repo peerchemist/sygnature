@@ -16,7 +16,7 @@ void main() {
     await Iroh.init();
   });
 
-  test('migrates schema 1 vaults without changing personal account data', () {
+  test('reads schema 1 vaults without changing personal account data', () {
     final vault = WalletVault.fromJson({
       'schemaVersion': 1,
       'mnemonic': 'test phrase',
@@ -36,6 +36,8 @@ void main() {
         },
       ],
       'nextAccountIndex': 1,
+      'roastSetups': const [],
+      'activities': const [],
     });
 
     expect(vault.roastSetups, isEmpty);
@@ -156,7 +158,7 @@ void main() {
     );
   });
 
-  test('migrates schema 2 ROAST setups with the host first in the roster', () {
+  test('reads schema 1 ROAST setups with the host first in the roster', () {
     const groupId = 'abcdef0123456789abcdef0123456789';
     final setup = <String, Object?>{
       'id': 'setup',
@@ -189,15 +191,17 @@ void main() {
       'createdAt': '2026-01-01T00:00:00.000Z',
     };
     final vault = WalletVault.fromJson({
-      'schemaVersion': 2,
+      'schemaVersion': 1,
       'accounts': <Object?>[],
       'nextAccountIndex': 0,
       'roastSetups': [setup],
+      'activities': const [],
     });
 
     expect(vault.roastSetups.single.hostParticipantId, '01');
     expect(vault.roastSetups.single.keyName, '$groupId-g1');
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
+    expect(WalletVault.fromJson(vault.toJson()).roastSetups.single.id, 'setup');
   });
 
   test('rejects unsupported exchange payloads', () {
