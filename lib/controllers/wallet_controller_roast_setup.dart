@@ -793,6 +793,24 @@ extension WalletRoastSetupController on WalletController {
   }
 
   static String _cleanRoastError(Object error) => switch (error) {
+    RoastEnrollmentFailure(
+      kind: RoastEnrollmentFailureKind.rejected,
+      :final roomFailureCode,
+    ) =>
+      roomFailureCode == 0xffff
+          ? 'The coordinator rejected room enrollment.'
+          : 'The coordinator rejected room enrollment '
+                '(room code $roomFailureCode).',
+    RoastEnrollmentFailure(kind: RoastEnrollmentFailureKind.timeout) =>
+      'Room enrollment timed out. Check coordinator state before retrying.',
+    RoastEnrollmentFailure(
+      kind: RoastEnrollmentFailureKind.malformedResponse,
+    ) =>
+      'The coordinator returned an invalid enrollment response. Check '
+          'coordinator state before retrying.',
+    RoastEnrollmentFailure(kind: RoastEnrollmentFailureKind.connection) =>
+      'The enrollment connection was interrupted. Check coordinator state '
+          'before retrying.',
     NoosphereWorkerException(:final message) => message,
     ArgumentError() => error.toString(),
     StateError(:final message) => message,

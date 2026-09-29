@@ -499,30 +499,38 @@ packages:
   noosphere:
     dependency: "direct main"
     description:
-      path: "../noosphere/packages/noosphere"
-      relative: true
-    source: path
+      path: "packages/noosphere"
+      ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      resolved-ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      url: "../noosphere"
+    source: git
     version: "0.1.0"
   noosphere_client:
     dependency: "direct overridden"
     description:
-      path: "../noosphere/packages/noosphere_client"
-      relative: true
-    source: path
+      path: "packages/noosphere_client"
+      ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      resolved-ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      url: "../noosphere"
+    source: git
     version: "4.0.0"
   noosphere_flutter:
     dependency: "direct main"
     description:
-      path: "../noosphere"
-      relative: true
-    source: path
+      path: "."
+      ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      resolved-ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      url: "../noosphere"
+    source: git
     version: "0.1.0"
   noosphere_server:
     dependency: "direct overridden"
     description:
-      path: "../noosphere/packages/noosphere_server"
-      relative: true
-    source: path
+      path: "packages/noosphere_server"
+      ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      resolved-ref: "3b3f02fb3a43186108aa6ac891e86d96b5540cdd"
+      url: "../noosphere"
+    source: git
     version: "3.0.0"
   objective_c:
     dependency: transitive

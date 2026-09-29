@@ -163,6 +163,25 @@ class RoastRoomCreation({
   required final List<String> coordinatorIpAddrs,
 });
 
+enum RoastEnrollmentFailureKind {
+  rejected,
+  timeout,
+  malformedResponse,
+  connection,
+}
+
+final class RoastEnrollmentFailure({
+  required final RoastEnrollmentFailureKind kind,
+  required final Object cause,
+  final int roomFailureCode = 0xffff,
+}) implements Exception {
+  bool get outcomeMayBePersisted => kind != RoastEnrollmentFailureKind.rejected;
+
+  @override
+  String toString() =>
+      'RoastEnrollmentFailure(${kind.name}, roomCode=$roomFailureCode): $cause';
+}
+
 abstract interface class RoastRuntime {
   Stream<RoastRuntimeEvent> get events;
 
@@ -499,11 +518,54 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       setup.localParticipantPrivateKeyHex,
     );
     invite.requirePrivateKey(privateKey);
-    await _joinRoomInvite(invite, privateKey);
+    try {
+      await _joinRoomInvite(invite, privateKey);
+    } on RoomEnrollmentProtocolException catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        RoastEnrollmentFailure(
+          kind: RoastEnrollmentFailureKind.rejected,
+          cause: error,
+          roomFailureCode: error.code,
+        ),
+        stackTrace,
+      );
+    } on TimeoutException catch (error, stackTrace) {
+      _reconcileInterruptedEnrollment(setup);
+      Error.throwWithStackTrace(
+        RoastEnrollmentFailure(
+          kind: RoastEnrollmentFailureKind.timeout,
+          cause: error,
+        ),
+        stackTrace,
+      );
+    } on FormatException catch (error, stackTrace) {
+      _reconcileInterruptedEnrollment(setup);
+      Error.throwWithStackTrace(
+        RoastEnrollmentFailure(
+          kind: RoastEnrollmentFailureKind.malformedResponse,
+          cause: error,
+        ),
+        stackTrace,
+      );
+    } on Object catch (error, stackTrace) {
+      _reconcileInterruptedEnrollment(setup);
+      Error.throwWithStackTrace(
+        RoastEnrollmentFailure(
+          kind: RoastEnrollmentFailureKind.connection,
+          cause: error,
+        ),
+        stackTrace,
+      );
+    }
     AppLogger.info('${_roastScope(setup.id)} Room enrollment completed');
     _setups[setup.id] = setup;
     _scheduleRoomSignerConnection(setup);
     return _pendingRoomSnapshot(setup);
+  }
+
+  void _reconcileInterruptedEnrollment(RoastSetup setup) {
+    _setups[setup.id] = setup;
+    _scheduleRoomSignerConnection(setup);
   }
 
   static RoastRuntimeSnapshot _pendingRoomSnapshot(RoastSetup setup) =>

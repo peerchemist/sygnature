@@ -458,6 +458,74 @@ void main() {
     },
   );
 
+  test(
+    'distinguishes enrollment rejection and interruption without retrying',
+    () async {
+      final cases = <({RoastEnrollmentFailure failure, String message})>[
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.rejected,
+            cause: StateError('rejected'),
+            roomFailureCode: 0,
+          ),
+          message: 'room code 0',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.timeout,
+            cause: TimeoutException('timeout'),
+          ),
+          message: 'timed out',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.malformedResponse,
+            cause: const FormatException('malformed'),
+          ),
+          message: 'invalid enrollment response',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.connection,
+            cause: StateError('connection closed'),
+          ),
+          message: 'connection was interrupted',
+        ),
+      ];
+
+      for (final testCase in cases) {
+        final repository = MemoryWalletRepository();
+        final runtime = _FakeRoastRuntime()..joinRoomError = testCase.failure;
+        final controller = WalletController(
+          repository,
+          roastRuntime: runtime,
+          roastKeyService: _EnrollmentRoastKeyService(),
+        );
+        await controller.load();
+        final setupId = await controller.createRoastSetupDraft(
+          role: RoastSetupRole.member,
+          walletName: 'Enrollment test',
+          participantName: 'Signer',
+          threshold: 2,
+          participantCount: 2,
+          network: PeercoinNetworks.mainnet,
+        );
+
+        await expectLater(
+          controller.joinRoastSetup(setupId, 'room-invite'),
+          throwsA(same(testCase.failure)),
+        );
+
+        expect(runtime.joinRoomCalls, 1);
+        expect(
+          controller.roastSetups.single.errorMessage,
+          contains(testCase.message),
+        );
+        controller.dispose();
+      }
+    },
+  );
+
   test('deletes the last ROAST wallet and its local setup data', () async {
     final runtime = _FakeRoastRuntime();
     final operations = MemoryRoastSigningOperationRepository();
@@ -1401,6 +1469,24 @@ final class _RoomRoastKeyService(final List<RoastParticipant> roster)
   String groupFingerprint(setup) => 'fingerprint';
 }
 
+final class _EnrollmentRoastKeyService extends RoastKeyService {
+  var _nextId = 0;
+
+  @override
+  RoastParticipantMaterial generateParticipant() => RoastParticipantMaterial(
+    cardId: 'local-card',
+    privateKeyHex: '11' * 32,
+    publicKeyHex: '02${'22' * 32}',
+  );
+
+  @override
+  String newSetupId() => 'enrollment-${_nextId++}';
+
+  @override
+  RoastInvitation applyInvitation(RoastSetup draft, String encodedInvitation) =>
+      RoastInvitation(setup: draft, roomInvite: encodedInvitation);
+}
+
 final class _FixedRoastKeyService(final RoastDerivedAddress address)
     extends RoastKeyService {
   @override
@@ -1427,6 +1513,8 @@ final class _FakeRoastRuntime implements RoastRuntime {
   RoastSetup? createdRoomSetup;
   RoastRuntimeSnapshot? startSnapshot;
   void Function()? afterRoomPrepared;
+  Object? joinRoomError;
+  int joinRoomCalls = 0;
   String? messageText;
   String? messageNote;
   Completer<void>? signatureRequestGate;
@@ -1471,8 +1559,12 @@ final class _FakeRoastRuntime implements RoastRuntime {
   }
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
-      throw UnimplementedError();
+  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) async {
+    joinRoomCalls++;
+    final error = joinRoomError;
+    if (error != null) throw error;
+    throw UnimplementedError();
+  }
 
   @override
   Future<void> requestDkg(
