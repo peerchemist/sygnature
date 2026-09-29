@@ -682,7 +682,10 @@ final class _FakeRoastRuntime implements RoastRuntime {
       startSnapshot ?? (throw UnimplementedError());
 
   @override
-  Future<RoastRoomCreation> createRoom(setup) => throw UnimplementedError();
+  Future<RoastRoomCreation> createRoom(
+    setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) => throw UnimplementedError();
 
   @override
   Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>

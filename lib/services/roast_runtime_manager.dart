@@ -157,6 +157,7 @@ class RoastRoomInvite({
 
 class RoastRoomCreation({
   required final List<RoastRoomInvite> invites,
+  required final Uint8List coordinatorEndpointId,
   required final String coordinatorId,
   required final List<String> coordinatorRelayUrls,
   required final List<String> coordinatorIpAddrs,
@@ -166,7 +167,13 @@ abstract interface class RoastRuntime {
   Stream<RoastRuntimeEvent> get events;
 
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup);
-  Future<RoastRoomCreation> createRoom(RoastSetup setup);
+
+  /// Awaits [beforeInvitations] after the room exists and before issuing the
+  /// first participant-bound invitation.
+  Future<RoastRoomCreation> createRoom(
+    RoastSetup setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  });
   Future<RoastRuntimeSnapshot> joinRoom(RoastSetup setup, String encodedInvite);
   Future<void> requestDkg(
     RoastSetup setup, {
@@ -407,7 +414,10 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   }
 
   @override
-  Future<RoastRoomCreation> createRoom(RoastSetup setup) async {
+  Future<RoastRoomCreation> createRoom(
+    RoastSetup setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) async {
     if (setup.role != RoastSetupRole.host || !setup.isFinalized) {
       throw StateError('Only a host with a complete roster can create a room.');
     }
@@ -423,6 +433,15 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       expectedParticipants: setup.participantCount,
       threshold: setup.threshold,
     );
+    final coordinator = _coordinator(server.address);
+    final preparedRoom = RoastRoomCreation(
+      invites: const [],
+      coordinatorEndpointId: server.address.id.asBytes(),
+      coordinatorId: coordinator.id,
+      coordinatorRelayUrls: coordinator.relayUrls,
+      coordinatorIpAddrs: coordinator.ipAddrs,
+    );
+    await beforeInvitations?.call(preparedRoom);
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
     );
@@ -447,13 +466,13 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         );
       }
     }
-    final coordinator = _coordinator(server.address);
     AppLogger.info(
       '${_roastScope(setup.id)} Room created; issued ${issued.length} '
       'participant-bound invites',
     );
     return RoastRoomCreation(
       invites: issued,
+      coordinatorEndpointId: preparedRoom.coordinatorEndpointId,
       coordinatorId: coordinator.id,
       coordinatorRelayUrls: coordinator.relayUrls,
       coordinatorIpAddrs: coordinator.ipAddrs,

@@ -75,6 +75,7 @@ extension WalletAccountsController on WalletController {
         accounts: current?.accounts ?? const [],
         nextAccountIndex: current?.nextAccountIndex ?? 0,
         roastSetups: current?.roastSetups ?? const [],
+        groupTransitions: current?.groupTransitions ?? const [],
         activities: current?.activities ?? const [],
       );
       await _repository.save(vault);
@@ -114,6 +115,7 @@ extension WalletAccountsController on WalletController {
         accounts: [...?current?.accounts, first],
         nextAccountIndex: 1,
         roastSetups: current?.roastSetups ?? const [],
+        groupTransitions: current?.groupTransitions ?? const [],
         activities: current?.activities ?? const [],
       );
       await _repository.save(vault);

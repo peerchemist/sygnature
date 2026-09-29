@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,11 +8,14 @@ import 'package:noosphere_flutter/noosphere_flutter.dart'
         Expiry,
         GroupTransitionKeyPlan,
         HDKeyInfo,
+        Identifier,
         MessageSignatureMetadata,
         NewDkgDetails,
+        NoosphereFlutter,
         SignaturesRequestDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
+import 'package:sygnature_ng/models/group_transition.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/roast_signing_operation.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
@@ -27,7 +31,10 @@ import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
 
 void main() {
-  setUpAll(loadCoinlib);
+  setUpAll(() async {
+    await loadCoinlib();
+    await NoosphereFlutter.initializeNative();
+  });
 
   test('uses the threshold BIP-86 hierarchy for new ROAST accounts', () {
     final service = const RoastKeyService();
@@ -236,6 +243,7 @@ void main() {
             expiresAt: DateTime.now().add(const Duration(days: 1)),
           ),
         ],
+        coordinatorEndpointId: Uint8List(32),
         coordinatorId: 'coordinator',
         coordinatorRelayUrls: const [],
         coordinatorIpAddrs: const [],
@@ -300,6 +308,155 @@ void main() {
     expect(controller.issuedRoastInvitations('setup'), invitations);
     controller.dispose();
   });
+
+  test(
+    'any signer can persist a transition before successor invites are issued',
+    () async {
+      final localKey = ECPrivateKey.generate();
+      final localPublicKey = ECCompressedPublicKey.fromPubkey(localKey.pubkey);
+      final remotePublicKey = ECCompressedPublicKey.fromPubkey(
+        ECPrivateKey.generate().pubkey,
+      );
+      final sourceGroupKey = ECCompressedPublicKey.fromPubkey(
+        ECPrivateKey.generate().pubkey,
+      );
+      final remoteIdentifier = Identifier.fromUint16(1).toString();
+      final localIdentifier = Identifier.fromUint16(2).toString();
+      final coordinatorEndpointId = Uint8List.fromList(
+        List<int>.generate(32, (index) => index + 1),
+      );
+      final sourceSetup = RoastSetup(
+        id: 'source-setup',
+        groupId: 'source-group',
+        name: 'Current treasury',
+        role: RoastSetupRole.member,
+        status: RoastSetupStatus.active,
+        threshold: 2,
+        participantCount: 2,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        localCardId: 'local-card',
+        localParticipantPrivateKeyHex: bytesToHex(localKey.data),
+        participants: [
+          RoastParticipant(
+            cardId: 'remote-card',
+            name: 'Original host',
+            identifierHex: remoteIdentifier,
+            publicKeyHex: remotePublicKey.hex,
+          ),
+          RoastParticipant(
+            cardId: 'local-card',
+            name: 'This signer',
+            identifierHex: localIdentifier,
+            publicKeyHex: localPublicKey.hex,
+          ),
+        ],
+        onlineParticipantIds: const [],
+        keyName: 'source-key',
+        createdAt: DateTime.utc(2026),
+        usesRoomEnrollment: true,
+        hostParticipantId: remoteIdentifier,
+        coordinatorId: 'old-coordinator',
+        groupFingerprintHex: 'old-fingerprint',
+        groupKeyHex: sourceGroupKey.hex,
+      );
+      final repository = MemoryWalletRepository()
+        ..value = WalletVault(
+          accounts: [
+            WalletAccount(
+              id: 'shared',
+              name: 'Current treasury',
+              accountIndex: 0,
+              blockchainId: 'peercoin',
+              networkId: 'mainnet',
+              derivationState: WalletDerivationState.ready,
+              keySource: WalletKeySource.roast,
+              sourceId: sourceSetup.id,
+              keyId: sourceSetup.keyName,
+              derivationPath: 'R/0/6/0/0/0/0',
+              address: 'pc1pshared',
+              createdAt: DateTime.utc(2026),
+            ),
+          ],
+          nextAccountIndex: 0,
+          roastSetups: [sourceSetup],
+        );
+      final runtime = _FakeRoastRuntime()
+        ..snapshotGroupKey = sourceGroupKey.hex
+        ..roomCreation = RoastRoomCreation(
+          invites: [
+            RoastRoomInvite(
+              participantPublicKeyHex: remotePublicKey.hex,
+              encoded: 'successor-room-invite',
+              expiresAt: DateTime.now().add(const Duration(days: 1)),
+            ),
+          ],
+          coordinatorEndpointId: coordinatorEndpointId,
+          coordinatorId: 'new-coordinator',
+          coordinatorRelayUrls: const ['https://relay.example'],
+          coordinatorIpAddrs: const ['127.0.0.1:443'],
+        );
+      var proposalWasPersistedBeforeInvitations = false;
+      runtime.afterRoomPrepared = () {
+        final vault = repository.value!;
+        proposalWasPersistedBeforeInvitations =
+            vault.groupTransitions.length == 1 &&
+            vault.roastSetups.length == 2 &&
+            vault.accounts.length == 2;
+      };
+      final controller = WalletController(repository, roastRuntime: runtime);
+      await controller.load();
+      await _flushEvents();
+
+      final created = await controller.proposeRoastGroupTransition(
+        sourceSetupId: sourceSetup.id,
+        successorWalletName: 'Next treasury',
+        successorThreshold: 2,
+        otherParticipants: [
+          (name: 'Original host', publicKeyHex: remotePublicKey.hex),
+        ],
+        migrationPolicy: SygnatureWalletTransitionPolicy(
+          sourceAccountId: 'shared',
+          blockchainId: 'peercoin',
+          networkId: 'mainnet',
+          keyId: sourceSetup.keyName,
+          destinationDerivationPath: const [0, 6, 0, 0, 0, 0],
+          maxTotalFeeSats: 50000,
+          maxFeeRateSatsPerKb: 100000,
+          minimumConfirmations: 6,
+          maxMigrationAttempts: 2,
+          sweepLateDeposits: true,
+        ),
+      );
+
+      expect(proposalWasPersistedBeforeInvitations, isTrue);
+      expect(created.invitations, hasLength(1));
+      final successor = controller.roastSetups.singleWhere(
+        (setup) => setup.id == created.successorSetupId,
+      );
+      expect(successor.role, RoastSetupRole.host);
+      expect(successor.localCardId, sourceSetup.localCardId);
+      expect(
+        successor.localParticipantPrivateKeyHex,
+        sourceSetup.localParticipantPrivateKeyHex,
+      );
+      expect(
+        successor.participants.map((participant) => participant.cardId),
+        containsAll(['local-card', 'remote-card']),
+      );
+      final transition = controller.groupTransitions.single;
+      expect(transition.transitionId, created.transitionId);
+      expect(transition.sourceSetupId, sourceSetup.id);
+      expect(transition.successorSetupId, successor.id);
+      expect(transition.proposal.coordinatorEndpointId, coordinatorEndpointId);
+      expect(
+        transition.signedApprovalsHexByParticipant,
+        contains(localPublicKey.hex),
+      );
+      expect(runtime.createdRoomSetup?.localCardId, sourceSetup.localCardId);
+      controller.dispose();
+    },
+  );
 
   test('deletes the last ROAST wallet and its local setup data', () async {
     final runtime = _FakeRoastRuntime();
@@ -1269,6 +1426,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
   RoastRoomCreation? roomCreation;
   RoastSetup? createdRoomSetup;
   RoastRuntimeSnapshot? startSnapshot;
+  void Function()? afterRoomPrepared;
   String? messageText;
   String? messageNote;
   Completer<void>? signatureRequestGate;
@@ -1293,9 +1451,23 @@ final class _FakeRoastRuntime implements RoastRuntime {
       );
 
   @override
-  Future<RoastRoomCreation> createRoom(setup) async {
+  Future<RoastRoomCreation> createRoom(
+    setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) async {
     createdRoomSetup = setup;
-    return roomCreation ?? (throw UnimplementedError());
+    final room = roomCreation ?? (throw UnimplementedError());
+    await beforeInvitations?.call(
+      RoastRoomCreation(
+        invites: const [],
+        coordinatorEndpointId: room.coordinatorEndpointId,
+        coordinatorId: room.coordinatorId,
+        coordinatorRelayUrls: room.coordinatorRelayUrls,
+        coordinatorIpAddrs: room.coordinatorIpAddrs,
+      ),
+    );
+    afterRoomPrepared?.call();
+    return room;
   }
 
   @override
@@ -1441,7 +1613,10 @@ final class _SigningRoastRuntime(
       );
 
   @override
-  Future<RoastRoomCreation> createRoom(setup) => throw UnimplementedError();
+  Future<RoastRoomCreation> createRoom(
+    setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) => throw UnimplementedError();
 
   @override
   Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>

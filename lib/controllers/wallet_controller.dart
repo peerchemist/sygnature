@@ -1,12 +1,29 @@
 import 'dart:async';
 
 import 'package:coinlib/coinlib.dart'
-    show Address, P2TRAddress, bytesToHex, generateRandomBytes, hexToBytes;
+    show
+        Address,
+        ECCompressedPublicKey,
+        ECPrivateKey,
+        P2TRAddress,
+        bytesToHex,
+        generateRandomBytes,
+        hexToBytes;
 import 'package:flutter/foundation.dart';
+import 'package:noosphere/config.dart' show GroupConfig;
+import 'package:noosphere/domain.dart'
+    show
+        Expiry,
+        GroupTransitionApproval,
+        GroupTransitionKeyPlan,
+        GroupTransitionProposal,
+        Identifier,
+        NewDkgDetails;
 import 'package:noosphere_flutter/noosphere_flutter.dart'
     show NoosphereWorkerException;
 
 import '../models/electrumx_utxo.dart';
+import '../models/group_transition.dart';
 import '../models/mnemonic_seed.dart';
 import '../models/roast_setup.dart';
 import '../models/roast_signing_operation.dart';
@@ -45,6 +62,12 @@ class RoastIssuedInvitation({
   required final String participantName,
   required final String participantPublicKeyHex,
   required final String encoded,
+});
+
+class RoastGroupTransitionCreation({
+  required final String transitionId,
+  required final String successorSetupId,
+  required final List<RoastIssuedInvitation> invitations,
 });
 
 final class _PendingRoastSend({

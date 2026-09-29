@@ -2,6 +2,8 @@ part of 'wallet_controller.dart';
 
 extension WalletRoastSetupController on WalletController {
   List<RoastSetup> get roastSetups => _vault?.roastSetups ?? const [];
+  List<WalletGroupTransition> get groupTransitions =>
+      _vault?.groupTransitions ?? const [];
   bool get roastAvailable => _roastRuntime != null;
   RoastSetup? setupForAccount(WalletAccount account) {
     final setupId = account.sourceId;
@@ -132,6 +134,276 @@ extension WalletRoastSetupController on WalletController {
 
   String normalizeRoastParticipantPublicKey(String value) =>
       _roastKeyService.normalizeParticipantPublicKey(value);
+
+  /// Any signer in an active source setup may host a proposed successor.
+  Future<RoastGroupTransitionCreation> proposeRoastGroupTransition({
+    required String sourceSetupId,
+    required String successorWalletName,
+    required int successorThreshold,
+    required List<({String name, String publicKeyHex})> otherParticipants,
+    required SygnatureWalletTransitionPolicy migrationPolicy,
+    Duration validity = const Duration(days: 7),
+  }) async {
+    final runtime = _roastRuntime;
+    final current = _vault;
+    if (runtime == null) {
+      throw UnsupportedError(
+        'ROAST is available on supported desktop platforms only.',
+      );
+    }
+    if (current == null) {
+      throw StateError('Wallet is not initialized.');
+    }
+    if (validity <= Duration.zero) {
+      throw ArgumentError.value(validity, 'validity', 'must be positive');
+    }
+    final source = _setupById(sourceSetupId);
+    if (!source.isActive || source.groupKeyHex == null) {
+      throw StateError('Only an active ROAST setup can be transitioned.');
+    }
+    final sourceAccount = current.accounts.singleWhere(
+      (account) => account.sourceId == source.id,
+      orElse: () => throw StateError(
+        'The source ROAST setup does not have a wallet account.',
+      ),
+    );
+    if (migrationPolicy.sourceAccountId != sourceAccount.id ||
+        migrationPolicy.blockchainId != source.blockchainId ||
+        migrationPolicy.networkId != source.networkId ||
+        migrationPolicy.keyId != sourceAccount.keyId) {
+      throw ArgumentError.value(
+        migrationPolicy,
+        'migrationPolicy',
+        'does not match the source wallet account',
+      );
+    }
+    final participantCount = otherParticipants.length + 1;
+    if (successorThreshold < 2 || successorThreshold > participantCount) {
+      throw ArgumentError.value(
+        successorThreshold,
+        'successorThreshold',
+        'must be between 2 and the successor participant count',
+      );
+    }
+    final successorName = successorWalletName.trim();
+    if (successorName.isEmpty) {
+      throw ArgumentError('Successor wallet name cannot be empty.');
+    }
+
+    final local = source.localParticipant;
+    final participantCards = <String>[];
+    for (final candidate in otherParticipants) {
+      final publicKeyHex = _roastKeyService.normalizeParticipantPublicKey(
+        candidate.publicKeyHex,
+      );
+      if (publicKeyHex == local.publicKeyHex) {
+        throw ArgumentError(
+          'The initiating signer is already included in the successor group.',
+        );
+      }
+      final retained = source.participants
+          .where((participant) => participant.publicKeyHex == publicKeyHex)
+          .firstOrNull;
+      participantCards.add(
+        retained == null
+            ? _roastKeyService.participantCardFromPublicKey(
+                name: candidate.name,
+                publicKeyHex: publicKeyHex,
+              )
+            : RoastExchangeCodec.encodeParticipantCard(
+                cardId: retained.cardId,
+                name: candidate.name.trim().isEmpty
+                    ? retained.name
+                    : candidate.name.trim(),
+                publicKeyHex: retained.publicKeyHex,
+              ),
+      );
+    }
+
+    final successorSetupId = _roastKeyService.newSetupId();
+    final successorGroupId = _roastKeyService.newSetupId();
+    final transitionId = _roastKeyService.newSetupId();
+    var successor = RoastSetup(
+      id: successorSetupId,
+      groupId: successorGroupId,
+      name: successorName,
+      role: RoastSetupRole.host,
+      status: RoastSetupStatus.connecting,
+      threshold: successorThreshold,
+      participantCount: participantCount,
+      blockchainId: source.blockchainId,
+      networkId: source.networkId,
+      localCardId: local.cardId,
+      localParticipantPrivateKeyHex: source.localParticipantPrivateKeyHex,
+      participants: [
+        RoastParticipant(
+          cardId: local.cardId,
+          name: local.name,
+          identifierHex: '',
+          publicKeyHex: local.publicKeyHex,
+        ),
+      ],
+      onlineParticipantIds: const [],
+      keyName: roastKeyName(successorGroupId),
+      createdAt: DateTime.now().toUtc(),
+      usesRoomEnrollment: true,
+    );
+    final participants = _roastKeyService.finalizeRoster(
+      successor,
+      participantCards,
+    );
+    successor = successor.copyWith(
+      participants: participants,
+      hostParticipantId: participants
+          .singleWhere((participant) => participant.cardId == local.cardId)
+          .identifierHex,
+    );
+    successor = successor.copyWith(
+      groupFingerprintHex: _roastKeyService.groupFingerprint(successor),
+    );
+
+    RoastSetup? persistedSuccessor;
+    WalletGroupTransition? persistedTransition;
+    try {
+      final room = await runtime.createRoom(
+        successor,
+        beforeInvitations: (preparedRoom) async {
+          final now = DateTime.now().toUtc();
+          final expiresAt = now.add(validity);
+          final dkgDetails = NewDkgDetails(
+            name: successor.keyName,
+            description: roastKeyDescription(successor),
+            threshold: successor.threshold,
+            expiry: Expiry.fromTime(expiresAt),
+          );
+          final keyPlan = GroupTransitionKeyPlan(
+            keyId: migrationPolicy.keyId,
+            sourceGroupKey: ECCompressedPublicKey.fromHex(source.groupKeyHex!),
+            sourceThreshold: source.threshold,
+            targetThreshold: successor.threshold,
+            dkgDetailsHash: dkgDetails.sigHash,
+          );
+          final proposal = GroupTransitionProposal(
+            transitionId: transitionId,
+            sourceGroup: GroupConfig(
+              id: source.groupId,
+              participants: {
+                for (final participant in source.participants)
+                  Identifier.fromHex(participant.identifierHex):
+                      ECCompressedPublicKey.fromHex(participant.publicKeyHex),
+              },
+            ),
+            successorRoomId: successor.groupId,
+            coordinatorEndpointId: preparedRoom.coordinatorEndpointId,
+            successorParticipants: [
+              for (final participant in successor.participants)
+                ECCompressedPublicKey.fromHex(participant.publicKeyHex),
+            ],
+            keyPlans: [keyPlan],
+            migrationPolicy: migrationPolicy.noospherePolicy,
+            createdAt: now,
+            expiresAt: expiresAt,
+          );
+          var transition = WalletGroupTransition.proposed(
+            sourceSetupId: source.id,
+            successorSetupId: successor.id,
+            proposal: proposal,
+            dkgDetailsByKey: {migrationPolicy.keyId: dkgDetails},
+            now: now,
+          );
+          transition = transition.withApproval(
+            GroupTransitionApproval.forProposal(
+              proposal: proposal,
+              participantPublicKey: ECCompressedPublicKey.fromHex(
+                local.publicKeyHex,
+              ),
+              approvedAt: now,
+            ).sign(ECPrivateKey.fromHex(source.localParticipantPrivateKeyHex)),
+            now: now,
+          );
+          final preparedSuccessor = successor.copyWith(
+            coordinatorId: preparedRoom.coordinatorId,
+            coordinatorRelayUrls: preparedRoom.coordinatorRelayUrls,
+            coordinatorIpAddrs: preparedRoom.coordinatorIpAddrs,
+          );
+          final successorAccount = WalletAccount(
+            id:
+                'roast-${successor.id}-'
+                '${source.blockchainId}:${source.networkId}-0',
+            name: successor.name,
+            accountIndex: 0,
+            blockchainId: source.blockchainId,
+            networkId: source.networkId,
+            derivationState: WalletDerivationState.pending,
+            keySource: WalletKeySource.roast,
+            sourceId: successor.id,
+            keyId: successor.keyName,
+            createdAt: now,
+          );
+          final latest = _vault;
+          if (latest == null ||
+              !latest.roastSetups.any((setup) => setup.id == source.id)) {
+            throw StateError('The source ROAST setup is no longer available.');
+          }
+          final next = latest.copyWith(
+            accounts: [...latest.accounts, successorAccount],
+            roastSetups: [...latest.roastSetups, preparedSuccessor],
+            groupTransitions: [...latest.groupTransitions, transition],
+          );
+          await _repository.save(next);
+          _vault = next;
+          _selectedAccount = next.accounts.length - 1;
+          persistedSuccessor = preparedSuccessor;
+          persistedTransition = transition;
+          _notifyListeners();
+        },
+      );
+      final savedSetup = persistedSuccessor;
+      final savedTransition = persistedTransition;
+      if (savedSetup == null || savedTransition == null) {
+        throw StateError(
+          'The transition proposal was not persisted before invitations.',
+        );
+      }
+      final invitations = [
+        for (final invite in room.invites)
+          RoastIssuedInvitation(
+            participantName: savedSetup.participants
+                .singleWhere(
+                  (participant) =>
+                      participant.publicKeyHex ==
+                      invite.participantPublicKeyHex,
+                )
+                .name,
+            participantPublicKeyHex: invite.participantPublicKeyHex,
+            encoded: RoastExchangeCodec.encodeInvitation(
+              savedSetup,
+              roomInvite: invite.encoded,
+              participantPublicKeyHex: invite.participantPublicKeyHex,
+              expiresAt: invite.expiresAt,
+            ),
+          ),
+      ];
+      _issuedRoastInvitations[savedSetup.id] = invitations;
+      _notifyListeners();
+      return RoastGroupTransitionCreation(
+        transitionId: savedTransition.transitionId,
+        successorSetupId: savedSetup.id,
+        invitations: List.unmodifiable(invitations),
+      );
+    } catch (error) {
+      final savedSetup = persistedSuccessor;
+      if (savedSetup != null) {
+        await _replaceSetup(
+          savedSetup.copyWith(
+            status: RoastSetupStatus.error,
+            errorMessage: _cleanRoastError(error),
+          ),
+        );
+      }
+      rethrow;
+    }
+  }
 
   Future<List<RoastIssuedInvitation>> createHostedRoastInvitations(
     String setupId,
