@@ -407,12 +407,61 @@ void main() {
     expect(
       controller
           .activitiesFor(controller.accounts.single)
+          .first
+          .transactionStatus,
+      WalletTransactionStatus.broadcast,
+    );
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
           .map((item) => item.type),
       [
         WalletActivityType.transactionBroadcast,
         WalletActivityType.transactionSigned,
       ],
     );
+
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(
+        address: 'pc1paccount0',
+        utxos: [],
+        history: [
+          ElectrumxTransactionHistoryEntry(
+            transactionId: 'local-transaction-id',
+            height: 0,
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .first
+          .transactionStatus,
+      WalletTransactionStatus.mempool,
+    );
+
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(
+        address: 'pc1paccount0',
+        utxos: [],
+        history: [
+          ElectrumxTransactionHistoryEntry(
+            transactionId: 'local-transaction-id',
+            height: 123,
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    final confirmed = controller
+        .activitiesFor(controller.accounts.single)
+        .first;
+    expect(confirmed.transactionStatus, WalletTransactionStatus.confirmed);
+    expect(confirmed.blockHeight, 123);
     await expectLater(
       controller.sendTransaction(preview),
       throwsA(isA<WalletTransactionRejected>()),
@@ -523,6 +572,11 @@ void main() {
         ),
       );
       expect(electrumx.broadcastedTransactions, ['signed-transaction']);
+      final activity = controller
+          .activitiesFor(controller.accounts.single)
+          .first;
+      expect(activity.transactionStatus, WalletTransactionStatus.failed);
+      expect(activity.details, contains('bad-txns-inputs-missingorspent'));
 
       controller.dispose();
     },

@@ -49,3 +49,35 @@ class ElectrumxUtxo {
 
   static final _transactionHash = RegExp(r'^[0-9a-fA-F]{64}$');
 }
+
+class ElectrumxTransactionHistoryEntry {
+  const ElectrumxTransactionHistoryEntry({
+    required this.transactionId,
+    required this.height,
+  });
+
+  final String transactionId;
+  final int height;
+
+  bool get isConfirmed => height > 0;
+
+  static ElectrumxTransactionHistoryEntry fromJson(Object? value) {
+    if (value is! Map) {
+      throw const FormatException('Invalid ElectrumX history entry.');
+    }
+    final transactionId = value['tx_hash'];
+    final height = value['height'];
+    if (transactionId is! String ||
+        !_transactionHash.hasMatch(transactionId) ||
+        height is! int ||
+        height < -1) {
+      throw const FormatException('Invalid ElectrumX history entry.');
+    }
+    return ElectrumxTransactionHistoryEntry(
+      transactionId: transactionId,
+      height: height,
+    );
+  }
+
+  static final _transactionHash = RegExp(r'^[0-9a-fA-F]{64}$');
+}

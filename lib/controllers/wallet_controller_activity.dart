@@ -115,6 +115,130 @@ extension WalletActivityController on WalletController {
     }
   }
 
+  Future<void> _setTransactionStatus({
+    required String accountId,
+    required String transactionId,
+    required WalletTransactionStatus status,
+    int? blockHeight,
+    String? details,
+  }) async {
+    final current = _vault;
+    if (current == null) return;
+    final id = 'transaction-broadcast:$accountId:$transactionId';
+    final index = current.activities.indexWhere(
+      (activity) => activity.id == id,
+    );
+    final activities = [...current.activities];
+    if (index == -1) {
+      activities.insert(
+        0,
+        WalletActivity(
+          id: id,
+          accountId: accountId,
+          type: WalletActivityType.transactionBroadcast,
+          occurredAt: DateTime.now().toUtc(),
+          reference: transactionId,
+          details: details,
+          transactionStatus: status,
+          blockHeight: blockHeight,
+        ),
+      );
+      if (activities.length > WalletController._maxActivityEntries) {
+        activities.removeRange(
+          WalletController._maxActivityEntries,
+          activities.length,
+        );
+      }
+    } else {
+      final activity = activities[index];
+      final chainAlreadySawTransaction =
+          activity.transactionStatus == WalletTransactionStatus.mempool ||
+          activity.transactionStatus == WalletTransactionStatus.confirmed;
+      final networkOnlyStatus =
+          status == WalletTransactionStatus.broadcasting ||
+          status == WalletTransactionStatus.broadcast ||
+          status == WalletTransactionStatus.failed;
+      final keepChainStatus = chainAlreadySawTransaction && networkOnlyStatus;
+      activities[index] = activity.copyWith(
+        transactionStatus: keepChainStatus
+            ? activity.transactionStatus
+            : status,
+        blockHeight: blockHeight,
+        details: keepChainStatus ? null : details,
+        clearDetails: keepChainStatus || details == null,
+      );
+    }
+    final next = current.copyWith(activities: activities);
+    try {
+      await _repository.save(next);
+      _vault = next;
+      _notifyListeners();
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'Unable to persist transaction status',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _reconcileTransactionStatuses(
+    String address,
+    List<ElectrumxTransactionHistoryEntry> history,
+  ) async {
+    final current = _vault;
+    if (current == null || history.isEmpty) return;
+    final accountIds = accounts
+        .where((account) => account.address == address)
+        .map((account) => account.id)
+        .toSet();
+    final transactions = {
+      for (final entry in history) entry.transactionId: entry,
+    };
+    var changed = false;
+    final activities = <WalletActivity>[];
+    for (final activity in current.activities) {
+      final entry = transactions[activity.reference];
+      if (activity.type != WalletActivityType.transactionBroadcast ||
+          !accountIds.contains(activity.accountId) ||
+          entry == null) {
+        activities.add(activity);
+        continue;
+      }
+      final status = entry.isConfirmed
+          ? WalletTransactionStatus.confirmed
+          : WalletTransactionStatus.mempool;
+      final blockHeight = entry.isConfirmed ? entry.height : null;
+      if (activity.transactionStatus == status &&
+          activity.blockHeight == blockHeight) {
+        activities.add(activity);
+        continue;
+      }
+      changed = true;
+      activities.add(
+        activity.copyWith(
+          transactionStatus: status,
+          blockHeight: blockHeight,
+          clearBlockHeight: blockHeight == null,
+          clearDetails: true,
+        ),
+      );
+    }
+    if (!changed) return;
+    final next = current.copyWith(activities: activities);
+    try {
+      await _repository.save(next);
+      _vault = next;
+      _notifyListeners();
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'Unable to persist synchronized transaction statuses',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   Future<void> _recordSetupActivity(
     RoastSetup setup, {
     required String id,

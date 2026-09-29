@@ -351,6 +351,11 @@ extension WalletSigningController on WalletController {
       );
     }
     try {
+      await _setTransactionStatus(
+        accountId: account.id,
+        transactionId: signed.transactionId,
+        status: WalletTransactionStatus.broadcasting,
+      );
       late final String serverTransactionId;
       try {
         final service = _networkServices[networkForAccount(account).storageId];
@@ -362,6 +367,7 @@ extension WalletSigningController on WalletController {
         );
       } on Object catch (error, stackTrace) {
         final network = networkForAccount(account);
+        final message = _broadcastFailureMessage(error);
         AppLogger.error(
           '[ELECTRUMX ${network.storageId}] Transaction broadcast failed; '
           'localTxId=${signed.transactionId}; '
@@ -369,14 +375,19 @@ extension WalletSigningController on WalletController {
           error: error,
           stackTrace: stackTrace,
         );
-        throw WalletTransactionRejected(_broadcastFailureMessage(error));
+        await _setTransactionStatus(
+          accountId: account.id,
+          transactionId: signed.transactionId,
+          status: WalletTransactionStatus.failed,
+          details: message,
+        );
+        throw WalletTransactionRejected(message);
       }
       _broadcastedTransactionIds.add(signed.transactionId);
-      await _recordActivity(
-        id: 'transaction-broadcast:${account.id}:${signed.transactionId}',
+      await _setTransactionStatus(
         accountId: account.id,
-        type: WalletActivityType.transactionBroadcast,
-        reference: signed.transactionId,
+        transactionId: signed.transactionId,
+        status: WalletTransactionStatus.broadcast,
       );
       await _restartElectrumxSync();
       return WalletSendResult(

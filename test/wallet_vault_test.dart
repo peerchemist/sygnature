@@ -25,6 +25,8 @@ void main() {
           type: WalletActivityType.transactionSigned,
           occurredAt: DateTime.utc(2026, 1, 2, 3, 4),
           reference: 'transaction-id',
+          transactionStatus: WalletTransactionStatus.confirmed,
+          blockHeight: 123,
         ),
       ],
     );
@@ -42,6 +44,11 @@ void main() {
       WalletActivityType.transactionSigned,
     );
     expect(restored.activities.single.reference, 'transaction-id');
+    expect(
+      restored.activities.single.transactionStatus,
+      WalletTransactionStatus.confirmed,
+    );
+    expect(restored.activities.single.blockHeight, 123);
     expect(
       restored.activities.single.occurredAt,
       DateTime.utc(2026, 1, 2, 3, 4),

@@ -1031,7 +1031,7 @@ class _ActivityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final presentation = _activityPresentation(activity.type);
+    final presentation = _activityPresentation(activity);
     final reference = activity.reference;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1096,8 +1096,8 @@ class _ActivityRow extends StatelessWidget {
 }
 
 ({String title, IconData icon, Color color}) _activityPresentation(
-  WalletActivityType type,
-) => switch (type) {
+  WalletActivity activity,
+) => switch (activity.type) {
   WalletActivityType.signatureRequestReceived => (
     title: 'Signature request received',
     icon: Icons.mark_email_unread_outlined,
@@ -1139,9 +1139,28 @@ class _ActivityRow extends StatelessWidget {
     color: AppColors.greenDark,
   ),
   WalletActivityType.transactionBroadcast => (
-    title: 'Transaction broadcast',
-    icon: Icons.send_outlined,
-    color: AppColors.success,
+    title: switch (activity.transactionStatus) {
+      WalletTransactionStatus.broadcasting => 'Broadcasting transaction…',
+      WalletTransactionStatus.mempool => 'Transaction in mempool',
+      WalletTransactionStatus.confirmed => 'Transaction confirmed',
+      WalletTransactionStatus.failed => 'Transaction failed',
+      WalletTransactionStatus.broadcast || null => 'Transaction broadcast',
+    },
+    icon: switch (activity.transactionStatus) {
+      WalletTransactionStatus.broadcasting => Icons.sync_rounded,
+      WalletTransactionStatus.mempool => Icons.hourglass_top_rounded,
+      WalletTransactionStatus.confirmed => Icons.verified_outlined,
+      WalletTransactionStatus.failed => Icons.error_outline,
+      WalletTransactionStatus.broadcast || null => Icons.send_outlined,
+    },
+    color: switch (activity.transactionStatus) {
+      WalletTransactionStatus.broadcasting ||
+      WalletTransactionStatus.mempool => AppColors.warningDark,
+      WalletTransactionStatus.failed => AppColors.danger,
+      WalletTransactionStatus.broadcast ||
+      WalletTransactionStatus.confirmed ||
+      null => AppColors.success,
+    },
   ),
   WalletActivityType.messageSignatureRequested => (
     title: 'Message signature requested',

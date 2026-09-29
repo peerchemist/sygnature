@@ -156,6 +156,7 @@ extension WalletSyncController on WalletController {
               _queueBroadcastReservationReconciliation(
                 snapshot.address,
                 snapshot.utxos,
+                snapshot.history,
               );
               if (balanceIncreased) onCoinsReceived?.call();
               _notifyListeners();
@@ -176,11 +177,13 @@ extension WalletSyncController on WalletController {
   void _queueBroadcastReservationReconciliation(
     String address,
     List<ElectrumxUtxo> utxos,
+    List<ElectrumxTransactionHistoryEntry> history,
   ) {
     final outpoints = utxos.map(WalletSigningController._utxoKey).toSet();
     _utxoReconciliationQueue = _utxoReconciliationQueue
         .then((_) async {
           if (_disposed) return;
+          await _reconcileTransactionStatuses(address, history);
           final accountIds = accounts
               .where((account) => account.address == address)
               .map((account) => account.id)

@@ -370,6 +370,8 @@ void main() {
             type: WalletActivityType.transactionBroadcast,
             occurredAt: DateTime.now().toUtc(),
             reference: 'transaction-id',
+            transactionStatus: WalletTransactionStatus.confirmed,
+            blockHeight: 123,
           ),
         ],
       );
@@ -385,7 +387,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Recent activity'), findsOneWidget);
-    expect(find.text('Transaction broadcast'), findsOneWidget);
+    expect(find.text('Transaction confirmed'), findsOneWidget);
     expect(find.textContaining('Transaction transa'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

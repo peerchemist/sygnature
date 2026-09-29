@@ -137,6 +137,11 @@ void main() {
 
     expect(snapshot.address, _mainnetAddress);
     expect(snapshot.utxos.single.value, 1250000);
+    expect(snapshot.history.single.height, 0);
+    expect(
+      snapshot.history.single.transactionId,
+      'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    );
     expect(
       connection.methods.where(
         (method) => method == 'blockchain.scripthash.subscribe',
@@ -245,6 +250,13 @@ class _FakeConnection implements ElectrumxConnection {
           'tx_pos': 2,
           'height': 42,
           'value': 1250000,
+        },
+      ],
+      'blockchain.scripthash.get_history' => [
+        {
+          'tx_hash': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          'height': 0,
+          'fee': 1000,
         },
       ],
       'blockchain.transaction.broadcast' => 'transaction-id',

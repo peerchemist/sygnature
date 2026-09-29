@@ -83,10 +83,12 @@ class PeercoinElectrumxUtxoSnapshot {
   const PeercoinElectrumxUtxoSnapshot({
     required this.address,
     required this.utxos,
+    this.history = const [],
   });
 
   final String address;
   final List<ElectrumxUtxo> utxos;
+  final List<ElectrumxTransactionHistoryEntry> history;
 }
 
 typedef ElectrumxConnector = Future<ElectrumxConnection> Function(Uri uri);
@@ -318,14 +320,20 @@ class PeercoinElectrumxService implements ElectrumxService {
             return;
           }
           final subscription = statusStream
-              .asyncMap(
-                (status) async => PeercoinElectrumxUtxoSnapshot(
+              .asyncMap((status) async {
+                if (status == null) {
+                  return PeercoinElectrumxUtxoSnapshot(
+                    address: address,
+                    utxos: const [],
+                    history: const [],
+                  );
+                }
+                return PeercoinElectrumxUtxoSnapshot(
                   address: address,
-                  utxos: status == null
-                      ? const []
-                      : await client.fetchUtxos(address),
-                ),
-              )
+                  utxos: await client.fetchUtxos(address),
+                  history: await client.fetchHistory(address),
+                );
+              })
               .listen(
                 output.add,
                 onError: fail,
@@ -575,6 +583,24 @@ class _ElectrumxClient {
 
     return result
         .map((entry) => ElectrumxUtxo.fromJson(address: address, value: entry))
+        .toList(growable: false);
+  }
+
+  Future<List<ElectrumxTransactionHistoryEntry>> fetchHistory(
+    String address,
+  ) async {
+    final scriptHash = PeercoinElectrumxService.scriptHashForAddress(
+      address,
+      electrumNetwork.network,
+    );
+    final result = await _request('blockchain.scripthash.get_history', [
+      scriptHash,
+    ]);
+    if (result is! List) {
+      throw const FormatException('Invalid ElectrumX history response.');
+    }
+    return result
+        .map(ElectrumxTransactionHistoryEntry.fromJson)
         .toList(growable: false);
   }
 
