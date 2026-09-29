@@ -536,13 +536,18 @@ class _DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final awaitsRoastKey =
+        account.keySource == WalletKeySource.roast &&
+        account.derivationState == WalletDerivationState.pending;
     final ready = syncStatus == AccountSyncStatus.synced;
-    final statusLabel = switch (syncStatus) {
-      AccountSyncStatus.synced => 'Ready',
-      AccountSyncStatus.syncing => 'Synchronizing',
-      AccountSyncStatus.error => 'Sync failed',
-      AccountSyncStatus.unavailable => 'Unavailable',
-    };
+    final statusLabel = awaitsRoastKey
+        ? 'Key setup required'
+        : switch (syncStatus) {
+            AccountSyncStatus.synced => 'Ready',
+            AccountSyncStatus.syncing => 'Synchronizing',
+            AccountSyncStatus.error => 'Sync failed',
+            AccountSyncStatus.unavailable => 'Unavailable',
+          };
     final statusColor = ready ? AppColors.greenDark : const Color(0xff795400);
     return Wrap(
       key: const Key('wallet-dashboard-header'),
@@ -582,7 +587,11 @@ class _DashboardHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    ready ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                    awaitsRoastKey
+                        ? Icons.key_rounded
+                        : ready
+                        ? Icons.check_circle_rounded
+                        : Icons.schedule_rounded,
                     size: 15,
                     color: statusColor,
                   ),

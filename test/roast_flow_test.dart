@@ -271,6 +271,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('Key setup required'), findsOneWidget);
+    expect(find.text('Unavailable'), findsNothing);
     var health = find.byKey(const Key('roast-swarm-health-healthy'));
     expect(health, findsOneWidget);
     expect(find.text('2/2'), findsOneWidget);
