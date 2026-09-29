@@ -16,7 +16,11 @@ class AppNotifications({
   static const _soundEnabledKey = 'notifications.sound_enabled';
   static const _soundVolumeKey = 'notifications.sound_volume';
 
-  final FlutterSecureStorage _storage = storage ?? const FlutterSecureStorage();
+  final FlutterSecureStorage _storage =
+      storage ??
+      const FlutterSecureStorage(
+        mOptions: MacOsOptions(usesDataProtectionKeychain: true),
+      );
   final UiSounds _sounds = sounds ?? UiSounds();
   final FlutterLocalNotificationsPlugin _plugin =
       plugin ?? FlutterLocalNotificationsPlugin();
