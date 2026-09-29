@@ -72,6 +72,11 @@ extension WalletRoastEventController on WalletController {
     final setup = _setupById(event.setupId);
     switch (event) {
       case RoastRuntimeSnapshotEvent():
+        final recovered =
+            event.connected &&
+            event.signerRunning &&
+            (setup.status == RoastSetupStatus.connecting ||
+                setup.status == RoastSetupStatus.interrupted);
         _roastPresence[event.setupId] = _RoastPresence(
           connected: event.connected,
           signerRunning: event.signerRunning,
@@ -82,10 +87,8 @@ extension WalletRoastEventController on WalletController {
             coordinatorId: event.coordinatorId,
             coordinatorRelayUrls: event.coordinatorRelayUrls,
             coordinatorIpAddrs: event.coordinatorIpAddrs,
-            status:
-                setup.status == RoastSetupStatus.connecting && event.connected
-                ? RoastSetupStatus.ready
-                : setup.status,
+            status: recovered ? _restoredRoastStatus(setup) : setup.status,
+            clearError: recovered,
           ),
         );
       case RoastRuntimeDkgEvent():
@@ -329,4 +332,12 @@ extension WalletRoastEventController on WalletController {
         _notifyListeners();
     }
   }
+}
+
+RoastSetupStatus _restoredRoastStatus(RoastSetup setup) {
+  if (setup.groupKeyHex != null) return RoastSetupStatus.active;
+  if (setup.pendingDkgProposalHex == null) return RoastSetupStatus.ready;
+  return setup.pendingDkgStage == 'waiting'
+      ? RoastSetupStatus.awaitingDkgApproval
+      : RoastSetupStatus.creatingKey;
 }

@@ -466,6 +466,73 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('refreshes the ROAST UI after coordinator reconnection', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: 'group-key',
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _activeRoastVault(),
+      roastRuntime: runtime,
+      roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    runtime.emit(
+      RoastRuntimeFailureEvent(
+        'setup',
+        message: 'Coordinator connection lost.',
+        interrupted: true,
+        operation: 'reconnect',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('coordinator-stopped')), findsOneWidget);
+    expect(find.text('ROAST operation was interrupted'), findsOneWidget);
+    expect(find.text('Coordinator connection lost.'), findsOneWidget);
+
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        'setup',
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: [],
+        coordinatorIpAddrs: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('coordinator-connected')), findsOneWidget);
+    expect(find.text('Shared key secured on this device'), findsOneWidget);
+    expect(find.text('ROAST operation was interrupted'), findsNothing);
+    expect(find.text('Coordinator connection lost.'), findsNothing);
+    expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+    expect(controller.roastSetups.single.errorMessage, isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('requires exact local approval before coordinator switching', (
     tester,
   ) async {
