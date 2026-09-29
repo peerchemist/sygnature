@@ -1639,7 +1639,9 @@ Future<void> _showAddWallet(
   final result = await showDialog<({String name, WalletNetwork network})>(
     context: context,
     builder: (context) => _AddWalletDialog(
-      initialName: 'Wallet ${controller.accounts.length + 1}',
+      initialName: controller.accounts.isEmpty
+          ? 'Main wallet'
+          : 'Wallet ${controller.accounts.length + 1}',
       networks: controller.supportedNetworks,
     ),
   );
@@ -1682,7 +1684,7 @@ class _AddWalletDialogState extends State<_AddWalletDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('New sub-wallet'),
+      title: const Text('New personal wallet'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,

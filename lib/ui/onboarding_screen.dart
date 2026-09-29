@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/mnemonic_seed.dart';
-import '../models/wallet_network.dart';
 import 'app_theme.dart';
 import 'watch_only_wallet_dialog.dart';
 import 'widgets/brand_mark.dart';
@@ -27,7 +26,6 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   _SetupStep _step = _SetupStep.mnemonic;
   _MnemonicSource _source = _MnemonicSource.generate;
-  late WalletNetwork _network;
   final TextEditingController _importController = TextEditingController();
   MnemonicLanguage? _language = MnemonicLanguage.byId('english');
   int _wordCount = 12;
@@ -42,7 +40,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _network = widget.controller.supportedNetworks.first;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _selectLanguage(_language);
     });
@@ -151,7 +148,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (mnemonic == null || !_backupConfirmed) return;
     setState(() => _creationError = null);
     try {
-      await widget.controller.createWallet(mnemonic, network: _network);
+      await widget.controller.createVault(mnemonic);
       widget.onCreated?.call();
     } catch (_) {
       if (!mounted) return;
@@ -205,8 +202,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           _SetupStep.mnemonic => _MnemonicStep(
                             key: const ValueKey('mnemonic'),
                             source: _source,
-                            networks: widget.controller.supportedNetworks,
-                            network: _network,
                             language: _language,
                             wordCount: _wordCount,
                             loadedWordCount: _wordlist?.length,
@@ -221,13 +216,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               _creationError = null;
                               _importError = null;
                             }),
-                            onNetworkChanged: (value) {
-                              if (value == null) return;
-                              setState(() {
-                                _network = value;
-                                _mnemonic = null;
-                              });
-                            },
                             onLanguageChanged: _selectLanguage,
                             onWordCountChanged: (value) => setState(() {
                               _wordCount = value;
@@ -248,7 +236,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                           _SetupStep.backup => _BackupStep(
                             key: const ValueKey('backup'),
-                            network: _network,
                             mnemonic: _mnemonic!,
                             busy: widget.controller.busy,
                             backupConfirmed: _backupConfirmed,
@@ -283,8 +270,6 @@ class _MnemonicStep extends StatelessWidget {
   const _MnemonicStep({
     super.key,
     required this.source,
-    required this.networks,
-    required this.network,
     required this.language,
     required this.wordCount,
     required this.loadedWordCount,
@@ -293,7 +278,6 @@ class _MnemonicStep extends StatelessWidget {
     required this.importController,
     required this.importError,
     required this.onSourceChanged,
-    required this.onNetworkChanged,
     required this.onLanguageChanged,
     required this.onWordCountChanged,
     required this.onImportChanged,
@@ -302,8 +286,6 @@ class _MnemonicStep extends StatelessWidget {
   });
 
   final _MnemonicSource source;
-  final List<WalletNetwork> networks;
-  final WalletNetwork network;
   final MnemonicLanguage? language;
   final int wordCount;
   final int? loadedWordCount;
@@ -312,7 +294,6 @@ class _MnemonicStep extends StatelessWidget {
   final TextEditingController importController;
   final String? importError;
   final ValueChanged<Set<_MnemonicSource>> onSourceChanged;
-  final ValueChanged<WalletNetwork?> onNetworkChanged;
   final ValueChanged<MnemonicLanguage?> onLanguageChanged;
   final ValueChanged<int> onWordCountChanged;
   final ValueChanged<String> onImportChanged;
@@ -327,7 +308,7 @@ class _MnemonicStep extends StatelessWidget {
         Text('Mnemonic', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 6),
         const Text(
-          'Choose a blockchain network and recovery phrase source.',
+          'Choose how to set up the recovery phrase for personal wallets.',
           style: TextStyle(color: AppColors.inkMuted),
         ),
         const SizedBox(height: 20),
@@ -345,20 +326,6 @@ class _MnemonicStep extends StatelessWidget {
           selected: {source},
           showSelectedIcon: false,
           onSelectionChanged: onSourceChanged,
-        ),
-        const SizedBox(height: 20),
-        DropdownButtonFormField<WalletNetwork>(
-          key: const Key('wallet-network-field'),
-          initialValue: network,
-          decoration: const InputDecoration(labelText: 'Blockchain network'),
-          isExpanded: true,
-          items: networks
-              .map(
-                (item) =>
-                    DropdownMenuItem(value: item, child: Text(item.label)),
-              )
-              .toList(growable: false),
-          onChanged: onNetworkChanged,
         ),
         const SizedBox(height: 16),
         LayoutBuilder(
@@ -551,7 +518,6 @@ class _StatusRow extends StatelessWidget {
 class _BackupStep extends StatelessWidget {
   const _BackupStep({
     super.key,
-    required this.network,
     required this.mnemonic,
     required this.busy,
     required this.backupConfirmed,
@@ -561,7 +527,6 @@ class _BackupStep extends StatelessWidget {
     required this.onCreateWallet,
   });
 
-  final WalletNetwork network;
   final MnemonicSession mnemonic;
   final bool busy;
   final bool backupConfirmed;
@@ -577,7 +542,7 @@ class _BackupStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          generated ? 'Back up your wallet' : 'Review imported wallet',
+          generated ? 'Back up recovery phrase' : 'Review recovery phrase',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 6),
@@ -585,8 +550,8 @@ class _BackupStep extends StatelessWidget {
           generated
               ? 'Write these recovery words down in order. Anyone with this '
                     'phrase can spend your funds.'
-              : 'Confirm the network and derivation settings before importing '
-                    'this recovery phrase.',
+              : 'Confirm this recovery phrase before storing it in the '
+                    'encrypted local vault.',
           style: const TextStyle(color: AppColors.inkMuted),
         ),
         if (generated) ...[
@@ -602,19 +567,11 @@ class _BackupStep extends StatelessWidget {
           ),
           child: Column(
             children: [
-              _SetupRow(label: 'Network', value: network.label),
-              const Divider(height: 20),
               _SetupRow(label: 'Wordlist', value: mnemonic.language.label),
               const Divider(height: 20),
               _SetupRow(
                 label: 'Phrase',
                 value: '${mnemonic.words.length} words',
-              ),
-              const Divider(height: 20),
-              _SetupRow(
-                label: 'Derivation path',
-                value: network.derivationPathForAccount(0),
-                monospace: true,
               ),
             ],
           ),
@@ -631,8 +588,8 @@ class _BackupStep extends StatelessWidget {
                 : 'I have a secure backup of this recovery phrase.',
           ),
           subtitle: const Text(
-            'The mnemonic and derived spend key will be stored only in the '
-            'encrypted local vault.',
+            'The mnemonic will be stored only in the encrypted local vault. '
+            'Each wallet chooses its own network when added.',
           ),
         ),
         if (creationError != null) ...[
@@ -652,7 +609,7 @@ class _BackupStep extends StatelessWidget {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(generated ? 'Create wallet' : 'Import wallet'),
+                  : const Text('Save recovery phrase'),
             ),
           ],
         ),
@@ -706,15 +663,10 @@ class _RecoveryPhrase extends StatelessWidget {
 }
 
 class _SetupRow extends StatelessWidget {
-  const _SetupRow({
-    required this.label,
-    required this.value,
-    this.monospace = false,
-  });
+  const _SetupRow({required this.label, required this.value});
 
   final String label;
   final String value;
-  final bool monospace;
 
   @override
   Widget build(BuildContext context) {
@@ -730,11 +682,10 @@ class _SetupRow extends StatelessWidget {
           child: Text(
             value,
             textAlign: TextAlign.end,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.ink,
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              fontFamily: monospace ? 'monospace' : null,
             ),
           ),
         ),

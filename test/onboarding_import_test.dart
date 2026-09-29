@@ -33,8 +33,9 @@ void main() {
     await tester.tap(reviewButton);
     await tester.pumpAndSettle();
 
-    expect(find.text('Review imported wallet'), findsOneWidget);
-    expect(find.text("m/86'/6'/0'/0/0"), findsOneWidget);
+    expect(find.text('Review recovery phrase'), findsOneWidget);
+    expect(find.text('Network'), findsNothing);
+    expect(find.text('Derivation path'), findsNothing);
     expect(find.text('1. abandon'), findsNothing);
 
     await tester.tap(find.byType(Checkbox));
@@ -42,6 +43,15 @@ void main() {
     final importButton = find.byKey(const Key('wallet-create-button'));
     await tester.ensureVisible(importButton);
     await tester.tap(importButton);
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Add wallet'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Add wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Personal wallet'));
+    await tester.pumpAndSettle();
+    expect(find.text('New personal wallet'), findsOneWidget);
+    await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
 
     expect(find.text('Main wallet'), findsWidgets);

@@ -17,6 +17,30 @@ import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
+  test('stores the recovery phrase before a network is selected', () async {
+    final repository = MemoryWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+
+    await controller.createVault(_mnemonic);
+
+    expect(controller.hasWallet, isTrue);
+    expect(controller.accounts, isEmpty);
+    expect(controller.vault?.mnemonic, _mnemonic.phrase);
+    expect(controller.vault?.nextAccountIndex, 0);
+
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.testnet,
+    );
+    expect(controller.accounts.single.networkId, 'testnet');
+    expect(controller.accounts.single.accountIndex, 0);
+    expect(controller.vault?.nextAccountIndex, 1);
+  });
+
   test('adds and synchronizes a watch-only Taproot address', () async {
     const address =
         'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm';

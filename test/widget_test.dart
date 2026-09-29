@@ -34,29 +34,37 @@ void main() {
 
     expect(find.text('Mnemonic'), findsOneWidget);
     expect(find.text('English'), findsOneWidget);
-    expect(find.text('Peercoin mainnet'), findsOneWidget);
     expect(find.text('Wordlist: English, 2048 words'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('wallet-network-field')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Peercoin testnet').last);
-    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('wallet-network-field')), findsNothing);
 
     await tester.ensureVisible(find.text('Generate recovery phrase'));
     await tester.tap(find.text('Generate recovery phrase'));
     await tester.pumpAndSettle();
-    expect(find.text('Back up your wallet'), findsOneWidget);
-    expect(find.text('Peercoin testnet'), findsOneWidget);
+    expect(find.text('Back up recovery phrase'), findsOneWidget);
     expect(find.text('1. abandon'), findsOneWidget);
-    expect(find.text("m/86'/1'/0'/0/0"), findsOneWidget);
+    expect(find.text('Network'), findsNothing);
+    expect(find.text('Derivation path'), findsNothing);
 
     await tester.ensureVisible(
       find.text('I wrote down these recovery words in order.'),
     );
     await tester.tap(find.byType(Checkbox));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Create wallet'));
-    await tester.tap(find.text('Create wallet'));
+    await tester.ensureVisible(find.text('Save recovery phrase'));
+    await tester.tap(find.text('Save recovery phrase'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Add wallet'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Add wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Personal wallet'));
+    await tester.pumpAndSettle();
+    expect(find.text('New personal wallet'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('sub-wallet-network-field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Peercoin testnet').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
 
     expect(find.text('Main wallet'), findsWidgets);
@@ -69,7 +77,7 @@ void main() {
     expect(find.text('Watch-only wallet'), findsOneWidget);
     await tester.tap(find.text('Personal wallet'));
     await tester.pumpAndSettle();
-    expect(find.text('New sub-wallet'), findsOneWidget);
+    expect(find.text('New personal wallet'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Add'), findsOneWidget);
     final addButton = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, 'Add'),

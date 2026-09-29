@@ -65,6 +65,24 @@ extension WalletAccountsController on WalletController {
     wordlist: wordlist,
   );
 
+  Future<void> createVault(MnemonicSession mnemonic) async {
+    await _guard(() async {
+      final current = _vault;
+      final vault = WalletVault(
+        mnemonic: mnemonic.phrase,
+        languageId: mnemonic.language.id,
+        mnemonicWordCount: mnemonic.words.length,
+        accounts: current?.accounts ?? const [],
+        nextAccountIndex: current?.nextAccountIndex ?? 0,
+        roastSetups: current?.roastSetups ?? const [],
+        activities: current?.activities ?? const [],
+      );
+      await _repository.save(vault);
+      _vault = vault;
+      _selectedAccount = vault.accounts.isEmpty ? 0 : vault.accounts.length - 1;
+    });
+  }
+
   /// Derives the first account and persists the complete wallet in one
   /// encrypted repository write.
   Future<void> createWallet(
