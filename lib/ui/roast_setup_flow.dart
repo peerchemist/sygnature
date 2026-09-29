@@ -890,7 +890,7 @@ class const RoastSetupPanel({
             'Signer public key copied.',
           ),
           icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copy signer public key'),
+          label: const Text('Copy my public key'),
         ),
         FilledButton(
           onPressed: busy ? null : () => _join(context, setup),
