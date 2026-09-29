@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -176,6 +177,68 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('opens a participant-bound invitation from an app link', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final keyService = _FakeRoastKeyService()..acceptInvitation = true;
+    final runtime = _FakeRoastRuntime()
+      ..joinSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      roastRuntime: runtime,
+      roastKeyService: keyService,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await controller.createRoastSetupDraft(
+      role: RoastSetupRole.member,
+      walletName: 'Member wallet',
+      participantName: 'Member',
+      threshold: 2,
+      participantCount: 2,
+      network: PeercoinNetworks.mainnet,
+    );
+    final participantPublicKey =
+        controller.roastSetups.single.localParticipant.publicKeyHex;
+    final invitation =
+        '${RoastExchangeCodec.uriScheme}:'
+        '${base64Url.encode(utf8.encode(jsonEncode({'version': RoastExchangeCodec.version, 'type': 'room-invitation', 'setupName': 'Linked wallet', 'threshold': 2, 'participantCount': 2, 'participantPublicKeyHex': participantPublicKey})))}';
+
+    await tester.pumpWidget(
+      SygnatureApp(
+        controllerFactory: () async => controller,
+        incomingLinks: Stream.value(Uri.parse(invitation)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Join shared wallet?'), findsOneWidget);
+    expect(find.text('Linked wallet'), findsOneWidget);
+    expect(find.text('2 of 2 signers required'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('roast-invite-link-join')));
+    await tester.pumpAndSettle();
+
+    expect(keyService.appliedInvitation, invitation);
+    expect(find.text('Could not join shared wallet'), findsNothing);
+    expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
 
   testWidgets('shows healthy and unavailable ROAST swarm states', (
@@ -632,6 +695,7 @@ WalletVault _finalizedRoastVault() => WalletVault(
 final class _FakeRoastKeyService extends RoastKeyService {
   int _id = 0;
   String? appliedInvitation;
+  bool acceptInvitation = false;
 
   @override
   RoastParticipantMaterial generateParticipant() => RoastParticipantMaterial(
@@ -663,6 +727,12 @@ final class _FakeRoastKeyService extends RoastKeyService {
   @override
   RoastInvitation applyInvitation(RoastSetup draft, String invitation) {
     appliedInvitation = invitation;
+    if (acceptInvitation) {
+      return RoastInvitation(
+        setup: draft.copyWith(status: RoastSetupStatus.ready),
+        roomInvite: 'room-invite',
+      );
+    }
     throw const FormatException('Invalid test invitation.');
   }
 }
@@ -671,6 +741,7 @@ final class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   RoastRuntimeSnapshot? startSnapshot;
+  RoastRuntimeSnapshot? joinSnapshot;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -688,8 +759,8 @@ final class _FakeRoastRuntime implements RoastRuntime {
   }) => throw UnimplementedError();
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
-      throw UnimplementedError();
+  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) async =>
+      joinSnapshot ?? (throw UnimplementedError());
 
   @override
   Future<void> requestDkg(

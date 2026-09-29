@@ -254,7 +254,8 @@ String roastKeyDescription(RoastSetup setup) => jsonEncode([
 
 abstract final class RoastExchangeCodec {
   static const version = 1;
-  static const _prefix = 'sygnature-roast-v1:';
+  static const uriScheme = 'sygnature-roast-v1';
+  static const _prefix = '$uriScheme:';
   static const maxEncodedLength = 16384;
 
   static String encodeParticipantCard({
