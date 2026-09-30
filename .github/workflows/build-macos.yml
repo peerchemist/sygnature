@@ -1,0 +1,63 @@
+name: Build macOS DMG
+
+on:
+  push:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out Sygnature
+        uses: actions/checkout@v7.0.1
+        with:
+          path: sygnature_ng
+
+      - name: Check out Noosphere
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/noosphere
+          ref: f314e2491518d86967c673720d60cc272a99d90c
+          token: ${{ secrets.NOOSPHERE_REPOSITORY_TOKEN || github.token }}
+          path: noosphere
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: sygnature_ng
+        run: flutter pub get
+
+      - name: Build macOS release
+        working-directory: sygnature_ng
+        run: flutter build macos --release --no-pub
+
+      - name: Create unsigned DMG
+        working-directory: sygnature_ng
+        run: >-
+          hdiutil create
+          -volname Sygnature
+          -srcfolder build/macos/Build/Products/Release/sygnature.app
+          -ov
+          -format UDZO
+          build/Sygnature-macOS.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sygnature-macos-dmg
+          path: sygnature_ng/build/Sygnature-macOS.dmg
+          if-no-files-found: error
+          retention-days: 30

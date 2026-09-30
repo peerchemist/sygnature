@@ -1,0 +1,47 @@
+name: Build Linux Flatpak
+
+on:
+  push:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out Sygnature
+        uses: actions/checkout@v7.0.1
+        with:
+          path: sygnature_ng
+
+      - name: Check out Noosphere
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/noosphere
+          ref: f314e2491518d86967c673720d60cc272a99d90c
+          token: ${{ secrets.NOOSPHERE_REPOSITORY_TOKEN || github.token }}
+          path: noosphere
+
+      - name: Install Flatpak build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes flatpak flatpak-builder
+
+      - name: Build Flatpak bundle
+        working-directory: sygnature_ng
+        run: scripts/build_flatpak
+
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sygnature-linux-flatpak
+          path: sygnature_ng/build/flatpak/com.github.peerchemist.sygnature.flatpak
+          if-no-files-found: error
+          retention-days: 30
