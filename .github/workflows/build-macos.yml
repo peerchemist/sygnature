@@ -40,19 +40,9 @@ jobs:
         working-directory: sygnature_ng
         run: flutter pub get
 
-      - name: Build macOS release
+      - name: Build macOS DMG
         working-directory: sygnature_ng
-        run: flutter build macos --release --no-pub
-
-      - name: Create unsigned DMG
-        working-directory: sygnature_ng
-        run: >-
-          hdiutil create
-          -volname Sygnature
-          -srcfolder build/macos/Build/Products/Release/sygnature.app
-          -ov
-          -format UDZO
-          build/Sygnature-macOS.dmg
+        run: scripts/build_macos --no-pub
 
       - name: Upload DMG
         uses: actions/upload-artifact@v7.0.1

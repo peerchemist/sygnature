@@ -118,3 +118,13 @@ flutter run -d linux
 
 See [scripts/README.md](scripts/README.md) for Android, Linux, Windows and macOS
 build instructions.
+
+On macOS, build a release DMG for testers with:
+
+```sh
+scripts/build_macos
+```
+
+The Apple Silicon package is written to `build/Sygnature-macOS.dmg`. It is
+ad-hoc signed but not notarized, so testers may need to Control-click Sygnature
+and choose **Open** the first time.
