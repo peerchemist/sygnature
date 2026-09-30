@@ -2354,6 +2354,15 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
   @override
   Widget build(BuildContext context) {
     final request = widget.item.request;
+    final requester = widget.controller.roastSetups
+        .where((setup) => setup.id == widget.item.setupId)
+        .firstOrNull
+        ?.participants
+        .where((participant) => participant.identifierHex == request.creator)
+        .firstOrNull;
+    final requesterLabel = requester == null
+        ? _shortTransactionId(request.creator)
+        : '${_shortTransactionId(requester.publicKeyHex)} (${requester.name})';
     final signsMessage = request.kind == RoastSigningRequestKind.message;
     final waitingForDecision = request.status == 'waiting';
     final progress = request.progress;
@@ -2401,9 +2410,9 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
             const SizedBox(height: 4),
             Text(
               signsMessage
-                  ? 'Requested by ${_shortTransactionId(request.creator)} · '
+                  ? 'Requested by $requesterLabel · '
                         'shared group key'
-                  : 'Requested by ${_shortTransactionId(request.creator)} · '
+                  : 'Requested by $requesterLabel · '
                         '${request.masterGroupKeys.length} input(s)',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
             ),

@@ -935,6 +935,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('MESSAGE SIGNATURE · ACTION REQUIRED'), findsOneWidget);
+    expect(
+      find.text('Requested by 02111111…11111111 (Bob) · shared group key'),
+      findsOneWidget,
+    );
     expect(find.text('EXACT MESSAGE TO SIGN'), findsOneWidget);
     expect(find.text('Release 1.0\nSHA256: abc123'), findsOneWidget);
     expect(find.text('REQUEST NOTE · AUTHENTICATED'), findsOneWidget);
