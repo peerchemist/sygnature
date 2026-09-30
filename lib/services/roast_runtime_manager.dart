@@ -66,6 +66,12 @@ class RoastSigningOutput({
 
 enum RoastSigningRequestKind { transaction, message, unsupported }
 
+class RoastSigningProgress({
+  required final int threshold,
+  required final List<String> contributingParticipants,
+  required final String stage,
+});
+
 class RoastSigningRequest({
   required final String idHex,
   required final String proposalHex,
@@ -77,6 +83,7 @@ class RoastSigningRequest({
   required final bool usesExpectedTaprootTweak,
   required final bool usesUntweakedKey,
   required final String status,
+  required final RoastSigningProgress progress,
   required final int inputSats,
   required final int transactionInputCount,
   required final List<int> signedInputIndexes,
@@ -91,6 +98,30 @@ class RoastSigningRequest({
   int get outputSats =>
       outputs.fold(0, (sum, output) => sum + output.valueSats);
   int get feeSats => inputSats - outputSats;
+
+  RoastSigningRequest copyWith({String? status}) => RoastSigningRequest(
+    idHex: idHex,
+    proposalHex: proposalHex,
+    creator: creator,
+    expiry: expiry,
+    kind: kind,
+    hasTransactionMetadata: hasTransactionMetadata,
+    usesSupportedSighash: usesSupportedSighash,
+    usesExpectedTaprootTweak: usesExpectedTaprootTweak,
+    usesUntweakedKey: usesUntweakedKey,
+    status: status ?? this.status,
+    progress: progress,
+    inputSats: inputSats,
+    transactionInputCount: transactionInputCount,
+    signedInputIndexes: signedInputIndexes,
+    previousOutputScripts: previousOutputScripts,
+    inputOutpoints: inputOutpoints,
+    outputs: outputs,
+    masterGroupKeys: masterGroupKeys,
+    derivationPaths: derivationPaths,
+    message: message,
+    signedMessageText: signedMessageText,
+  );
 }
 
 final class RoastRuntimeSigningRequestEvent(
@@ -1261,7 +1292,10 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         AppLogger.info(
           '${_roastScope(event.setupId)} Signing request '
           '${_shortId(bytesToHex(event.request.id))} '
-          'status=${event.request.status}',
+          'status=${event.request.status}, '
+          'stage=${event.request.progress.stage}, '
+          'contributors=${event.request.progress.contributingParticipants.length}/'
+          '${event.request.progress.threshold}',
         );
         _emitSigningRequest(event.setupId, event.request);
       case WorkerSigningResultEvent():
@@ -1584,6 +1618,13 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           usesExpectedTaprootTweak: usesExpectedTaprootTweak,
           usesUntweakedKey: usesUntweakedKey,
           status: request.status,
+          progress: RoastSigningProgress(
+            threshold: request.progress.threshold,
+            contributingParticipants: List.unmodifiable(
+              request.progress.contributingParticipants,
+            ),
+            stage: request.progress.stage,
+          ),
           inputSats: inputSats,
           transactionInputCount: transactionInputCount,
           signedInputIndexes: signedInputIndexes,
@@ -1628,6 +1669,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     bool publishDkgs = true,
   }) async {
     if (publishDkgs) _rememberDkgs(snapshot);
+    _rememberSigningRequests(snapshot);
     final coordinator = _selectedCoordinator(snapshot.setupId);
     final matchingKeys = snapshot.keys
         .where(

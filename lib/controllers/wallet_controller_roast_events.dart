@@ -226,26 +226,6 @@ extension WalletRoastEventController on WalletController {
         );
       case RoastRuntimeSigningRequestEvent():
         final requestKey = '${setup.id}:${event.request.idHex}';
-        if (event.request.status != 'waiting') {
-          final removed = _roastSigningRequests.remove(requestKey);
-          final type = switch (event.request.status) {
-            'accepted' => WalletActivityType.signatureRequestApproved,
-            'rejected' => WalletActivityType.signatureRequestRejected,
-            _ => null,
-          };
-          if (type != null && removed != null) {
-            await _recordSetupActivity(
-              setup,
-              id: event.request.status == 'accepted'
-                  ? 'signature-request-approved:$requestKey'
-                  : 'signature-request-rejected:$requestKey',
-              type: type,
-              reference: event.request.idHex,
-            );
-          }
-          _notifyListeners();
-          return;
-        }
         if (event.request.creator == setup.localParticipant.identifierHex) {
           return;
         }
@@ -254,21 +234,24 @@ extension WalletRoastEventController on WalletController {
           final account = accounts.firstWhere(
             (item) => item.sourceId == setup.id,
           );
+          final isNew = !_roastSigningRequests.containsKey(requestKey);
           _roastSigningRequests[requestKey] = RoastSigningInboxItem(
             setupId: setup.id,
             walletName: account.name,
             request: event.request,
           );
-          _announceRoastAction('signatures:$requestKey');
-          await _recordActivity(
-            id: 'signature-request-received:$requestKey',
-            accountId: account.id,
-            type: WalletActivityType.signatureRequestReceived,
-            reference: event.request.idHex,
-            details: event.request.message.isEmpty
-                ? null
-                : event.request.message,
-          );
+          if (isNew && event.request.status == 'waiting') {
+            _announceRoastAction('signatures:$requestKey');
+            await _recordActivity(
+              id: 'signature-request-received:$requestKey',
+              accountId: account.id,
+              type: WalletActivityType.signatureRequestReceived,
+              reference: event.request.idHex,
+              details: event.request.message.isEmpty
+                  ? null
+                  : event.request.message,
+            );
+          }
           _notifyListeners();
         } on Object {
           // Unsupported or foreign proposals are deliberately not rendered.
@@ -290,6 +273,8 @@ extension WalletRoastEventController on WalletController {
         _notifyListeners();
       case RoastRuntimeSigningResultEvent():
         final pendingKey = '${setup.id}:${event.requestIdHex}';
+        _roastSigningRequests.remove(pendingKey);
+        _notifyListeners();
         if (event.creator != setup.localParticipant.identifierHex) return;
         var operation = await _roastSigningOperations.getSigningOperation(
           pendingKey,
@@ -315,6 +300,8 @@ extension WalletRoastEventController on WalletController {
           );
         }
       case RoastRuntimeMessageSigningResultEvent():
+        _roastSigningRequests.remove('${setup.id}:${event.requestIdHex}');
+        _notifyListeners();
         if (event.creator != setup.localParticipant.identifierHex) return;
         _completedRoastMessages[setup.id] = event.signedMessage;
         final pending =

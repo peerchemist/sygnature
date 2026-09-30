@@ -455,7 +455,15 @@ extension WalletSigningController on WalletController {
     final setup = _setupById(item.setupId);
     _validateRoastSigningRequest(setup, item.request);
     await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
-    _roastSigningRequests.remove('${setup.id}:${item.request.idHex}');
+    final requestKey = '${setup.id}:${item.request.idHex}';
+    final current = _roastSigningRequests[requestKey];
+    if (current != null) {
+      _roastSigningRequests[requestKey] = RoastSigningInboxItem(
+        setupId: current.setupId,
+        walletName: current.walletName,
+        request: current.request.copyWith(status: 'accepted'),
+      );
+    }
     await _recordSetupActivity(
       setup,
       id: 'signature-request-approved:${setup.id}:${item.request.idHex}',
@@ -468,7 +476,15 @@ extension WalletSigningController on WalletController {
   Future<void> rejectRoastSigningRequest(RoastSigningInboxItem item) async {
     final setup = _setupById(item.setupId);
     await _roastRuntime!.rejectSignatures(item.setupId, item.request.idHex);
-    _roastSigningRequests.remove('${item.setupId}:${item.request.idHex}');
+    final requestKey = '${item.setupId}:${item.request.idHex}';
+    final current = _roastSigningRequests[requestKey];
+    if (current != null) {
+      _roastSigningRequests[requestKey] = RoastSigningInboxItem(
+        setupId: current.setupId,
+        walletName: current.walletName,
+        request: current.request.copyWith(status: 'rejected'),
+      );
+    }
     await _recordSetupActivity(
       setup,
       id: 'signature-request-rejected:${setup.id}:${item.request.idHex}',

@@ -859,6 +859,11 @@ void main() {
           usesExpectedTaprootTweak: false,
           usesUntweakedKey: true,
           status: 'waiting',
+          progress: RoastSigningProgress(
+            threshold: 2,
+            contributingParticipants: const ['01'],
+            stage: 'collecting',
+          ),
           inputSats: 0,
           transactionInputCount: 0,
           signedInputIndexes: const [],
@@ -887,6 +892,154 @@ void main() {
     );
     expect(find.text('Network fee'), findsNothing);
   });
+
+  testWidgets(
+    'restores and updates threshold signing progress without duplicates',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final requestId = 'ab' * 16;
+      final runtime = _FakeRoastRuntime()
+        ..startSnapshot = RoastRuntimeSnapshot(
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: const ['01'],
+          coordinatorId: 'coordinator',
+          coordinatorRelayUrls: const [],
+          coordinatorIpAddrs: const [],
+          groupKeyHex: 'group-key',
+          pendingDkgProposalHex: null,
+        )
+        ..snapshotSigningRequests = [
+          _messageSigningRequest(
+            requestId,
+            threshold: 3,
+            contributingParticipants: const ['01'],
+          ),
+        ];
+      final controller = WalletController(
+        MemoryWalletRepository()..value = _activeRoastVault(),
+        roastRuntime: runtime,
+        roastKeyService: _FakeRoastKeyService(),
+        networkServiceFactory: (_) async => null,
+      );
+      await controller.load();
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(ValueKey('roast-signing-request-$requestId'));
+      expect(card, findsOneWidget);
+      expect(find.text('Prikupljanje potvrda'), findsOneWidget);
+      expect(find.text('1/3 potrebna potpisnika'), findsOneWidget);
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'signing',
+            threshold: 3,
+            contributingParticipants: const [],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(card, findsOneWidget);
+      expect(controller.roastSigningRequests, hasLength(1));
+      expect(find.text('Potpisivanje'), findsOneWidget);
+      expect(find.text('0/3 potrebna potpisnika'), findsOneWidget);
+      expect(find.text('Lokalni status: prihvaćeno'), findsOneWidget);
+      expect(find.text('Approve and sign'), findsNothing);
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'signing',
+            threshold: 2,
+            contributingParticipants: const ['01'],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(card, findsOneWidget);
+      expect(find.text('1/2 potrebna potpisnika'), findsOneWidget);
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'completed',
+            threshold: 2,
+            contributingParticipants: const ['01', '02'],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Potpis dovršen'), findsOneWidget);
+      expect(card, findsOneWidget);
+
+      runtime.emit(
+        RoastRuntimeMessageSigningResultEvent(
+          'setup',
+          requestIdHex: requestId,
+          creator: '01',
+          signedMessage: RoastSignedMessage(
+            text: 'Release 1.0',
+            publicKeyHex: '11' * 32,
+            signatureHex: '22' * 64,
+            encoded: '{}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(card, findsNothing);
+
+      final failedId = 'cd' * 16;
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            failedId,
+            status: 'accepted',
+            stage: 'failed',
+            threshold: 2,
+            contributingParticipants: const ['01'],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Potpisivanje nije uspjelo'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('roast-signing-request-$failedId')),
+        findsOneWidget,
+      );
+
+      runtime.emit(
+        RoastRuntimeFailureEvent(
+          'setup',
+          message: 'Signing request failed.',
+          interrupted: false,
+          operation: 'signatures',
+          requestIdHex: failedId,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('roast-signing-request-$failedId')),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('can close a transaction while ROAST approvals are pending', (
     tester,
@@ -1019,6 +1172,40 @@ WalletVault _activeRoastVault() {
     ],
   );
 }
+
+RoastSigningRequest _messageSigningRequest(
+  String idHex, {
+  String status = 'waiting',
+  String stage = 'collecting',
+  int threshold = 2,
+  List<String> contributingParticipants = const ['01'],
+}) => RoastSigningRequest(
+  idHex: idHex,
+  proposalHex: 'bb',
+  creator: '01',
+  expiry: DateTime.now().add(const Duration(minutes: 5)),
+  kind: RoastSigningRequestKind.message,
+  hasTransactionMetadata: false,
+  usesSupportedSighash: false,
+  usesExpectedTaprootTweak: false,
+  usesUntweakedKey: true,
+  status: status,
+  progress: RoastSigningProgress(
+    threshold: threshold,
+    contributingParticipants: contributingParticipants,
+    stage: stage,
+  ),
+  inputSats: 0,
+  transactionInputCount: 0,
+  signedInputIndexes: const [],
+  previousOutputScripts: const [],
+  inputOutpoints: const [],
+  outputs: const [],
+  masterGroupKeys: const ['group-key'],
+  derivationPaths: const [[]],
+  message: 'Confirm the release text.',
+  signedMessageText: 'Release 1.0',
+);
 
 WalletVault _finalizedRoastVault() => WalletVault(
   accounts: [
@@ -1153,6 +1340,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   RoastRuntimeSnapshot? startSnapshot;
+  List<RoastSigningRequest> snapshotSigningRequests = const [];
   RoastRuntimeSnapshot? joinSnapshot;
   Completer<void>? signatureRequestGate;
   Object? signatureRequestError;
@@ -1163,8 +1351,12 @@ class _FakeRoastRuntime implements RoastRuntime {
   void emit(RoastRuntimeEvent event) => _events.add(event);
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(setup) async =>
-      startSnapshot ?? (throw UnimplementedError());
+  Future<RoastRuntimeSnapshot> startSetup(setup) async {
+    for (final request in snapshotSigningRequests) {
+      emit(RoastRuntimeSigningRequestEvent(setup.id, request: request));
+    }
+    return startSnapshot ?? (throw UnimplementedError());
+  }
 
   @override
   Future<RoastRoomCreation> createRoom(

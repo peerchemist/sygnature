@@ -454,7 +454,7 @@ class const _RoastPriorityRequests({
           ),
           SizedBox(width: 8),
           Text(
-            'ROAST ACTION REQUIRED',
+            'ROAST SIGNING REQUESTS',
             style: TextStyle(
               color: AppColors.danger,
               fontSize: 11,
@@ -2170,6 +2170,13 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
   Widget build(BuildContext context) {
     final request = widget.item.request;
     final signsMessage = request.kind == RoastSigningRequestKind.message;
+    final waitingForDecision = request.status == 'waiting';
+    final progress = request.progress;
+    final progressColor = switch (progress.stage) {
+      'completed' => AppColors.success,
+      'failed' => AppColors.danger,
+      _ => AppColors.warningDark,
+    };
     return Card(
       key: ValueKey('roast-signing-request-${request.idHex}'),
       child: Padding(
@@ -2186,9 +2193,12 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  signsMessage
-                      ? 'MESSAGE SIGNATURE · ACTION REQUIRED'
-                      : 'TRANSACTION SIGNATURE · ACTION REQUIRED',
+                  '${signsMessage ? 'MESSAGE' : 'TRANSACTION'} SIGNATURE · '
+                  '${switch (request.status) {
+                    'accepted' => 'ACCEPTED',
+                    'rejected' => 'REJECTED',
+                    _ => 'ACTION REQUIRED',
+                  }}',
                   style: const TextStyle(
                     color: AppColors.danger,
                     fontSize: 10,
@@ -2211,6 +2221,54 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                   : 'Requested by ${_shortTransactionId(request.creator)} · '
                         '${request.masterGroupKeys.length} input(s)',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              key: Key('roast-signing-progress-${request.idHex}'),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: progressColor.withValues(alpha: 0.08),
+                border: Border.all(
+                  color: progressColor.withValues(alpha: 0.35),
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    switch (progress.stage) {
+                      'signing' => 'Potpisivanje',
+                      'completed' => 'Potpis dovršen',
+                      'failed' => 'Potpisivanje nije uspjelo',
+                      _ => 'Prikupljanje potvrda',
+                    },
+                    style: TextStyle(
+                      color: progressColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${progress.contributingParticipants.length}/'
+                    '${progress.threshold} potrebna potpisnika',
+                    style: const TextStyle(color: AppColors.ink),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Lokalni status: ${switch (request.status) {
+                      'accepted' => 'prihvaćeno',
+                      'rejected' => 'odbijeno',
+                      _ => 'čeka odluku',
+                    }}',
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
             if (request.signedMessageText case final signedText?) ...[
               const SizedBox(height: 12),
@@ -2302,33 +2360,35 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
               const SizedBox(height: 8),
               Text(_error!, style: const TextStyle(color: Colors.red)),
             ],
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(
-                          () => widget.controller.rejectRoastSigningRequest(
-                            widget.item,
+            if (waitingForDecision) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _perform(
+                            () => widget.controller.rejectRoastSigningRequest(
+                              widget.item,
+                            ),
                           ),
-                        ),
-                  child: const Text('Reject'),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(
-                          () => widget.controller.acceptRoastSigningRequest(
-                            widget.item,
+                    child: const Text('Reject'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _perform(
+                            () => widget.controller.acceptRoastSigningRequest(
+                              widget.item,
+                            ),
                           ),
-                        ),
-                  child: Text(_busy ? 'Submitting…' : 'Approve and sign'),
-                ),
-              ],
-            ),
+                    child: Text(_busy ? 'Submitting…' : 'Approve and sign'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

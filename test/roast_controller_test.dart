@@ -1176,13 +1176,23 @@ void main() {
     await controller.acceptRoastSigningRequest(
       controller.roastSigningRequests.single,
     );
+    expect(controller.roastSigningRequests.single.request.status, 'accepted');
 
     final rejected = _signingRequest('bb' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: rejected));
     await _flushEvents();
     expect(notificationCount, 2);
     await controller.rejectRoastSigningRequest(
-      controller.roastSigningRequests.single,
+      controller.roastSigningRequests.singleWhere(
+        (item) => item.request.idHex == rejected.idHex,
+      ),
+    );
+    expect(
+      controller.roastSigningRequests
+          .singleWhere((item) => item.request.idHex == rejected.idHex)
+          .request
+          .status,
+      'rejected',
     );
 
     final expired = _signingRequest('cc' * 16);
@@ -1216,6 +1226,120 @@ void main() {
 
     controller.dispose();
   });
+
+  test(
+    'replaces signing progress for the same request until terminal flow',
+    () async {
+      final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+      final controller = _controller(runtime: runtime, active: true);
+      await controller.load();
+      await _flushEvents();
+
+      final requestId = 'ab' * 16;
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            threshold: 3,
+            contributingParticipants: const ['01', '02', '03'],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'signing',
+            threshold: 3,
+            contributingParticipants: const [],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      expect(controller.roastSigningRequests, hasLength(1));
+      expect(controller.roastSigningRequests.single.request.status, 'accepted');
+      expect(
+        controller.roastSigningRequests.single.request.progress.stage,
+        'signing',
+      );
+      expect(
+        controller
+            .roastSigningRequests
+            .single
+            .request
+            .progress
+            .contributingParticipants,
+        isEmpty,
+      );
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'completed',
+            threshold: 2,
+            contributingParticipants: const ['01', '02'],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      final completed = controller.roastSigningRequests.single.request;
+      expect(completed.progress.threshold, 2);
+      expect(completed.progress.stage, 'completed');
+
+      runtime.emit(
+        RoastRuntimeSigningResultEvent(
+          'setup',
+          requestIdHex: requestId,
+          proposalHex: completed.proposalHex,
+          signatures: const [],
+          creator: completed.creator,
+        ),
+      );
+      await _flushEvents();
+      expect(controller.roastSigningRequests, isEmpty);
+
+      final failedId = 'cd' * 16;
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            failedId,
+            status: 'accepted',
+            stage: 'failed',
+          ),
+        ),
+      );
+      await _flushEvents();
+      expect(
+        controller.roastSigningRequests.single.request.progress.stage,
+        'failed',
+      );
+
+      runtime.emit(
+        RoastRuntimeFailureEvent(
+          'setup',
+          message: 'Signing request failed.',
+          interrupted: false,
+          operation: 'signatures',
+          requestIdHex: failedId,
+        ),
+      );
+      await _flushEvents();
+      expect(controller.roastSigningRequests, isEmpty);
+
+      controller.dispose();
+    },
+  );
 
   test(
     'accepts message requests and returns the portable signed result',
@@ -1777,7 +1901,13 @@ Future<void> _flushEvents() async {
   }
 }
 
-RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
+RoastSigningRequest _signingRequest(
+  String idHex, {
+  String status = 'waiting',
+  String stage = 'collecting',
+  int threshold = 2,
+  List<String> contributingParticipants = const ['01'],
+}) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'dd',
   creator: '01',
@@ -1787,7 +1917,12 @@ RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
   usesSupportedSighash: true,
   usesExpectedTaprootTweak: true,
   usesUntweakedKey: false,
-  status: 'waiting',
+  status: status,
+  progress: RoastSigningProgress(
+    threshold: threshold,
+    contributingParticipants: contributingParticipants,
+    stage: stage,
+  ),
   inputSats: 2000000,
   transactionInputCount: 1,
   signedInputIndexes: const [0],
@@ -1807,6 +1942,9 @@ RoastSigningRequest _messageSigningRequest(
   String idHex, {
   String creator = '01',
   String status = 'waiting',
+  String stage = 'collecting',
+  int threshold = 2,
+  List<String> contributingParticipants = const ['01'],
 }) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'ee',
@@ -1818,6 +1956,11 @@ RoastSigningRequest _messageSigningRequest(
   usesExpectedTaprootTweak: false,
   usesUntweakedKey: true,
   status: status,
+  progress: RoastSigningProgress(
+    threshold: threshold,
+    contributingParticipants: contributingParticipants,
+    stage: stage,
+  ),
   inputSats: 0,
   transactionInputCount: 0,
   signedInputIndexes: const [],
