@@ -71,6 +71,11 @@ dependency_overrides:
       ref: f314e2491518d86967c673720d60cc272a99d90c
       path: packages/noosphere_server
 
+hooks:
+  user_defines:
+    flutter_soloud:
+      no_xiph_libs: true
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
