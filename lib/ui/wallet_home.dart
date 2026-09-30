@@ -1059,7 +1059,11 @@ class _ActivityCard extends StatelessWidget {
             ] else ...[
               const SizedBox(height: 12),
               for (var index = 0; index < activities.length; index++) ...[
-                _ActivityRow(activity: activities[index]),
+                _ActivityRow(
+                  activity: activities[index],
+                  account: account,
+                  controller: controller,
+                ),
                 if (index != activities.length - 1) const Divider(height: 1),
               ],
             ],
@@ -1070,75 +1074,197 @@ class _ActivityCard extends StatelessWidget {
   }
 }
 
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.activity});
-
-  final WalletActivity activity;
-
+class const _ActivityRow({
+  required final WalletActivity activity,
+  required final WalletAccount account,
+  required final WalletController controller,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final presentation = _activityPresentation(activity);
     final reference = activity.reference;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: presentation.color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+    return InkWell(
+      key: Key('activity-${activity.id}'),
+      onTap: () => _showActivityDetails(
+        context,
+        activity: activity,
+        account: account,
+        controller: controller,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: presentation.color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                presentation.icon,
+                size: 20,
+                color: presentation.color,
+              ),
             ),
-            child: Icon(presentation.icon, size: 20, color: presentation.color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  presentation.title,
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (activity.details case final details?) ...[
-                  const SizedBox(height: 3),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    details,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    presentation.title,
                     style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 12,
+                      color: AppColors.ink,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ] else if (reference != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    _activityReference(activity.type, reference),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 12,
+                  if (activity.details case final details?) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      details,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
+                  ] else if (reference != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      _activityReference(activity.type, reference),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            _activityTime(activity.occurredAt),
-            style: const TextStyle(color: AppColors.inkMuted, fontSize: 11),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Text(
+              _activityTime(activity.occurredAt),
+              style: const TextStyle(color: AppColors.inkMuted, fontSize: 11),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.inkMuted,
+              size: 18,
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+Future<void> _showActivityDetails(
+  BuildContext context, {
+  required WalletActivity activity,
+  required WalletAccount account,
+  required WalletController controller,
+}) {
+  final presentation = _activityPresentation(activity);
+  final setup = controller.setupForAccount(account);
+  final reference = switch (activity.type) {
+    WalletActivityType.messageSignatureRequested ||
+    WalletActivityType.messageSigned => null,
+    _ => activity.reference,
+  };
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('activity-details-dialog'),
+      title: Text(presentation.title),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _ActivityDetail(label: 'Wallet', value: account.name),
+              _ActivityDetail(
+                label: 'Created',
+                value: _activityDateTime(activity.occurredAt),
+              ),
+              if (setup != null) ...[
+                _ActivityDetail(label: 'Signer group', value: setup.name),
+                _ActivityDetail(
+                  label: 'Signers required',
+                  value: '${setup.threshold} of ${setup.participantCount}',
+                ),
+              ],
+              if (activity.transactionStatus case final status?)
+                _ActivityDetail(
+                  label: 'Transaction status',
+                  value: _transactionStatusLabel(status),
+                ),
+              if (activity.blockHeight case final height?)
+                _ActivityDetail(label: 'Block height', value: '$height'),
+              if (activity.details case final details?)
+                _ActivityDetail(
+                  label:
+                      activity.type ==
+                              WalletActivityType.messageSignatureRequested ||
+                          activity.type == WalletActivityType.messageSigned
+                      ? 'Message'
+                      : 'Details',
+                  value: details,
+                ),
+              if (reference != null)
+                _ActivityDetail(
+                  label: _activityReferenceLabel(activity.type),
+                  value: reference,
+                ),
+              _ActivityDetail(label: 'Event ID', value: activity.id),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+class const _ActivityDetail({
+  required final String label,
+  required final String value,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.inkMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 4),
+        SelectableText(
+          value,
+          style: const TextStyle(color: AppColors.ink, fontSize: 13),
+        ),
+      ],
+    ),
+  );
 }
 
 ({String title, IconData icon, Color color}) _activityPresentation(
@@ -1221,17 +1347,36 @@ class _ActivityRow extends StatelessWidget {
 };
 
 String _activityReference(WalletActivityType type, String value) {
-  final label = switch (type) {
-    WalletActivityType.dkgStarted ||
-    WalletActivityType.dkgCompleted ||
-    WalletActivityType.dkgFailed => 'DKG',
-    WalletActivityType.transactionSigned ||
-    WalletActivityType.transactionBroadcast => 'Transaction',
-    WalletActivityType.messageSignatureRequested ||
-    WalletActivityType.messageSigned => 'Message request',
-    _ => 'Request',
-  };
-  return '$label ${_shortTransactionId(value)}';
+  return '${_activityReferenceLabel(type)} ${_shortTransactionId(value)}';
+}
+
+String _activityReferenceLabel(WalletActivityType type) => switch (type) {
+  WalletActivityType.dkgStarted ||
+  WalletActivityType.dkgCompleted ||
+  WalletActivityType.dkgFailed => 'DKG',
+  WalletActivityType.transactionSigned ||
+  WalletActivityType.transactionBroadcast => 'Transaction',
+  WalletActivityType.messageSignatureRequested ||
+  WalletActivityType.messageSigned => 'Message request',
+  _ => 'Request',
+};
+
+String _transactionStatusLabel(WalletTransactionStatus status) =>
+    switch (status) {
+      WalletTransactionStatus.broadcasting => 'Broadcasting',
+      WalletTransactionStatus.broadcast => 'Broadcast',
+      WalletTransactionStatus.mempool => 'In mempool',
+      WalletTransactionStatus.confirmed => 'Confirmed',
+      WalletTransactionStatus.failed => 'Failed',
+    };
+
+String _activityDateTime(DateTime value) {
+  final local = value.toLocal();
+  return '${local.day.toString().padLeft(2, '0')}.'
+      '${local.month.toString().padLeft(2, '0')}.${local.year}. · '
+      '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}:'
+      '${local.second.toString().padLeft(2, '0')}';
 }
 
 String _activityTime(DateTime value) {

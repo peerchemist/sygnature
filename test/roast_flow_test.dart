@@ -778,6 +778,43 @@ void main() {
     expect(find.text('Signing message…'), findsOneWidget);
     expect(find.text('Message signature requested'), findsOneWidget);
 
+    await tester.tap(find.text('Message signature requested'));
+    await tester.pumpAndSettle();
+
+    final activityDetails = find.byKey(const Key('activity-details-dialog'));
+    expect(activityDetails, findsOneWidget);
+    expect(
+      find.descendant(of: activityDetails, matching: find.text('CREATED')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: activityDetails,
+        matching: find.text('SIGNERS REQUIRED'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: activityDetails, matching: find.text('2 of 2')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: activityDetails, matching: find.text('Hello world')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: activityDetails,
+        matching: find.text('MESSAGE REQUEST'),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.descendant(of: activityDetails, matching: find.text('Close')),
+    );
+    await tester.pumpAndSettle();
+
     runtime.emit(
       RoastRuntimeMessageSigningResultEvent(
         'setup',
