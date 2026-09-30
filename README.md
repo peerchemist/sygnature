@@ -116,30 +116,5 @@ flutter test
 flutter run -d linux
 ```
 
-Build the Linux Flatpak bundle with Freedesktop SDK 26.08.2:
-
-```sh
-scripts/build_flatpak
-```
-
-The bundle is written to
-`build/flatpak/com.github.peerchemist.sygnature.flatpak`.
-
-Build Windows locally in a persistent `dockur/windows` VM:
-
-```sh
-SYGNATURE_WINDOWS_PASSWORD='choose-a-password' scripts/build_windows start
-```
-
-Open `http://127.0.0.1:8006`, wait for Windows setup, and install Flutter
-3.47.5, Git, Rust, and Visual Studio with the **Desktop development with C++**
-workload. Then run this from Windows PowerShell:
-
-```powershell
-Z:\sygnature_ng\scripts\build_windows.ps1
-```
-
-The VM disk persists in `.windows-builder/storage`. Use
-`scripts/build_windows stop` to shut it down gracefully. The completed Windows
-bundle is copied to `build/windows-local` and
-`build/sygnature-windows-x64.zip`.
+See [scripts/README.md](scripts/README.md) for Android, Linux, Windows and macOS
+build instructions.
