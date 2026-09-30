@@ -1683,7 +1683,7 @@ class const _CoordinatorConnectionStatus({
                 if (endpointId != null) ...[
                   const SizedBox(height: 5),
                   Text(
-                    'PIN ${RoastSetupPanel._short(endpointId!)}',
+                    'Coordinator ID ${RoastSetupPanel._short(endpointId!)}',
                     style: const TextStyle(
                       color: AppColors.inkMuted,
                       fontFamily: 'monospace',
