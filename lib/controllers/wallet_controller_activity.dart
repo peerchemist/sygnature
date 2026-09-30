@@ -83,25 +83,50 @@ extension WalletActivityController on WalletController {
     required WalletActivityType type,
     String? reference,
     String? details,
+    String? signedMessagePublicKeyHex,
+    String? signedMessageSignatureHex,
+    String? signedMessageEncoded,
   }) async {
     final current = _vault;
-    if (current == null || current.activities.any((item) => item.id == id)) {
-      return;
-    }
-    final activity = WalletActivity(
-      id: id,
-      accountId: accountId,
-      type: type,
-      occurredAt: DateTime.now().toUtc(),
-      reference: reference,
-      details: details,
-    );
-    final next = current.copyWith(
-      activities: [
+    if (current == null) return;
+    final index = current.activities.indexWhere((item) => item.id == id);
+    late final List<WalletActivity> activities;
+    if (index == -1) {
+      final activity = WalletActivity(
+        id: id,
+        accountId: accountId,
+        type: type,
+        occurredAt: DateTime.now().toUtc(),
+        reference: reference,
+        details: details,
+        signedMessagePublicKeyHex: signedMessagePublicKeyHex,
+        signedMessageSignatureHex: signedMessageSignatureHex,
+        signedMessageEncoded: signedMessageEncoded,
+      );
+      activities = [
         activity,
         ...current.activities,
-      ].take(WalletController._maxActivityEntries).toList(growable: false),
-    );
+      ].take(WalletController._maxActivityEntries).toList(growable: false);
+    } else {
+      final previous = current.activities[index];
+      final updated = previous.copyWith(
+        details: details,
+        signedMessagePublicKeyHex: signedMessagePublicKeyHex,
+        signedMessageSignatureHex: signedMessageSignatureHex,
+        signedMessageEncoded: signedMessageEncoded,
+      );
+      if (updated.details == previous.details &&
+          updated.signedMessagePublicKeyHex ==
+              previous.signedMessagePublicKeyHex &&
+          updated.signedMessageSignatureHex ==
+              previous.signedMessageSignatureHex &&
+          updated.signedMessageEncoded == previous.signedMessageEncoded) {
+        return;
+      }
+      activities = [...current.activities];
+      activities[index] = updated;
+    }
+    final next = current.copyWith(activities: activities);
     try {
       await _repository.save(next);
       _vault = next;
@@ -251,6 +276,9 @@ extension WalletActivityController on WalletController {
     required WalletActivityType type,
     String? reference,
     String? details,
+    String? signedMessagePublicKeyHex,
+    String? signedMessageSignatureHex,
+    String? signedMessageEncoded,
   }) async {
     final account = accounts
         .where((item) => item.sourceId == setup.id)
@@ -262,6 +290,9 @@ extension WalletActivityController on WalletController {
       type: type,
       reference: reference,
       details: details,
+      signedMessagePublicKeyHex: signedMessagePublicKeyHex,
+      signedMessageSignatureHex: signedMessageSignatureHex,
+      signedMessageEncoded: signedMessageEncoded,
     );
   }
 

@@ -56,6 +56,26 @@ void main() {
     );
   });
 
+  test('round trips a completed signed message activity', () {
+    final original = WalletActivity(
+      id: 'message-signed:setup:request',
+      accountId: 'shared',
+      type: WalletActivityType.messageSigned,
+      occurredAt: DateTime.utc(2026),
+      details: 'Hello world',
+      signedMessagePublicKeyHex: 'public-key',
+      signedMessageSignatureHex: 'signature',
+      signedMessageEncoded: 'portable-message',
+    );
+
+    final restored = WalletActivity.fromJson(original.toJson());
+
+    expect(restored.details, 'Hello world');
+    expect(restored.signedMessagePublicKeyHex, 'public-key');
+    expect(restored.signedMessageSignatureHex, 'signature');
+    expect(restored.signedMessageEncoded, 'portable-message');
+  });
+
   test('round trips a vault with an empty activity feed', () {
     final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson();
 

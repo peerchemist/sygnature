@@ -834,7 +834,7 @@ Future<void> _showIssuedInvitations(
   ),
 );
 
-Future<void> _showSignMessageDialog(
+Future<void> showRoastSignMessageDialog(
   BuildContext context,
   WalletController controller,
   WalletAccount account, {
@@ -1114,6 +1114,10 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       const SizedBox(height: 16),
       _MessageBox(label: 'SIGNED TEXT', text: result.text),
       const SizedBox(height: 12),
+      _MessageBox(label: 'PUBLIC KEY', text: result.publicKeyHex),
+      const SizedBox(height: 12),
+      _MessageBox(label: 'SIGNATURE', text: result.signatureHex),
+      const SizedBox(height: 12),
       _MessageBox(label: 'PORTABLE SIGNED MESSAGE', text: result.encoded),
     ],
   );
@@ -1176,7 +1180,7 @@ class const RoastSetupPanel({
         controller.roastOperationInProgress(setup.id) || messageSigning;
     final onlineSigners = controller.onlineSignerCount(setup);
     final coordinatorState = controller.roastCoordinatorState(setup.id);
-    final actions = _actions(context, setup, busy, messageSigning);
+    final actions = _actions(context, setup, busy);
     final errorMessage = _displayError(setup);
     return Card(
       child: Padding(
@@ -1403,12 +1407,7 @@ class const RoastSetupPanel({
     );
   }
 
-  List<Widget> _actions(
-    BuildContext context,
-    RoastSetup setup,
-    bool busy,
-    bool messageSigning,
-  ) {
+  List<Widget> _actions(BuildContext context, RoastSetup setup, bool busy) {
     final coordinatorRecovery = controller.roastCoordinatorRecovery(setup.id);
     if (coordinatorRecovery != null) {
       return [
@@ -1508,36 +1507,6 @@ class const RoastSetupPanel({
                 ),
           icon: const Icon(Icons.refresh_rounded),
           label: const Text('Reconnect'),
-        ),
-      ];
-    }
-    if (setup.isActive) {
-      final completedMessage = controller.completedRoastMessage(setup.id);
-      return [
-        if (completedMessage != null)
-          OutlinedButton.icon(
-            key: const Key('view-signed-message'),
-            onPressed: () => _showSignMessageDialog(
-              context,
-              controller,
-              account,
-              result: completedMessage,
-            ),
-            icon: const Icon(Icons.verified_rounded),
-            label: const Text('View signed message'),
-          ),
-        OutlinedButton.icon(
-          key: const Key('sign-roast-message'),
-          onPressed: busy
-              ? null
-              : () => _showSignMessageDialog(context, controller, account),
-          icon: messageSigning
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.draw_outlined),
-          label: Text(messageSigning ? 'Signing message…' : 'Sign message'),
         ),
       ];
     }

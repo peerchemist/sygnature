@@ -1440,6 +1440,15 @@ void main() {
       expect(result.encoded, contains('noosphere-signed-message'));
       expect(controller.completedRoastMessage('setup'), same(result));
       expect(controller.roastMessageSigningInProgress('setup'), isFalse);
+      final signedActivity = controller
+          .activitiesFor(controller.accounts.single)
+          .first;
+      expect(signedActivity.signedMessagePublicKeyHex, '11' * 32);
+      expect(signedActivity.signedMessageSignatureHex, '22' * 64);
+      expect(
+        signedActivity.signedMessageEncoded,
+        '{"format":"noosphere-signed-message"}',
+      );
       expect(
         controller
             .activitiesFor(controller.accounts.single)

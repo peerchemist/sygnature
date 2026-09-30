@@ -315,6 +315,9 @@ extension WalletRoastEventController on WalletController {
           type: WalletActivityType.messageSigned,
           reference: event.requestIdHex,
           details: event.signedMessage.text,
+          signedMessagePublicKeyHex: event.signedMessage.publicKeyHex,
+          signedMessageSignatureHex: event.signedMessage.signatureHex,
+          signedMessageEncoded: event.signedMessage.encoded,
         );
         _notifyListeners();
     }

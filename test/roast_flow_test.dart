@@ -848,10 +848,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final viewResult = find.byKey(const Key('view-signed-message'));
-    expect(viewResult, findsOneWidget);
-    await tester.ensureVisible(viewResult);
-    await tester.tap(viewResult);
+    expect(find.byKey(const Key('view-signed-message')), findsNothing);
+    final signedActivity = find.text('Message signed');
+    expect(signedActivity, findsOneWidget);
+    await tester.ensureVisible(signedActivity);
+    await tester.tap(signedActivity);
     await tester.pumpAndSettle();
 
     expect(
@@ -868,6 +869,8 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('11' * 32), findsOneWidget);
+    expect(find.text('22' * 64), findsOneWidget);
     expect(find.text('{"format":"noosphere-signed-message"}'), findsOneWidget);
   });
 
