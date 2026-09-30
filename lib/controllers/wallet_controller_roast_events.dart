@@ -302,7 +302,6 @@ extension WalletRoastEventController on WalletController {
       case RoastRuntimeMessageSigningResultEvent():
         _roastSigningRequests.remove('${setup.id}:${event.requestIdHex}');
         _notifyListeners();
-        if (event.creator != setup.localParticipant.identifierHex) return;
         _completedRoastMessages[setup.id] = event.signedMessage;
         final pending =
             _pendingRoastMessages['${setup.id}:${event.requestIdHex}'];

@@ -1463,6 +1463,59 @@ void main() {
     },
   );
 
+  test('stores replayed signed messages for every participant', () async {
+    final requestId = 'ab' * 16;
+    final occurredAt = DateTime.utc(2026, 1, 1);
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final controller = _controller(
+      runtime: runtime,
+      active: true,
+      activities: [
+        WalletActivity(
+          id: 'message-signed:setup:$requestId',
+          accountId: 'shared',
+          type: WalletActivityType.messageSigned,
+          occurredAt: occurredAt,
+          reference: requestId,
+          details: 'Previously stored text',
+        ),
+      ],
+    );
+    await controller.load();
+    await _flushEvents();
+
+    runtime.emit(
+      RoastRuntimeMessageSigningResultEvent(
+        'setup',
+        requestIdHex: requestId,
+        creator: '01',
+        signedMessage: RoastSignedMessage(
+          text: 'Signed by the group',
+          publicKeyHex: '11' * 32,
+          signatureHex: '22' * 64,
+          encoded: '{"format":"noosphere-signed-message"}',
+        ),
+      ),
+    );
+    await _flushEvents();
+
+    final activities = controller.activitiesFor(controller.accounts.single);
+    expect(activities, hasLength(1));
+    expect(activities.single.occurredAt, occurredAt);
+    expect(activities.single.details, 'Signed by the group');
+    expect(activities.single.signedMessagePublicKeyHex, '11' * 32);
+    expect(activities.single.signedMessageSignatureHex, '22' * 64);
+    expect(
+      activities.single.signedMessageEncoded,
+      '{"format":"noosphere-signed-message"}',
+    );
+    expect(
+      controller.completedRoastMessage('setup')?.text,
+      'Signed by the group',
+    );
+    controller.dispose();
+  });
+
   test('hides legacy approvals for locally requested messages', () async {
     final requestId = 'ab' * 16;
     final controller = _controller(
