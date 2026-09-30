@@ -6,6 +6,7 @@ enum WalletActivityType {
   dkgStarted,
   dkgCompleted,
   dkgFailed,
+  transactionSignatureRequested,
   transactionSigned,
   transactionBroadcast,
   messageSignatureRequested,

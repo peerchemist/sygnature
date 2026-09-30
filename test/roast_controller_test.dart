@@ -1624,6 +1624,7 @@ void main() {
       [
         WalletActivityType.transactionBroadcast,
         WalletActivityType.transactionSigned,
+        WalletActivityType.transactionSignatureRequested,
       ],
     );
 

@@ -1305,6 +1305,11 @@ class const _ActivityDetail({
     icon: Icons.error_outline,
     color: AppColors.danger,
   ),
+  WalletActivityType.transactionSignatureRequested => (
+    title: 'Transaction signature requested',
+    icon: Icons.pending_actions_outlined,
+    color: AppColors.greenDark,
+  ),
   WalletActivityType.transactionSigned => (
     title: 'Transaction signed',
     icon: Icons.draw_outlined,
@@ -1354,6 +1359,7 @@ String _activityReferenceLabel(WalletActivityType type) => switch (type) {
   WalletActivityType.dkgStarted ||
   WalletActivityType.dkgCompleted ||
   WalletActivityType.dkgFailed => 'DKG',
+  WalletActivityType.transactionSignatureRequested => 'Transaction request',
   WalletActivityType.transactionSigned ||
   WalletActivityType.transactionBroadcast => 'Transaction',
   WalletActivityType.messageSignatureRequested ||

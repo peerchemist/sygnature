@@ -226,6 +226,15 @@ extension WalletSigningController on WalletController {
             state: RoastSigningOperationState.awaitingSignatures,
           );
           await _saveRoastSigningOperation(signingOperation);
+          await _recordActivity(
+            id: 'transaction-signature-requested:$pendingKey',
+            accountId: account.id,
+            type: WalletActivityType.transactionSignatureRequested,
+            reference: proposal.idHex,
+            details: preview.signingMessage.isEmpty
+                ? null
+                : preview.signingMessage,
+          );
           await runtime.requestSignatures(setup, proposal);
           final outcome = await completer.future.timeout(
             proposal.expiry.difference(DateTime.now()),

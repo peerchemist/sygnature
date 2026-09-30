@@ -1209,6 +1209,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Review transaction'), findsNothing);
+    expect(find.text('Transaction signature requested'), findsOneWidget);
 
     runtime.signatureRequestError = StateError('end test request');
     runtime.signatureRequestGate!.complete();
