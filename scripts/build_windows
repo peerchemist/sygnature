@@ -111,10 +111,10 @@ Web console: http://127.0.0.1:$web_port
 RDP:         127.0.0.1:$rdp_port
 Username:    $username
 
-The first Windows installation can take a while. After installing Flutter,
-Visual Studio C++ tools, Git, and Rust, run this in Windows PowerShell:
+The first Windows installation can take a while. When the Windows desktop is
+ready, open Z:\\sygnature_ng\\scripts in File Explorer and double-click:
 
-  Z:\\sygnature_ng\\scripts\\build_windows.ps1
+  build_windows.cmd
 
 The finished bundle will be copied to:
   $project_dir/build/windows-local
