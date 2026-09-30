@@ -83,6 +83,7 @@ extension WalletSigningController on WalletController {
     WalletAccount account, {
     required String text,
     String message = '',
+    Duration requestTimeout = defaultRoastSigningRequestTimeout,
   }) async {
     if (account.derivationState != WalletDerivationState.ready) {
       throw const WalletSigningUnavailable();
@@ -102,6 +103,7 @@ extension WalletSigningController on WalletController {
       setup,
       text,
       message: message,
+      timeout: requestTimeout,
     );
     final pendingKey = '${setup.id}:${proposal.idHex}';
     if (_pendingRoastMessages.containsKey(pendingKey)) {
@@ -129,8 +131,9 @@ extension WalletSigningController on WalletController {
   }
 
   Future<WalletSendResult> sendTransaction(
-    WalletTransactionPreview preview,
-  ) async {
+    WalletTransactionPreview preview, {
+    Duration signatureRequestTimeout = defaultRoastSigningRequestTimeout,
+  }) async {
     if (_sending) {
       throw const WalletTransactionRejected(
         'Another transaction is already being submitted.',
@@ -191,6 +194,7 @@ extension WalletSigningController on WalletController {
           transaction,
           derived.path,
           message: preview.signingMessage,
+          timeout: signatureRequestTimeout,
         );
         final pendingKey = '${setup.id}:${proposal.idHex}';
         final completer = Completer<_RoastSendOutcome>();

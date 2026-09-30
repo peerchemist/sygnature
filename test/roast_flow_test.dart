@@ -665,6 +665,16 @@ void main() {
       find.byKey(const Key('roast-message-note-field')),
       'Please verify this release.',
     );
+    final timeoutField = find.byKey(
+      const Key('roast-message-timeout-field'),
+    );
+    expect(tester.widget<TextFormField>(timeoutField).controller!.text, '30');
+    await tester.enterText(timeoutField, '1441');
+    await tester.tap(find.byKey(const Key('review-message-signature')));
+    await tester.pumpAndSettle();
+    expect(find.text('Timeout cannot exceed 24 hours.'), findsOneWidget);
+
+    await tester.enterText(timeoutField, '90');
     await tester.tap(find.byKey(const Key('review-message-signature')));
     await tester.pumpAndSettle();
 
@@ -674,6 +684,8 @@ void main() {
       find.text('NOTE TO SIGNERS · AUTHENTICATED, NOT SIGNED TEXT'),
       findsOneWidget,
     );
+    expect(find.text('REQUEST TIMEOUT'), findsOneWidget);
+    expect(find.text('90 minutes'), findsOneWidget);
     expect(find.byKey(const Key('request-message-signatures')), findsOneWidget);
   });
 
@@ -767,6 +779,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('request-message-signatures')));
     await tester.pump();
+    expect(
+      runtime.messageRequestTimeout,
+      defaultRoastSigningRequestTimeout,
+    );
 
     final close = find.byKey(const Key('close-message-signing'));
     expect(close, findsOneWidget);
@@ -779,7 +795,8 @@ void main() {
     expect(find.text('Message signature requested'), findsOneWidget);
 
     await tester.tap(find.text('Message signature requested'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     final activityDetails = find.byKey(const Key('activity-details-dialog'));
     expect(activityDetails, findsOneWidget);
@@ -813,7 +830,8 @@ void main() {
     await tester.tap(
       find.descendant(of: activityDetails, matching: find.text('Close')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     runtime.emit(
       RoastRuntimeMessageSigningResultEvent(
@@ -1167,11 +1185,16 @@ void main() {
       destinationAddress,
     );
     await tester.enterText(find.byKey(const Key('send-amount-field')), '1.0');
+    await tester.enterText(
+      find.byKey(const Key('send-signature-timeout-field')),
+      '120',
+    );
     await tester.tap(find.byKey(const Key('send-review-button')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(const Key('send-confirm-button')));
     await tester.pump();
+    expect(runtime.transactionRequestTimeout, const Duration(hours: 2));
 
     expect(find.text('Close'), findsOneWidget);
     expect(
@@ -1381,6 +1404,8 @@ class _FakeRoastRuntime implements RoastRuntime {
   RoastRuntimeSnapshot? joinSnapshot;
   Completer<void>? signatureRequestGate;
   Object? signatureRequestError;
+  Duration? transactionRequestTimeout;
+  Duration? messageRequestTimeout;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -1426,22 +1451,30 @@ class _FakeRoastRuntime implements RoastRuntime {
     transaction,
     List<int> derivationPath, {
     String message = '',
-  }) => RoastSigningProposal(
-    idHex: 'aa' * 16,
-    proposalHex: 'bb',
-    expiry: DateTime.now().add(const Duration(minutes: 1)),
-  );
+    Duration timeout = defaultRoastSigningRequestTimeout,
+  }) {
+    transactionRequestTimeout = timeout;
+    return RoastSigningProposal(
+      idHex: 'aa' * 16,
+      proposalHex: 'bb',
+      expiry: DateTime.now().add(timeout),
+    );
+  }
 
   @override
   RoastSigningProposal createMessageSigningProposal(
     setup,
     String text, {
     String message = '',
-  }) => RoastSigningProposal(
-    idHex: 'cc' * 16,
-    proposalHex: 'dd',
-    expiry: DateTime.now().add(const Duration(minutes: 1)),
-  );
+    Duration timeout = defaultRoastSigningRequestTimeout,
+  }) {
+    messageRequestTimeout = timeout;
+    return RoastSigningProposal(
+      idHex: 'cc' * 16,
+      proposalHex: 'dd',
+      expiry: DateTime.now().add(timeout),
+    );
+  }
 
   @override
   Future<void> requestSignatures(setup, RoastSigningProposal proposal) async {

@@ -165,6 +165,10 @@ void main() {
     final persisted = SignaturesRequestDetails.fromHex(proposal.proposalHex);
 
     expect(proposal.expiry, persisted.expiry.time);
+    expect(
+      proposal.expiry.difference(DateTime.now()),
+      greaterThan(const Duration(minutes: 29)),
+    );
     expect(proposal.expiry.microsecond % 1000, 0);
     expect(proposal.idHex, bytesToHex(persisted.id.toBytes()));
     expect(persisted.message, 'Quarterly hosting bill');
@@ -202,12 +206,17 @@ void main() {
       ).copyWith(groupKeyHex: signingKey.pubkey.hex),
       'Exact message\nwith preserved whitespace ',
       message: 'Please verify the release note.',
+      timeout: maxRoastSigningRequestTimeout,
     );
     final messageDetails = SignaturesRequestDetails.fromHex(
       messageProposal.proposalHex,
     );
     final messageMetadata = messageDetails.metadata as MessageSignatureMetadata;
     expect(messageProposal.expiry, messageDetails.expiry.time);
+    expect(
+      messageProposal.expiry.difference(DateTime.now()),
+      greaterThan(const Duration(hours: 23, minutes: 59)),
+    );
     expect(messageProposal.idHex, bytesToHex(messageDetails.id.toBytes()));
     expect(
       messageMetadata.payload.text,
@@ -217,6 +226,17 @@ void main() {
     expect(messageDetails.requiredSigs.single.groupKey, signingKey.pubkey);
     expect(messageDetails.requiredSigs.single.hdDerivation, isEmpty);
     expect(messageDetails.requiredSigs.single.signDetails.mastHash, isNull);
+    expect(
+      () => runtime.createMessageSigningProposal(
+        _setup(
+          RoastSetupRole.host,
+          active: true,
+        ).copyWith(groupKeyHex: signingKey.pubkey.hex),
+        'Too long-lived',
+        timeout: maxRoastSigningRequestTimeout + const Duration(minutes: 1),
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
@@ -2065,6 +2085,8 @@ class _FakeRoastRuntime implements RoastRuntime {
   int joinRoomCalls = 0;
   String? messageText;
   String? messageNote;
+  Duration? transactionRequestTimeout;
+  Duration? messageRequestTimeout;
   Completer<void>? signatureRequestGate;
 
   @override
@@ -2139,24 +2161,30 @@ class _FakeRoastRuntime implements RoastRuntime {
     transaction,
     List<int> derivationPath, {
     String message = '',
-  }) => RoastSigningProposal(
-    idHex: 'aa' * 16,
-    proposalHex: 'bb',
-    expiry: DateTime.now().add(const Duration(minutes: 1)),
-  );
+    Duration timeout = defaultRoastSigningRequestTimeout,
+  }) {
+    transactionRequestTimeout = timeout;
+    return RoastSigningProposal(
+      idHex: 'aa' * 16,
+      proposalHex: 'bb',
+      expiry: DateTime.now().add(timeout),
+    );
+  }
 
   @override
   RoastSigningProposal createMessageSigningProposal(
     setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
     messageText = text;
     messageNote = message;
+    messageRequestTimeout = timeout;
     return RoastSigningProposal(
       idHex: 'cc' * 16,
       proposalHex: 'dd',
-      expiry: DateTime.now().add(const Duration(minutes: 1)),
+      expiry: DateTime.now().add(timeout),
     );
   }
 
@@ -2352,6 +2380,7 @@ final class _SigningRoastRuntime(
   ThresholdWalletTransaction? _transaction;
   List<int>? _derivationPath;
   String? signingMessage;
+  Duration? signingRequestTimeout;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -2385,14 +2414,16 @@ final class _SigningRoastRuntime(
     ThresholdWalletTransaction transaction,
     List<int> derivationPath, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
     _transaction = transaction;
     _derivationPath = List.unmodifiable(derivationPath);
     signingMessage = message;
+    signingRequestTimeout = timeout;
     return RoastSigningProposal(
       idHex: 'aa' * 16,
       proposalHex: 'bb',
-      expiry: DateTime.now().add(const Duration(minutes: 1)),
+      expiry: DateTime.now().add(timeout),
     );
   }
 
@@ -2401,6 +2432,7 @@ final class _SigningRoastRuntime(
     RoastSetup setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) => throw UnimplementedError();
 
   @override

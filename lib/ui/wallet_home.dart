@@ -1428,7 +1428,11 @@ class _SendDialogState extends State<_SendDialog> {
   final _destinationController = TextEditingController();
   final _amountController = TextEditingController();
   final _signingMessageController = TextEditingController();
+  final _signatureRequestTimeoutController = TextEditingController(
+    text: '${defaultRoastSigningRequestTimeout.inMinutes}',
+  );
   late final int _feeRateSatsPerKb;
+  Duration _signatureRequestTimeout = defaultRoastSigningRequestTimeout;
   WalletTransactionPreview? _preview;
   String? _error;
   bool _submitting = false;
@@ -1450,6 +1454,7 @@ class _SendDialogState extends State<_SendDialog> {
     _destinationController.dispose();
     _amountController.dispose();
     _signingMessageController.dispose();
+    _signatureRequestTimeoutController.dispose();
     super.dispose();
   }
 
@@ -1482,6 +1487,9 @@ class _SendDialogState extends State<_SendDialog> {
   void _review() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     try {
+      final signatureRequestTimeout = Duration(
+        minutes: int.parse(_signatureRequestTimeoutController.text.trim()),
+      );
       final preview = widget.controller.prepareSend(
         WalletSendRequest(
           destinationAddress: _destinationController.text,
@@ -1495,6 +1503,7 @@ class _SendDialogState extends State<_SendDialog> {
       );
       setState(() {
         _preview = preview;
+        _signatureRequestTimeout = signatureRequestTimeout;
         _error = null;
       });
     } on WalletTransactionFailure catch (error) {
@@ -1512,7 +1521,10 @@ class _SendDialogState extends State<_SendDialog> {
       _error = null;
     });
     try {
-      final result = await widget.controller.sendTransaction(preview);
+      final result = await widget.controller.sendTransaction(
+        preview,
+        signatureRequestTimeout: _signatureRequestTimeout,
+      );
       if (!mounted) return;
       Navigator.pop(context, result);
     } on WalletTransactionFailure catch (error) {
@@ -1658,6 +1670,18 @@ class _SendDialogState extends State<_SendDialog> {
                     : null;
               },
             ),
+            const SizedBox(height: 14),
+            TextFormField(
+              key: const Key('send-signature-timeout-field'),
+              controller: _signatureRequestTimeoutController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Request timeout',
+                suffixText: 'minutes',
+                helperText: 'Maximum 1440 minutes (24 hours).',
+              ),
+              validator: _validateSigningRequestTimeoutMinutes,
+            ),
           ],
           CheckboxListTile(
             key: const Key('send-maximum-field'),
@@ -1721,6 +1745,11 @@ class _SendDialogState extends State<_SendDialog> {
       ),
       if (preview.signingMessage.isNotEmpty)
         _TransactionRow(label: 'Message', value: preview.signingMessage),
+      if (widget.account.keySource == WalletKeySource.roast)
+        _TransactionRow(
+          label: 'Request timeout',
+          value: '${_signatureRequestTimeout.inMinutes} minutes',
+        ),
       _TransactionRow(
         label: 'Inputs',
         value: '${preview.selectedUtxos.length}',
@@ -1776,6 +1805,17 @@ class _TransactionRow extends StatelessWidget {
       ],
     ),
   );
+}
+
+String? _validateSigningRequestTimeoutMinutes(String? value) {
+  final minutes = int.tryParse(value?.trim() ?? '');
+  if (minutes == null || minutes <= 0) {
+    return 'Enter a timeout in whole minutes.';
+  }
+  if (minutes > maxRoastSigningRequestTimeout.inMinutes) {
+    return 'Timeout cannot exceed 24 hours.';
+  }
+  return null;
 }
 
 int? _parsePpc(String input) {

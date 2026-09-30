@@ -862,10 +862,14 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
   final _formKey = GlobalKey<FormState>();
   final _textController = TextEditingController();
   final _noteController = TextEditingController();
+  final _timeoutController = TextEditingController(
+    text: '${defaultRoastSigningRequestTimeout.inMinutes}',
+  );
   bool _reviewing = false;
   bool _submitting = false;
   String? _error;
   late RoastSignedMessage? _result;
+  Duration _requestTimeout = defaultRoastSigningRequestTimeout;
 
   @override
   void initState() {
@@ -877,12 +881,16 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
   void dispose() {
     _textController.dispose();
     _noteController.dispose();
+    _timeoutController.dispose();
     super.dispose();
   }
 
   void _review() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() {
+      _requestTimeout = Duration(
+        minutes: int.parse(_timeoutController.text.trim()),
+      );
       _reviewing = true;
       _error = null;
     });
@@ -898,6 +906,7 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
         widget.account,
         text: _textController.text,
         message: _noteController.text.trim(),
+        requestTimeout: _requestTimeout,
       );
       if (mounted) setState(() => _result = result);
     } catch (error) {
@@ -1036,6 +1045,18 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
               ? 'Note must be no more than 1 KiB of UTF-8 text.'
               : null,
         ),
+        const SizedBox(height: 12),
+        TextFormField(
+          key: const Key('roast-message-timeout-field'),
+          controller: _timeoutController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Request timeout',
+            suffixText: 'minutes',
+            helperText: 'Maximum 1440 minutes (24 hours).',
+          ),
+          validator: _validateSigningRequestTimeoutMinutes,
+        ),
         if (_error != null) ...[
           const SizedBox(height: 12),
           Text(_error!, style: const TextStyle(color: AppColors.danger)),
@@ -1062,6 +1083,11 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
           text: _noteController.text.trim(),
         ),
       ],
+      const SizedBox(height: 12),
+      _MessageBox(
+        label: 'REQUEST TIMEOUT',
+        text: '${_requestTimeout.inMinutes} minutes',
+      ),
       if (_error != null) ...[
         const SizedBox(height: 12),
         Text(_error!, style: const TextStyle(color: AppColors.danger)),
@@ -1091,6 +1117,17 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       _MessageBox(label: 'PORTABLE SIGNED MESSAGE', text: result.encoded),
     ],
   );
+}
+
+String? _validateSigningRequestTimeoutMinutes(String? value) {
+  final minutes = int.tryParse(value?.trim() ?? '');
+  if (minutes == null || minutes <= 0) {
+    return 'Enter a timeout in whole minutes.';
+  }
+  if (minutes > maxRoastSigningRequestTimeout.inMinutes) {
+    return 'Timeout cannot exceed 24 hours.';
+  }
+  return null;
 }
 
 class const _MessageBox({

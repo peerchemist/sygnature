@@ -11,6 +11,8 @@ import 'app_logger.dart';
 import 'wallet_transaction_service.dart';
 
 const roastDkgAttemptTtl = Duration(hours: 1);
+const defaultRoastSigningRequestTimeout = Duration(minutes: 30);
+const maxRoastSigningRequestTimeout = Duration(hours: 24);
 const maxRoastSigningMessageBytes = SignaturesRequestDetails.maxMessageBytes;
 const maxRoastSignedMessageBytes = SignedMessagePayload.maxTextBytes;
 
@@ -281,11 +283,13 @@ abstract interface class RoastRuntime {
     ThresholdWalletTransaction transaction,
     List<int> derivationPath, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   });
   RoastSigningProposal createMessageSigningProposal(
     RoastSetup setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   });
   Future<void> requestSignatures(
     RoastSetup setup,
@@ -1098,7 +1102,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     ThresholdWalletTransaction transaction,
     List<int> derivationPath, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
+    _validateSigningRequestTimeout(timeout);
     final groupKeyHex = setup.groupKeyHex;
     if (groupKeyHex == null) {
       throw StateError('The shared key is not available.');
@@ -1116,7 +1122,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         transaction: transaction.transaction,
         signDetails: transaction.signDetails,
       ),
-      expiry: Expiry(const Duration(minutes: 5)),
+      expiry: Expiry(timeout),
       message: message,
     );
     return _signingProposal(details);
@@ -1127,7 +1133,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     RoastSetup setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
+    _validateSigningRequestTimeout(timeout);
     final groupKeyHex = setup.groupKeyHex;
     if (groupKeyHex == null) {
       throw StateError('The shared key is not available.');
@@ -1136,7 +1144,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       SignaturesRequestDetails.forMessage(
         text: text,
         groupKey: ECCompressedPublicKey.fromHex(groupKeyHex),
-        expiry: Expiry(const Duration(minutes: 5)),
+        expiry: Expiry(timeout),
         message: message,
       ),
     );
@@ -1152,6 +1160,17 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       proposalHex: bytesToHex(proposalBytes),
       expiry: persistedDetails.expiry.time,
     );
+  }
+
+  static void _validateSigningRequestTimeout(Duration timeout) {
+    if (timeout.inMicroseconds <= 0 ||
+        timeout > maxRoastSigningRequestTimeout) {
+      throw ArgumentError.value(
+        timeout,
+        'timeout',
+        'Must be greater than zero and no more than 24 hours.',
+      );
+    }
   }
 
   @override
