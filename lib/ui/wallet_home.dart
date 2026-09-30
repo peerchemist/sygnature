@@ -706,6 +706,15 @@ class _BalanceCard extends StatelessWidget {
     final hasAddress = account.address != null;
     final canSign =
         hasAddress && account.derivationState == WalletDerivationState.ready;
+    final roastSetup = controller.setupForAccount(account);
+    final messageSigning =
+        roastSetup != null &&
+        controller.roastMessageSigningInProgress(roastSetup.id);
+    final canSignMessage =
+        canSign &&
+        roastSetup?.isActive == true &&
+        !controller.roastOperationInProgress(roastSetup!.id) &&
+        !messageSigning;
     final syncStatus = controller.syncStatusFor(account);
     final balance = controller.balanceSatsFor(account);
     final confirmedBalance = controller.confirmedBalanceSatsFor(account);
@@ -803,6 +812,22 @@ class _BalanceCard extends StatelessWidget {
                         ? () => _showSendDialog(context, controller, account)
                         : null,
                   ),
+                  if (roastSetup?.isActive == true)
+                    _BalanceAction(
+                      key: const Key('sign-roast-message'),
+                      icon: Icons.draw_outlined,
+                      label: messageSigning
+                          ? 'Signing message…'
+                          : 'Sign message',
+                      enabled: canSignMessage,
+                      onPressed: canSignMessage
+                          ? () => showRoastSignMessageDialog(
+                              context,
+                              controller,
+                              account,
+                            )
+                          : null,
+                    ),
                   const _BalanceAction(
                     icon: Icons.history,
                     label: 'History',
@@ -828,18 +853,13 @@ String _formatPpc(int satoshis) {
   return '$whole.$fraction';
 }
 
-class _BalanceAction extends StatelessWidget {
-  const _BalanceAction({
-    required this.icon,
-    required this.label,
-    required this.enabled,
-    required this.onPressed,
-  });
-  final IconData icon;
-  final String label;
-  final bool enabled;
-  final VoidCallback? onPressed;
-
+class const _BalanceAction({
+  super.key,
+  required final IconData icon,
+  required final String label,
+  required final bool enabled,
+  required final VoidCallback? onPressed,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
@@ -1083,14 +1103,22 @@ class const _ActivityRow({
   Widget build(BuildContext context) {
     final presentation = _activityPresentation(activity);
     final reference = activity.reference;
+    final signedMessage = _signedMessageFromActivity(activity);
     return InkWell(
       key: Key('activity-${activity.id}'),
-      onTap: () => _showActivityDetails(
-        context,
-        activity: activity,
-        account: account,
-        controller: controller,
-      ),
+      onTap: () => signedMessage == null
+          ? _showActivityDetails(
+              context,
+              activity: activity,
+              account: account,
+              controller: controller,
+            )
+          : showRoastSignMessageDialog(
+              context,
+              controller,
+              account,
+              result: signedMessage,
+            ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
@@ -1162,6 +1190,24 @@ class const _ActivityRow({
       ),
     );
   }
+}
+
+RoastSignedMessage? _signedMessageFromActivity(WalletActivity activity) {
+  final publicKeyHex = activity.signedMessagePublicKeyHex;
+  final signatureHex = activity.signedMessageSignatureHex;
+  final encoded = activity.signedMessageEncoded;
+  if (activity.type != WalletActivityType.messageSigned ||
+      publicKeyHex == null ||
+      signatureHex == null ||
+      encoded == null) {
+    return null;
+  }
+  return RoastSignedMessage(
+    text: activity.details ?? '',
+    publicKeyHex: publicKeyHex,
+    signatureHex: signatureHex,
+    encoded: encoded,
+  );
 }
 
 Future<void> _showActivityDetails(
@@ -2117,10 +2163,6 @@ Future<void> _showSettings(
               children: [
                 Text('Settings', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
-                const Text(
-                  'Private data is stored in the encrypted Hive CE vault.',
-                  style: TextStyle(color: AppColors.inkMuted),
-                ),
                 const SizedBox(height: 20),
                 Text(
                   'NOTIFICATIONS',
