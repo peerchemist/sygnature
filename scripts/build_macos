@@ -68,7 +68,8 @@ if [[ "$output_path" != /* ]]; then
 fi
 
 # Let Xcode resolve the Keychain entitlements and sign with the configured team.
-flutter build macos --release --config-only "${flutter_args[@]}"
+# Bash 3.2 treats an empty array as unset under `set -u`.
+flutter build macos --release --config-only ${flutter_args[@]+"${flutter_args[@]}"}
 xcodebuild \
   -quiet \
   -workspace "$project_dir/macos/Runner.xcworkspace" \
