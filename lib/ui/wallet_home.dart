@@ -14,6 +14,7 @@ import '../services/app_notifications.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
+import 'about_screen.dart';
 import 'app_theme.dart';
 import 'onboarding_screen.dart';
 import 'roast_setup_flow.dart';
@@ -2261,6 +2262,25 @@ Future<void> _showSettings(
                     icon: const Icon(Icons.send_outlined),
                     label: const Text('Send test notification'),
                   ),
+                ),
+                const Divider(height: 32),
+                ListTile(
+                  key: const Key('about-button'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.info_outline_rounded),
+                  title: const Text('About'),
+                  subtitle: const Text(
+                    'About Sygnature and open-source licenses.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AboutScreen(),
+                      ),
+                    );
+                  },
                 ),
                 const Divider(height: 32),
                 ListTile(

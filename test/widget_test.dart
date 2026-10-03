@@ -212,7 +212,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('configures desktop notifications and notification volume', (
+  testWidgets('configures notifications and opens the about screen', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
@@ -247,6 +247,14 @@ void main() {
           .onChanged,
       isNull,
     );
+
+    await tester.ensureVisible(find.byKey(const Key('about-button')));
+    await tester.tap(find.byKey(const Key('about-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('About'), findsOneWidget);
+    expect(find.textContaining('Peercoin light wallet'), findsOneWidget);
+    expect(find.byKey(const Key('licenses-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
