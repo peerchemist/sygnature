@@ -8,7 +8,8 @@
 PRODUCT_NAME = sygnature
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.github.peerchemist.sygnature
+PRODUCT_BUNDLE_IDENTIFIER = network.noosphere.sygnature
+DEVELOPMENT_TEAM = V274DD3UKN
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright 2026 peerchemist. All rights reserved.
