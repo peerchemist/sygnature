@@ -98,17 +98,23 @@ scripts/build_windows stop
 
 ## macOS DMG
 
-On macOS with Xcode and Flutter 3.47.5 installed, run:
+On macOS with Xcode and Flutter 3.47.5 installed, configure an Apple Development
+signing certificate with its private key and a provisioning profile for team
+`V274DD3UKN` and bundle ID `network.noosphere.sygnature` in Xcode. The profile
+must cover each tester's Mac. CI runners also require this signing setup.
+Then run:
 
 ```sh
 flutter pub get
-flutter build macos --release --no-pub
-hdiutil create \
-  -volname Sygnature \
-  -srcfolder build/macos/Build/Products/Release/sygnature.app \
-  -ov \
-  -format UDZO \
-  build/Sygnature-macOS.dmg
+scripts/build_macos --no-pub
 ```
 
-The result is `build/Sygnature-macOS.dmg`. It is not code-signed or notarized.
+The result is `build/Sygnature-macOS.dmg`, containing the ARM64 `Sygnature.app`
+and an Applications shortcut. Xcode resolves the Keychain entitlements and
+signs the app; the script preserves and verifies that signature while packaging.
+The app is development-signed and is not notarized. For distribution to Macs
+outside the provisioning profile, use a Developer ID signing and notarization
+workflow.
+
+Use `--output PATH.dmg` to choose another output path. Additional arguments,
+such as `--build-name` and `--build-number`, are passed to Flutter.
