@@ -49,7 +49,7 @@ scripts/build_flatpak
 
 The script installs the required Freedesktop 26.08 runtime and SDK for the
 current user. The bundle is written to
-`build/flatpak/com.github.peerchemist.sygnature.flatpak`.
+`build/flatpak/network.noosphere.sygnature.flatpak`.
 
 ## Windows application
 

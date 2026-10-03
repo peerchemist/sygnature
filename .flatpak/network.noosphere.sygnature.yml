@@ -1,5 +1,5 @@
 # Flatpak exposes freedesktop-sdk-26.08.2 through the 26.08 runtime branch.
-app-id: com.github.peerchemist.sygnature
+app-id: network.noosphere.sygnature
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"
 sdk: org.freedesktop.Sdk
@@ -35,10 +35,10 @@ modules:
       - cd app && ../flutter/bin/flutter build linux --release --no-pub
       - install -d /app/lib/sygnature /app/bin
       - cp -a app/build/linux/*/release/bundle/. /app/lib/sygnature/
-      - ln -s /app/lib/sygnature/sygnature_ng /app/bin/sygnature
-      - install -Dm644 app/.flatpak/com.github.peerchemist.sygnature.desktop /app/share/applications/com.github.peerchemist.sygnature.desktop
-      - install -Dm644 app/.flatpak/com.github.peerchemist.sygnature.metainfo.xml /app/share/metainfo/com.github.peerchemist.sygnature.metainfo.xml
-      - install -Dm644 app/web/icons/Icon-512.png /app/share/icons/hicolor/512x512/apps/com.github.peerchemist.sygnature.png
+      - ln -s /app/lib/sygnature/sygnature /app/bin/sygnature
+      - install -Dm644 app/.flatpak/network.noosphere.sygnature.desktop /app/share/applications/network.noosphere.sygnature.desktop
+      - install -Dm644 app/.flatpak/network.noosphere.sygnature.metainfo.xml /app/share/metainfo/network.noosphere.sygnature.metainfo.xml
+      - install -Dm644 app/web/icons/Icon-512.png /app/share/icons/hicolor/512x512/apps/network.noosphere.sygnature.png
     sources:
       - type: dir
         path: ..

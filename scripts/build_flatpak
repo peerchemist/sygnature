@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly app_id="com.github.peerchemist.sygnature"
+readonly app_id="network.noosphere.sygnature"
 readonly runtime_branch="26.08"
 readonly sdk_release="freedesktop-sdk-26.08.2"
 readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

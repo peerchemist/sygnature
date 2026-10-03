@@ -42,6 +42,6 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: sygnature-linux-flatpak
-          path: sygnature_ng/build/flatpak/com.github.peerchemist.sygnature.flatpak
+          path: sygnature_ng/build/flatpak/network.noosphere.sygnature.flatpak
           if-no-files-found: error
           retention-days: 30

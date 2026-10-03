@@ -1,6 +1,6 @@
 {
-    "name": "sygnature_ng",
-    "short_name": "sygnature_ng",
+    "name": "Sygnature",
+    "short_name": "Sygnature",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
