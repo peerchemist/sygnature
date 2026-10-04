@@ -2269,8 +2269,9 @@ Future<void> _showSettings(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.info_outline_rounded),
                   title: const Text('About'),
-                  subtitle: const Text(
-                    'About Sygnature and open-source licenses.',
+                  subtitle: Text(
+                    'Version $sygnatureVersionString',
+                    key: const Key('settings-version'),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () {

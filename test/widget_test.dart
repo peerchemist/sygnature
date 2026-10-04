@@ -14,6 +14,7 @@ import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
+import 'package:sygnature_ng/ui/about_screen.dart';
 import 'package:sygnature_ng/ui/widgets/middle_ellipsis_text.dart';
 
 void main() {
@@ -237,6 +238,8 @@ void main() {
     expect(find.text('Volume'), findsOneWidget);
     expect(find.text('50%'), findsOneWidget);
     expect(find.text('Send test notification'), findsOneWidget);
+    expect(find.byKey(const Key('settings-version')), findsOneWidget);
+    expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('notification-sound-toggle')));
     await tester.pump();
@@ -254,6 +257,8 @@ void main() {
 
     expect(find.text('About'), findsOneWidget);
     expect(find.textContaining('Peercoin light wallet'), findsOneWidget);
+    expect(find.byKey(const Key('about-version')), findsOneWidget);
+    expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
     expect(find.byKey(const Key('licenses-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

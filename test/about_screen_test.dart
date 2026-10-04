@@ -8,6 +8,7 @@ void main() {
 
     expect(find.text('About'), findsOneWidget);
     expect(find.textContaining('Peercoin light wallet'), findsOneWidget);
+    expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
     expect(find.text('Licenses'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('licenses-button')));

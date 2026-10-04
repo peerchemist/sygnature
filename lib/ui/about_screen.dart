@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show appBuildName, appBuildNumber;
 
 import 'app_theme.dart';
 import 'widgets/brand_mark.dart';
+
+String get sygnatureVersionString {
+  final name = appBuildName;
+  if (name == null || name.isEmpty) return 'Unknown';
+  final number = appBuildNumber;
+  return number == null || number.isEmpty ? name : '$name+$number';
+}
 
 class const AboutScreen({super.key}) extends StatelessWidget {
   @override
@@ -27,6 +35,13 @@ class const AboutScreen({super.key}) extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const BrandMark(),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Version $sygnatureVersionString',
+                            key: const Key('about-version'),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: AppColors.inkMuted),
+                          ),
                           const SizedBox(height: 24),
                           Text(
                             'A Peercoin wallet built for individual and shared '
