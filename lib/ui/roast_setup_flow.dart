@@ -2234,7 +2234,9 @@ class const _RoastBadge({required final RoastSetup setup})
       borderRadius: BorderRadius.circular(4),
     ),
     child: Text(
-      'ROAST · ${setup.threshold} of ${setup.participantCount}',
+      setup.isWaitingForInvitation
+          ? 'ROAST'
+          : 'ROAST · ${setup.threshold} of ${setup.participantCount}',
       style: const TextStyle(
         color: AppColors.greenDark,
         fontSize: 11,

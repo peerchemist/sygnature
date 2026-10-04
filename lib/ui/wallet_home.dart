@@ -286,7 +286,9 @@ class _WalletListTile extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       setup != null && !setup!.isActive
-                          ? 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
+                          ? setup!.isWaitingForInvitation
+                                ? 'Resume setup'
+                                : 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
                           : accountStatus,
                       style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
                     ),

@@ -53,6 +53,8 @@ class RoastSetup({
 
   bool get isFinalized => participants.length == participantCount;
   bool get isActive => status == RoastSetupStatus.active;
+  bool get isWaitingForInvitation =>
+      role == RoastSetupRole.member && status == RoastSetupStatus.draft;
 
   RoastSetup copyWith({
     RoastSetupStatus? status,
