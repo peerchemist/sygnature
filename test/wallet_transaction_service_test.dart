@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/models/wallet_transaction.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
+import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 
 import 'fixtures/peercoin_taproot_transaction_fixture.dart';
@@ -87,26 +88,112 @@ void main() {
     );
   });
 
-  test('rejects a Taproot address from another network', () {
-    final testnetAddress = P2TRAddress.fromTweakedKey(
-      destinationKey.pubkey,
-      hrp: Network.testnet.bech32Hrp,
-    ).toString();
+  test('rejects destination addresses from another network', () {
+    final testnetAddresses = [
+      P2TRAddress.fromTweakedKey(
+        destinationKey.pubkey,
+        hrp: Network.testnet.bech32Hrp,
+      ),
+      P2PKHAddress.fromPublicKey(
+        destinationKey.pubkey,
+        version: Network.testnet.p2pkhPrefix,
+      ),
+      P2SHAddress.fromRedeemScript(
+        P2PKH.fromPublicKey(destinationKey.pubkey).script,
+        version: Network.testnet.p2shPrefix,
+      ),
+    ];
 
-    expect(
-      () => service.prepare(
+    for (final testnetAddress in testnetAddresses) {
+      expect(
+        () => service.prepare(
+          accountId: 'wallet-0',
+          network: PeercoinNetworks.mainnet,
+          sourceAddress: sourceAddress,
+          availableUtxos: const [],
+          request: WalletSendRequest(
+            destinationAddress: testnetAddress.toString(),
+            amountSats: 1000000,
+            feeRateSatsPerKb: 10000,
+          ),
+        ),
+        throwsA(isA<InvalidDestinationAddress>()),
+      );
+    }
+  });
+
+  test('sends Taproot funds to P2PKH and P2SH addresses', () {
+    final destinations = [
+      P2PKHAddress.fromPublicKey(
+        destinationKey.pubkey,
+        version: Network.mainnet.p2pkhPrefix,
+      ),
+      P2SHAddress.fromRedeemScript(
+        P2PKH.fromPublicKey(destinationKey.pubkey).script,
+        version: Network.mainnet.p2shPrefix,
+      ),
+    ];
+
+    for (final destination in destinations) {
+      final preview = service.prepare(
         accountId: 'wallet-0',
         network: PeercoinNetworks.mainnet,
         sourceAddress: sourceAddress,
-        availableUtxos: const [],
+        availableUtxos: [
+          ElectrumxUtxo(
+            address: sourceAddress,
+            txHash: List.filled(64, 'e').join(),
+            txPos: 0,
+            height: 100,
+            value: 2000000,
+          ),
+        ],
         request: WalletSendRequest(
-          destinationAddress: testnetAddress,
+          destinationAddress: destination.toString(),
           amountSats: 1000000,
-          feeRateSatsPerKb: 10000,
+          feeRateSatsPerKb: Network.mainnet.feePerKb.toInt(),
         ),
+      );
+      final signed = service.sign(
+        network: PeercoinNetworks.mainnet,
+        preview: preview,
+        privateKeyHex: sourceKeyHex,
+      );
+      final transaction = Transaction.fromHex(signed.rawTransactionHex);
+
+      expect(transaction.complete, isTrue);
+      expect(
+        transaction.outputs.any(
+          (output) => bytesEqual(
+            output.scriptPubKey,
+            destination.program.script.compiled,
+          ),
+        ),
+        isTrue,
+      );
+    }
+  });
+
+  test('formats P2PKH and P2SH outputs for ROAST review', () {
+    const keyService = RoastKeyService();
+    final destinations = [
+      P2PKHAddress.fromPublicKey(
+        destinationKey.pubkey,
+        version: Network.mainnet.p2pkhPrefix,
       ),
-      throwsA(isA<InvalidDestinationAddress>()),
-    );
+      P2SHAddress.fromRedeemScript(
+        P2PKH.fromPublicKey(destinationKey.pubkey).script,
+        version: Network.mainnet.p2shPrefix,
+      ),
+    ];
+
+    for (final destination in destinations) {
+      final scriptHex = bytesToHex(destination.program.script.compiled);
+      expect(
+        keyService.addressForScript(PeercoinNetworks.mainnet, scriptHex),
+        destination.toString(),
+      );
+    }
   });
 
   test('assembles and verifies externally produced threshold signatures', () {

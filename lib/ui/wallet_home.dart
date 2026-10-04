@@ -1679,7 +1679,7 @@ class _SendDialogState extends State<_SendDialog> {
             autofocus: true,
             autocorrect: false,
             enableSuggestions: false,
-            decoration: const InputDecoration(labelText: 'Taproot address'),
+            decoration: const InputDecoration(labelText: 'Destination address'),
             validator: (value) => value == null || value.trim().isEmpty
                 ? 'Enter a destination address.'
                 : null,
