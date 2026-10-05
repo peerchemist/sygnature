@@ -168,6 +168,24 @@ void main() {
     }
   });
 
+  test('round trips archived account state and restores it', () {
+    final account = WalletAccount(
+      id: 'archived',
+      name: 'Archived',
+      accountIndex: 4,
+      blockchainId: 'peercoin',
+      networkId: 'mainnet',
+      derivationState: WalletDerivationState.ready,
+      createdAt: DateTime.utc(2026),
+    ).archive(DateTime.utc(2026, 10, 5, 12, 30));
+
+    final restored = WalletAccount.fromJson(account.toJson());
+
+    expect(restored.isArchived, isTrue);
+    expect(restored.archivedAt, DateTime.utc(2026, 10, 5, 12, 30));
+    expect(restored.restore().isArchived, isFalse);
+  });
+
   test('rejects unsupported schemas', () {
     for (final version in [0, 2, 3, 4, 6]) {
       expect(

@@ -213,6 +213,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('archives and restores a wallet from settings', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = await createController();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
+    final savingsId = controller.selectedAccount!.id;
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Wallet settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-archive-wallet')));
+    await tester.pumpAndSettle();
+
+    expect(controller.accounts.map((account) => account.name), ['Main wallet']);
+    expect(controller.archivedAccounts.single.id, savingsId);
+
+    await tester.binding.setSurfaceSize(const Size(800, 800));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('archived-wallets-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('restore-wallet-$savingsId')));
+    await tester.pumpAndSettle();
+
+    expect(controller.archivedAccounts, isEmpty);
+    expect(controller.selectedAccount?.id, savingsId);
+  });
+
   testWidgets('configures notifications and opens the about screen', (
     tester,
   ) async {

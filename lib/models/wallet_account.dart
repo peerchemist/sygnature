@@ -17,6 +17,7 @@ class WalletAccount {
     this.derivationPath,
     this.address,
     this.privateKeyHex,
+    this.archivedAt,
   });
 
   final String id;
@@ -37,6 +38,9 @@ class WalletAccount {
   /// never shown in the UI.
   final String? privateKeyHex;
   final DateTime createdAt;
+  final DateTime? archivedAt;
+
+  bool get isArchived => archivedAt != null;
 
   WalletAccount copyWith({
     String? name,
@@ -44,6 +48,8 @@ class WalletAccount {
     String? derivationPath,
     String? address,
     String? keyId,
+    DateTime? archivedAt,
+    bool clearArchivedAt = false,
   }) => WalletAccount(
     id: id,
     name: name ?? this.name,
@@ -58,7 +64,12 @@ class WalletAccount {
     address: address ?? this.address,
     privateKeyHex: privateKeyHex,
     createdAt: createdAt,
+    archivedAt: clearArchivedAt ? null : archivedAt ?? this.archivedAt,
   );
+
+  WalletAccount archive(DateTime at) => copyWith(archivedAt: at.toUtc());
+
+  WalletAccount restore() => copyWith(clearArchivedAt: true);
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -74,6 +85,7 @@ class WalletAccount {
     'address': address,
     'privateKeyHex': privateKeyHex,
     'createdAt': createdAt.toUtc().toIso8601String(),
+    'archivedAt': archivedAt?.toUtc().toIso8601String(),
   };
 
   factory WalletAccount.fromJson(Map<Object?, Object?> json) {
@@ -111,6 +123,10 @@ class WalletAccount {
       address: address,
       privateKeyHex: privateKeyHex,
       createdAt: DateTime.parse(json['createdAt']! as String),
+      archivedAt: switch (json['archivedAt']) {
+        final String value => DateTime.parse(value),
+        _ => null,
+      },
     );
   }
 

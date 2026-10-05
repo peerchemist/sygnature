@@ -143,7 +143,7 @@ class WalletController extends ChangeNotifier {
   final List<WalletNetwork> supportedNetworks;
   final Map<String, ElectrumxService> _networkServices = {};
   WalletVault? _vault;
-  int _selectedAccount = 0;
+  String? _selectedAccountId;
   bool _busy = false;
   bool _disposed = false;
   int _syncGeneration = 0;

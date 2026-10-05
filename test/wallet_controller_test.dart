@@ -319,6 +319,70 @@ void main() {
     controller.dispose();
   });
 
+  test('archives and restores an account without reusing its index', () async {
+    final repository = MemoryWalletRepository();
+    final services = <String, List<_FakeElectrumxService>>{};
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (network) async {
+        final service = _FakeElectrumxService();
+        services.putIfAbsent(network.storageId, () => []).add(service);
+        return service;
+      },
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
+    final savingsId = controller.selectedAccount!.id;
+
+    await controller.archiveAccount(savingsId);
+
+    expect(controller.accounts.map((account) => account.name), ['Main wallet']);
+    expect(controller.archivedAccounts.single.name, 'Savings');
+    expect(controller.selectedAccount?.name, 'Main wallet');
+    expect(repository.value?.accounts, hasLength(2));
+    expect(repository.value?.activities, isEmpty);
+    expect(repository.value?.nextAccountIndex, 2);
+    expect(services['peercoin:testnet']!.single.closed, isTrue);
+
+    await controller.restoreAccount(savingsId);
+
+    expect(controller.accounts.map((account) => account.name), [
+      'Main wallet',
+      'Savings',
+    ]);
+    expect(controller.archivedAccounts, isEmpty);
+    expect(controller.selectedAccount?.name, 'Savings');
+    expect(services['peercoin:testnet'], hasLength(2));
+    expect(services['peercoin:testnet']!.last.watchedAddresses.last, {
+      'tpc1paccount1',
+    });
+
+    await controller.addAccount('Later', network: PeercoinNetworks.mainnet);
+    expect(controller.selectedAccount?.accountIndex, 2);
+    expect(controller.vault?.nextAccountIndex, 3);
+    controller.dispose();
+  });
+
+  test('keeps selection stable when another account is archived', () async {
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
+    final mainId = controller.accounts.first.id;
+    final savingsId = controller.accounts.last.id;
+    expect(controller.selectedAccount?.id, savingsId);
+
+    await controller.archiveAccount(mainId);
+
+    expect(controller.selectedAccount?.id, savingsId);
+    expect(controller.selectedAccountIndex, 0);
+  });
+
   test('renames an account and persists the new name', () async {
     final repository = MemoryWalletRepository();
     final controller = WalletController(

@@ -315,10 +315,24 @@ class _WalletDashboard extends StatelessWidget {
       return SafeArea(
         top: !mobile,
         child: Center(
-          child: FilledButton.icon(
-            onPressed: () => _showAddWallet(context, controller),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Add wallet'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilledButton.icon(
+                onPressed: () => _showAddWallet(context, controller),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add wallet'),
+              ),
+              if (controller.archivedAccounts.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  key: const Key('show-archived-wallets-empty-state'),
+                  onPressed: () => _showArchivedWallets(context, controller),
+                  icon: const Icon(Icons.archive_outlined),
+                  label: const Text('Restore archived wallet'),
+                ),
+              ],
+            ],
           ),
         ),
       );
@@ -363,6 +377,8 @@ class _WalletDashboard extends StatelessWidget {
                   syncStatus: controller.syncStatusFor(account),
                   onDelete: () =>
                       _confirmDeleteWallet(context, controller, account),
+                  onArchive: () =>
+                      _confirmArchiveWallet(context, controller, account),
                   onRename: () =>
                       _showRenameWallet(context, controller, account),
                   onChangeSignerGroup:
@@ -548,6 +564,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.account,
     required this.syncStatus,
     required this.onDelete,
+    required this.onArchive,
     required this.onRename,
     this.onChangeSignerGroup,
     this.onSwitchCoordinator,
@@ -555,6 +572,7 @@ class _DashboardHeader extends StatelessWidget {
   final WalletAccount account;
   final AccountSyncStatus syncStatus;
   final VoidCallback onDelete;
+  final VoidCallback onArchive;
   final VoidCallback onRename;
   final VoidCallback? onChangeSignerGroup;
   final VoidCallback? onSwitchCoordinator;
@@ -645,6 +663,7 @@ class _DashboardHeader extends StatelessWidget {
                 if (value == 'rename') onRename();
                 if (value == 'signers') onChangeSignerGroup?.call();
                 if (value == 'coordinator') onSwitchCoordinator?.call();
+                if (value == 'archive') onArchive();
                 if (value == 'delete') onDelete();
               },
               itemBuilder: (_) => [
@@ -681,6 +700,16 @@ class _DashboardHeader extends StatelessWidget {
                     ),
                   ),
                 const PopupMenuItem(
+                  value: 'archive',
+                  child: Row(
+                    children: [
+                      Icon(Icons.archive_outlined),
+                      SizedBox(width: 10),
+                      Text('Archive wallet'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
@@ -696,6 +725,57 @@ class _DashboardHeader extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+Future<void> _confirmArchiveWallet(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account,
+) async {
+  final isRoast = account.keySource == WalletKeySource.roast;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Archive ${account.name}?'),
+      content: Text(
+        isRoast
+            ? 'The wallet will be hidden and its signer will go offline until '
+                  'you restore it. Keys and wallet history remain on this device.'
+            : 'The wallet will be hidden and stop synchronizing until you '
+                  'restore it. Keys and wallet history remain on this device.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm-archive-wallet'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Archive wallet'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  try {
+    await controller.archiveAccount(account.id);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${account.name} archived.'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => controller.restoreAccount(account.id),
+        ),
+      ),
+    );
+  } on Object catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 }
 
@@ -2155,7 +2235,7 @@ Future<void> _showSettings(
     context: context,
     showDragHandle: true,
     builder: (sheetContext) => AnimatedBuilder(
-      animation: notifications,
+      animation: Listenable.merge([notifications, controller]),
       builder: (context, _) => SafeArea(
         child: SingleChildScrollView(
           child: Padding(
@@ -2166,6 +2246,22 @@ Future<void> _showSettings(
               children: [
                 Text('Settings', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
+                ListTile(
+                  key: const Key('archived-wallets-button'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.archive_outlined),
+                  title: const Text('Archived wallets'),
+                  subtitle: Text(
+                    controller.archivedAccounts.isEmpty
+                        ? 'No archived wallets'
+                        : '${controller.archivedAccounts.length} archived',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showArchivedWallets(context, controller);
+                  },
+                ),
                 const SizedBox(height: 20),
                 Text(
                   'NOTIFICATIONS',
@@ -2334,6 +2430,104 @@ Future<void> _showSettings(
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _showArchivedWallets(
+  BuildContext context,
+  WalletController controller,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Archived wallets',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              if (controller.archivedAccounts.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text('No archived wallets.'),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 480),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: controller.archivedAccounts.length,
+                    separatorBuilder: (_, _) => const Divider(),
+                    itemBuilder: (context, index) {
+                      final account = controller.archivedAccounts[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.account_balance_wallet_outlined,
+                        ),
+                        title: Text(account.name),
+                        subtitle: Text(
+                          account.keySource == WalletKeySource.watchOnly
+                              ? 'Watch-only wallet'
+                              : account.keySource == WalletKeySource.roast
+                              ? 'ROAST shared wallet'
+                              : 'Peercoin account ${account.accountIndex}',
+                        ),
+                        trailing: Wrap(
+                          spacing: 4,
+                          children: [
+                            IconButton(
+                              key: Key('restore-wallet-${account.id}'),
+                              tooltip: 'Restore wallet',
+                              onPressed: () async {
+                                try {
+                                  await controller.restoreAccount(account.id);
+                                  if (sheetContext.mounted) {
+                                    Navigator.pop(sheetContext);
+                                  }
+                                } on Object catch (error) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('$error')),
+                                    );
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.unarchive_outlined),
+                            ),
+                            IconButton(
+                              key: Key('delete-archived-wallet-${account.id}'),
+                              tooltip: 'Delete permanently',
+                              onPressed: () => _confirmDeleteWallet(
+                                context,
+                                controller,
+                                account,
+                              ),
+                              icon: const Icon(
+                                Icons.delete_outline_rounded,
+                                color: Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
           ),
         ),
       ),

@@ -9,11 +9,30 @@ extension WalletAccountsController on WalletController {
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
   bool get busy => _busy;
-  List<WalletAccount> get accounts => _vault?.accounts ?? const [];
-  int get selectedAccountIndex => _selectedAccount;
-  WalletAccount? get selectedAccount => accounts.isEmpty
-      ? null
-      : accounts[_selectedAccount.clamp(0, accounts.length - 1)];
+  List<WalletAccount> get accounts =>
+      _vault?.accounts
+          .where((account) => !account.isArchived)
+          .toList(growable: false) ??
+      const [];
+  List<WalletAccount> get archivedAccounts =>
+      _vault?.accounts
+          .where((account) => account.isArchived)
+          .toList(growable: false) ??
+      const [];
+  int get selectedAccountIndex {
+    final index = accounts.indexWhere(
+      (account) => account.id == _selectedAccountId,
+    );
+    return index < 0 ? 0 : index;
+  }
+
+  WalletAccount? get selectedAccount {
+    for (final account in accounts) {
+      if (account.id == _selectedAccountId) return account;
+    }
+    return null;
+  }
+
   WalletNetwork? get walletNetwork {
     final account = selectedAccount;
     return account == null ? null : networkForAccount(account);
@@ -21,7 +40,7 @@ extension WalletAccountsController on WalletController {
 
   Future<void> load() async {
     _vault = await _repository.load();
-    _selectedAccount = 0;
+    _selectedAccountId = accounts.firstOrNull?.id;
     await _restoreRoastSigningOperations();
     final runtime = _roastRuntime;
     if (runtime != null) {
@@ -39,7 +58,14 @@ extension WalletAccountsController on WalletController {
     }
     await _restartElectrumxSync();
     if (runtime != null) {
-      for (final setup in roastSetups.where((item) => item.isFinalized)) {
+      final activeSetupIds = accounts
+          .where((account) => account.keySource == WalletKeySource.roast)
+          .map((account) => account.sourceId)
+          .nonNulls
+          .toSet();
+      for (final setup in roastSetups.where(
+        (item) => item.isFinalized && activeSetupIds.contains(item.id),
+      )) {
         unawaited(resumeRoastSetup(setup.id));
       }
     }
@@ -70,7 +96,7 @@ extension WalletAccountsController on WalletController {
       );
       await _repository.save(vault);
       _vault = vault;
-      _selectedAccount = vault.accounts.isEmpty ? 0 : vault.accounts.length - 1;
+      _selectedAccountId = accounts.lastOrNull?.id;
     });
   }
 
@@ -111,7 +137,7 @@ extension WalletAccountsController on WalletController {
       );
       await _repository.save(vault);
       _vault = vault;
-      _selectedAccount = vault.accounts.length - 1;
+      _selectedAccountId = first.id;
       await _restartElectrumxSync();
     });
   }
@@ -151,7 +177,7 @@ extension WalletAccountsController on WalletController {
       );
       await _repository.save(next);
       _vault = next;
-      _selectedAccount = next.accounts.length - 1;
+      _selectedAccountId = account.id;
       await _restartElectrumxSync();
     });
   }
@@ -201,8 +227,109 @@ extension WalletAccountsController on WalletController {
           : current.copyWith(accounts: [...current.accounts, account]);
       await _repository.save(next);
       _vault = next;
-      _selectedAccount = next.accounts.length - 1;
+      _selectedAccountId = account.id;
       await _restartElectrumxSync();
+    });
+  }
+
+  Future<void> archiveAccount(String accountId) async {
+    final current = _vault;
+    if (current == null) throw StateError('Wallet is not initialized.');
+    final account = current.accounts
+        .where((item) => item.id == accountId)
+        .firstOrNull;
+    if (account == null) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
+    }
+    if (account.isArchived) return;
+    if (_sending) {
+      throw StateError(
+        'Finish the active transaction before archiving a wallet.',
+      );
+    }
+    _assertRoastAccountCanBeDeactivated(account, action: 'archiving');
+
+    final activeIndex = accounts.indexWhere((item) => item.id == accountId);
+    final wasSelected = _selectedAccountId == accountId;
+    await _guard(() async {
+      final archived = account.archive(DateTime.now());
+      final next = current.copyWith(
+        accounts: [
+          for (final item in current.accounts)
+            if (item.id == accountId) archived else item,
+        ],
+      );
+      await _repository.save(next);
+      _vault = next;
+      if (wasSelected) {
+        final remaining = accounts;
+        _selectedAccountId = remaining.isEmpty
+            ? null
+            : remaining[activeIndex.clamp(0, remaining.length - 1)].id;
+      }
+
+      Object? runtimeError;
+      StackTrace? runtimeStack;
+      final setupId = account.keySource == WalletKeySource.roast
+          ? account.sourceId
+          : null;
+      final setupStillActive =
+          setupId != null && accounts.any((item) => item.sourceId == setupId);
+      if (setupId != null && !setupStillActive) {
+        try {
+          await _roastRuntime?.stopSetup(setupId);
+        } on Object catch (error, stackTrace) {
+          runtimeError = error;
+          runtimeStack = stackTrace;
+        }
+        _roastPresence.remove(setupId);
+        _roastSigningRequests.removeWhere(
+          (_, request) => request.setupId == setupId,
+        );
+      }
+
+      await _restartElectrumxSync();
+      await _closeUnusedNetworkServices();
+      if (runtimeError != null) {
+        Error.throwWithStackTrace(runtimeError, runtimeStack!);
+      }
+    });
+  }
+
+  Future<void> restoreAccount(String accountId) async {
+    final current = _vault;
+    if (current == null) throw StateError('Wallet is not initialized.');
+    final account = current.accounts
+        .where((item) => item.id == accountId)
+        .firstOrNull;
+    if (account == null) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
+    }
+    if (!account.isArchived) return;
+
+    await _guard(() async {
+      await _ensureNetworkService(networkForAccount(account));
+      final restored = account.restore();
+      final next = current.copyWith(
+        accounts: [
+          for (final item in current.accounts)
+            if (item.id == accountId) restored else item,
+        ],
+      );
+      await _repository.save(next);
+      _vault = next;
+      _selectedAccountId = restored.id;
+      await _restartElectrumxSync();
+
+      final setupId = restored.keySource == WalletKeySource.roast
+          ? restored.sourceId
+          : null;
+      if (setupId != null &&
+          !current.accounts.any(
+            (item) => !item.isArchived && item.sourceId == setupId,
+          )) {
+        await resumeRoastSetup(setupId);
+      }
     });
   }
 
@@ -237,6 +364,9 @@ extension WalletAccountsController on WalletController {
       );
     }
     final selectedId = selectedAccount?.id;
+    final activeIndex = accounts.indexWhere(
+      (account) => account.id == accountId,
+    );
     await _guard(() async {
       final next = current.copyWith(
         accounts: remainingAccounts,
@@ -286,16 +416,13 @@ extension WalletAccountsController on WalletController {
         _completedRoastMessages.remove(roastSetupId);
       }
 
-      final previousSelection = remainingAccounts.indexWhere(
-        (account) => account.id == selectedId,
-      );
-      _selectedAccount = remainingAccounts.isEmpty
-          ? 0
-          : previousSelection >= 0
-          ? previousSelection
-          : accountIndex < remainingAccounts.length
-          ? accountIndex
-          : remainingAccounts.length - 1;
+      final remainingActive = accounts;
+      if (selectedId == removedAccount.id) {
+        _selectedAccountId = remainingActive.isEmpty
+            ? null
+            : remainingActive[activeIndex.clamp(0, remainingActive.length - 1)]
+                  .id;
+      }
 
       await _restartElectrumxSync();
       await _closeUnusedNetworkServices();
@@ -332,7 +459,7 @@ extension WalletAccountsController on WalletController {
 
   void selectAccount(int index) {
     if (index < 0 || index >= accounts.length) return;
-    _selectedAccount = index;
+    _selectedAccountId = accounts[index].id;
     _notifyListeners();
   }
 
@@ -347,11 +474,35 @@ extension WalletAccountsController on WalletController {
       }
       await _repository.delete();
       _vault = null;
-      _selectedAccount = 0;
+      _selectedAccountId = null;
       await _closeNetworkServices();
       _clearSyncState();
     });
   }
+
+  void _assertRoastAccountCanBeDeactivated(
+    WalletAccount account, {
+    required String action,
+  }) {
+    final setupId = account.keySource == WalletKeySource.roast
+        ? account.sourceId
+        : null;
+    if (setupId == null) return;
+    if (_roastOperations.contains(setupId) ||
+        _roastCoordinatorRecovery.containsKey(setupId) ||
+        _pendingRoastSends.keys.any((key) => key.startsWith('$setupId:')) ||
+        _pendingRoastMessages.keys.any((key) => key.startsWith('$setupId:'))) {
+      throw StateError(
+        'Finish the active ROAST operation before $action this wallet.',
+      );
+    }
+  }
+
+  bool _hasActiveAccountForSetup(String setupId) => accounts.any(
+    (account) =>
+        account.keySource == WalletKeySource.roast &&
+        account.sourceId == setupId,
+  );
 
   WalletAccount _derivedAccount(
     int index,

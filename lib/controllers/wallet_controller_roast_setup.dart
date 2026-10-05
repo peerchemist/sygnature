@@ -142,7 +142,7 @@ extension WalletRoastSetupController on WalletController {
           );
     await _repository.save(next);
     _vault = next;
-    _selectedAccount = next.accounts.length - 1;
+    _selectedAccountId = account.id;
     _notifyListeners();
     return setupId;
   }
@@ -414,7 +414,7 @@ extension WalletRoastSetupController on WalletController {
           );
           await _repository.save(next);
           _vault = next;
-          _selectedAccount = next.accounts.length - 1;
+          _selectedAccountId = successorAccount.id;
           persistedSuccessor = preparedSuccessor;
           persistedTransition = transition;
           _notifyListeners();
@@ -535,7 +535,7 @@ extension WalletRoastSetupController on WalletController {
     );
     await _repository.save(next);
     _vault = next;
-    _selectedAccount = next.accounts.length - 1;
+    _selectedAccountId = account.id;
     _notifyListeners();
     return setupId;
   }

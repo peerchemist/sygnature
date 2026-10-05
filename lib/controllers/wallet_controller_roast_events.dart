@@ -26,7 +26,7 @@ extension WalletRoastEventController on WalletController {
           );
         }
       }
-      if (_disposed || !roastSetups.any((item) => item.id == event.setupId)) {
+      if (_disposed || !_hasActiveAccountForSetup(event.setupId)) {
         return;
       }
       try {
@@ -50,7 +50,9 @@ extension WalletRoastEventController on WalletController {
         pending.completer.complete(_RoastSendOutcome(error: error));
       }
     }
-    for (final setup in [...roastSetups]) {
+    for (final setup in [
+      ...roastSetups.where((setup) => _hasActiveAccountForSetup(setup.id)),
+    ]) {
       _roastPresence.remove(setup.id);
       try {
         await _replaceSetup(
@@ -66,7 +68,7 @@ extension WalletRoastEventController on WalletController {
   }
 
   Future<void> _handleRoastEvent(RoastRuntimeEvent event) async {
-    if (_disposed || !roastSetups.any((setup) => setup.id == event.setupId)) {
+    if (_disposed || !_hasActiveAccountForSetup(event.setupId)) {
       return;
     }
     final setup = _setupById(event.setupId);
