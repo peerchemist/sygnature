@@ -31,8 +31,15 @@ abstract interface class RoastSigningOperationRepository {
 }
 
 class RoastPersistenceFactory implements RoastSigningOperationRepository {
-  RoastPersistenceFactory({SecureKeyStore? secureKeyStore})
-    : _keyStore = secureKeyStore ?? PlatformSecureKeyStore();
+  RoastPersistenceFactory({
+    SecureKeyStore? secureKeyStore,
+    Uint8List? cipherKey,
+  }) : _keyStore =
+           secureKeyStore ??
+           (cipherKey == null
+               ? PlatformSecureKeyStore()
+               : const UnavailableSecureKeyStore()),
+       _cipherKey = cipherKey;
 
   static const _boxName = 'sygnature_roast_private_v1';
   static const _cipherKeyName = 'sygnature_roast_hive_key_v1';
@@ -40,6 +47,7 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   static const _serverStateStorageVersion = 1;
 
   final SecureKeyStore _keyStore;
+  final Uint8List? _cipherKey;
   Future<RoastPersistence>? _opening;
   Future<void> _operationWrites = Future.value();
 
@@ -47,12 +55,15 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
 
   Future<RoastPersistence> _open() async {
     await HiveStorageInitializer.initialize(boxName: _boxName);
-    var encodedKey = await _keyStore.read(_cipherKeyName);
-    if (encodedKey == null) {
-      encodedKey = base64UrlEncode(Hive.generateSecureKey());
-      await _keyStore.write(_cipherKeyName, encodedKey);
+    var key = _cipherKey;
+    if (key == null) {
+      var encodedKey = await _keyStore.read(_cipherKeyName);
+      if (encodedKey == null) {
+        encodedKey = base64UrlEncode(Hive.generateSecureKey());
+        await _keyStore.write(_cipherKeyName, encodedKey);
+      }
+      key = base64Url.decode(encodedKey);
     }
-    final key = base64Url.decode(encodedKey);
     if (key.length != 32) {
       throw StateError('Invalid encrypted ROAST storage key length.');
     }

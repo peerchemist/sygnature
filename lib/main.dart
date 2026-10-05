@@ -17,8 +17,10 @@ import 'services/roast_runtime_manager.dart';
 import 'services/wallet_key_service.dart';
 import 'storage/wallet_repository.dart';
 import 'storage/roast_storage.dart';
+import 'storage/vault_protection.dart';
 import 'ui/app_theme.dart';
 import 'ui/onboarding_screen.dart';
+import 'ui/vault_protection_screen.dart';
 import 'ui/wallet_home.dart';
 import 'ui/widgets/brand_mark.dart';
 
@@ -57,14 +59,22 @@ class const SygnatureApp({
 class _SygnatureAppState extends State<SygnatureApp> {
   final AppNotifications _notifications = AppNotifications();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
-  late final Future<WalletController> _controller =
-      (widget.controllerFactory ?? _createController)();
+  late final Future<void> _notificationsReady = _notifications.initialize();
+  late final Future<VaultProtectionStore>? _protectionStore;
+  Future<WalletController>? _controller;
   StreamSubscription<Uri>? _incomingLinkSubscription;
   Future<void> _incomingLinkWork = Future.value();
 
   @override
   void initState() {
     super.initState();
+    final controllerFactory = widget.controllerFactory;
+    if (controllerFactory == null) {
+      _protectionStore = VaultProtectionStore.open();
+    } else {
+      _protectionStore = null;
+      _controller = controllerFactory();
+    }
     _incomingLinkSubscription = widget.incomingLinks?.listen(
       _queueIncomingLink,
       onError: (Object error, StackTrace stackTrace) => AppLogger.error(
@@ -75,19 +85,46 @@ class _SygnatureAppState extends State<SygnatureApp> {
     );
   }
 
-  Future<WalletController> _createController() async {
-    await _notifications.initialize();
-    final platformKeyStore = PlatformSecureKeyStore();
-    final secureKeyStore =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
-        ? KeyringSecureKeyStore(platformKeyStore)
-        : platformKeyStore;
+  Future<WalletController> _createSystemController() async {
+    await _notificationsReady;
+    final secureKeyStore = PlatformSecureKeyStore();
     final repository = await HiveWalletRepository.open(
       secureKeyStore: secureKeyStore,
     );
     final roastPersistence = _roastSupported
         ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
         : null;
+    return _loadController(repository, roastPersistence);
+  }
+
+  Future<VaultKeyMaterial> _derivePasswordKeys(
+    String password,
+    VaultProtectionConfig config,
+  ) async {
+    final keys = await deriveVaultKeyMaterial(password, config);
+    if (!config.matchesVerifier(keys.verifier)) {
+      throw StateError('The vault password is incorrect.');
+    }
+    return keys;
+  }
+
+  Future<WalletController> _createPasswordController(
+    VaultKeyMaterial keys,
+  ) async {
+    await _notificationsReady;
+    final repository = await HiveWalletRepository.openWithCipherKey(
+      keys.walletKey,
+    );
+    final roastPersistence = _roastSupported
+        ? RoastPersistenceFactory(cipherKey: keys.roastKey)
+        : null;
+    return _loadController(repository, roastPersistence);
+  }
+
+  Future<WalletController> _loadController(
+    WalletRepository repository,
+    RoastPersistenceFactory? roastPersistence,
+  ) async {
     final controller = WalletController(
       repository,
       roastRuntime: _roastSupported
@@ -106,6 +143,72 @@ class _SygnatureAppState extends State<SygnatureApp> {
     );
     await controller.load();
     return controller;
+  }
+
+  Future<void> _setUpSystemVault(VaultProtectionStore store) async {
+    if (!systemVaultAvailable()) {
+      throw UnsupportedError('System vault is unavailable on macOS.');
+    }
+    final controller = await _createSystemController();
+    await store.configureSystem();
+    if (!mounted) {
+      controller.dispose();
+      return;
+    }
+    setState(() => _controller = Future.value(controller));
+  }
+
+  Future<void> _setUpPasswordVault(
+    VaultProtectionStore store,
+    String password,
+  ) async {
+    try {
+      var config = store.config;
+      late final VaultKeyMaterial keys;
+      if (config == null) {
+        config = store.createPasswordConfig();
+        keys = await deriveVaultKeyMaterial(password, config);
+        config = config.withVerifier(keys.verifier);
+        await store.configurePassword(config);
+      } else {
+        keys = await _derivePasswordKeys(password, config);
+      }
+      final controller = await _createPasswordController(keys);
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() => _controller = Future.value(controller));
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '[VAULT] Password-protected vault setup failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> _unlockPasswordVault(
+    String password,
+    VaultProtectionConfig config,
+  ) async {
+    try {
+      final keys = await _derivePasswordKeys(password, config);
+      final controller = await _createPasswordController(keys);
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() => _controller = Future.value(controller));
+    } catch (error, stackTrace) {
+      AppLogger.warn(
+        '[VAULT] Password unlock failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
   }
 
   Future<Uint8List> _walletBip39Seed(WalletRepository repository) async {
@@ -129,7 +232,15 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void dispose() {
     unawaited(_incomingLinkSubscription?.cancel());
-    unawaited(_controller.then((controller) => controller.dispose()));
+    final controller = _controller;
+    if (controller != null) {
+      unawaited(
+        controller.then<void>(
+          (value) => value.dispose(),
+          onError: (Object _, StackTrace _) {},
+        ),
+      );
+    }
     _notifications.dispose();
     super.dispose();
   }
@@ -165,7 +276,11 @@ class _SygnatureAppState extends State<SygnatureApp> {
         'The invitation does not contain a participant public key.',
       );
     }
-    final controller = await _controller;
+    final controllerFuture = _controller;
+    if (controllerFuture == null) {
+      throw StateError('Unlock the vault before opening an invitation.');
+    }
+    final controller = await controllerFuture;
     if (!controller.roastAvailable) {
       throw UnsupportedError(
         'ROAST invitations are not supported on this platform.',
@@ -322,8 +437,51 @@ class _SygnatureAppState extends State<SygnatureApp> {
       title: 'Sygnature',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: FutureBuilder<WalletController>(
-        future: _controller,
+      home: _buildHome(),
+    );
+  }
+
+  Widget _buildHome() {
+    final controller = _controller;
+    if (controller != null) return _buildController(controller);
+
+    final protectionStore = _protectionStore;
+    if (protectionStore == null) return const _StartupLoading();
+    return FutureBuilder<VaultProtectionStore>(
+      future: protectionStore,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _StartupError(error: snapshot.error);
+        final store = snapshot.data;
+        if (store == null) return const _StartupLoading();
+        final config = store.config;
+        if (config == null) {
+          return VaultProtectionScreen(
+            setup: true,
+            systemVaultEnabled: systemVaultAvailable(),
+            onSystem: () => _setUpSystemVault(store),
+            onPassword: (password) => _setUpPasswordVault(store, password),
+          );
+        }
+        if (config.mode == VaultProtectionMode.password) {
+          return VaultProtectionScreen(
+            setup: false,
+            systemVaultEnabled: false,
+            onPassword: (password) => _unlockPasswordVault(password, config),
+          );
+        }
+        if (!systemVaultAvailable()) {
+          return const _StartupError(
+            error: 'System vault access is disabled on macOS.',
+          );
+        }
+        return _buildController(_controller ??= _createSystemController());
+      },
+    );
+  }
+
+  Widget _buildController(Future<WalletController> controller) =>
+      FutureBuilder<WalletController>(
+        future: controller,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return _StartupError(error: snapshot.error);
@@ -340,9 +498,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
                 : OnboardingScreen(controller: controller),
           );
         },
-      ),
-    );
-  }
+      );
 }
 
 bool get _roastSupported =>

@@ -16,11 +16,13 @@ class AppNotifications({
   static const _soundEnabledKey = 'notifications.sound_enabled';
   static const _soundVolumeKey = 'notifications.sound_volume';
 
-  final FlutterSecureStorage _storage =
+  final FlutterSecureStorage? _storage =
       storage ??
-      const FlutterSecureStorage(
-        mOptions: MacOsOptions(usesDataProtectionKeychain: true),
-      );
+      (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+          ? null
+          : const FlutterSecureStorage(
+              mOptions: MacOsOptions(usesDataProtectionKeychain: true),
+            ));
   final UiSounds _sounds = sounds ?? UiSounds();
   final FlutterLocalNotificationsPlugin _plugin =
       plugin ?? FlutterLocalNotificationsPlugin();
@@ -59,11 +61,13 @@ class AppNotifications({
   Future<void> _load() async {
     if (_loaded) return;
     _loaded = true;
+    final storage = _storage;
+    if (storage == null) return;
     try {
       final values = await Future.wait([
-        _storage.read(key: _desktopEnabledKey),
-        _storage.read(key: _soundEnabledKey),
-        _storage.read(key: _soundVolumeKey),
+        storage.read(key: _desktopEnabledKey),
+        storage.read(key: _soundEnabledKey),
+        storage.read(key: _soundVolumeKey),
       ]);
       _desktopEnabled = _parseBool(values[0], fallback: true);
       _soundEnabled = _parseBool(values[1], fallback: true);
@@ -196,9 +200,11 @@ class AppNotifications({
   }
 
   void _save(String key, String value) {
+    final storage = _storage;
+    if (storage == null) return;
     _pendingSave = _pendingSave.then((_) async {
       try {
-        await _storage.write(key: key, value: value);
+        await storage.write(key: key, value: value);
       } catch (error, stackTrace) {
         debugPrint('Unable to save notification settings: $error\n$stackTrace');
       }

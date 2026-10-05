@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
@@ -19,6 +20,18 @@ abstract interface class SecureKeyStore {
   Future<void> delete(String key);
 }
 
+class const UnavailableSecureKeyStore() implements SecureKeyStore {
+  @override
+  Future<String?> read(String key) async => null;
+
+  @override
+  Future<void> write(String key, String value) =>
+      Future.error(UnsupportedError('System secure storage is unavailable.'));
+
+  @override
+  Future<void> delete(String key) async {}
+}
+
 class PlatformSecureKeyStore implements SecureKeyStore {
   PlatformSecureKeyStore({FlutterSecureStorage? storage})
     : _storage =
@@ -29,15 +42,32 @@ class PlatformSecureKeyStore implements SecureKeyStore {
 
   final FlutterSecureStorage _storage;
 
-  @override
-  Future<String?> read(String key) => _storage.read(key: key);
+  static bool get isAvailable =>
+      kIsWeb || defaultTargetPlatform != TargetPlatform.macOS;
+
+  void _requireAvailable() {
+    if (!isAvailable) {
+      throw UnsupportedError('System secure storage is disabled on macOS.');
+    }
+  }
 
   @override
-  Future<void> write(String key, String value) =>
-      _storage.write(key: key, value: value);
+  Future<String?> read(String key) {
+    _requireAvailable();
+    return _storage.read(key: key);
+  }
 
   @override
-  Future<void> delete(String key) => _storage.delete(key: key);
+  Future<void> write(String key, String value) {
+    _requireAvailable();
+    return _storage.write(key: key, value: value);
+  }
+
+  @override
+  Future<void> delete(String key) {
+    _requireAvailable();
+    return _storage.delete(key: key);
+  }
 }
 
 class KeyringSecureKeyStore(final SecureKeyStore _storage)
@@ -126,14 +156,17 @@ class HiveWalletRepository implements WalletRepository {
   static Future<HiveWalletRepository> open({
     SecureKeyStore? secureKeyStore,
   }) async {
-    await HiveStorageInitializer.initialize(boxName: _boxName);
     final keyStore = secureKeyStore ?? PlatformSecureKeyStore();
     var encodedKey = await keyStore.read(_cipherKeyName);
     if (encodedKey == null) {
       encodedKey = base64UrlEncode(Hive.generateSecureKey());
       await keyStore.write(_cipherKeyName, encodedKey);
     }
-    final key = base64Url.decode(encodedKey);
+    return openWithCipherKey(base64Url.decode(encodedKey));
+  }
+
+  static Future<HiveWalletRepository> openWithCipherKey(Uint8List key) async {
+    await HiveStorageInitializer.initialize(boxName: _boxName);
     if (key.length != 32) {
       throw StateError('Invalid encrypted vault key length.');
     }
