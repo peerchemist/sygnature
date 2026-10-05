@@ -68,6 +68,7 @@ if [[ "$output_path" != /* ]]; then
 fi
 
 # Use ad-hoc signing while preserving the app's sandbox and network entitlements.
+# Hardened runtime library validation rejects frameworks without a Team ID.
 # Bash 3.2 treats an empty array as unset under `set -u`.
 flutter build macos --release --config-only ${flutter_args[@]+"${flutter_args[@]}"}
 xcodebuild \
@@ -81,6 +82,7 @@ xcodebuild \
   CODE_SIGN_STYLE=Manual \
   DEVELOPMENT_TEAM= \
   PROVISIONING_PROFILE_SPECIFIER= \
+  ENABLE_HARDENED_RUNTIME=NO \
   ONLY_ACTIVE_ARCH=YES \
   ARCHS=arm64
 
@@ -98,13 +100,13 @@ readonly temporary_dmg="$temporary_dir/Sygnature-macOS.dmg"
 mkdir -p -- "$staging_dir" "$(dirname -- "$output_path")"
 ditto "$app_path" "$staging_dir/Sygnature.app"
 # Xcode can preserve a development signature on cached plugin frameworks even
-# when the runner is built ad hoc. Re-sign the complete staged bundle so dyld's
-# library validation sees one consistent identity throughout the app.
+# when the runner is built ad hoc. Re-sign the complete staged bundle without
+# hardened runtime, since ad-hoc signatures cannot satisfy its Team ID checks.
 codesign \
   --force \
   --deep \
   --sign - \
-  --options runtime \
+  --options 0 \
   --entitlements "$project_dir/macos/Runner/Release.entitlements" \
   "$staging_dir/Sygnature.app"
 codesign --verify --deep --strict "$staging_dir/Sygnature.app"
