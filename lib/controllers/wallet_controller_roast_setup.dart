@@ -135,10 +135,12 @@ extension WalletRoastSetupController on WalletController {
             accounts: [account],
             nextAccountIndex: 0,
             roastSetups: [setup],
+            selectedAccountId: account.id,
           )
         : current.copyWith(
             accounts: [...current.accounts, account],
             roastSetups: [...current.roastSetups, setup],
+            selectedAccountId: account.id,
           );
     await _repository.save(next);
     _vault = next;
@@ -411,6 +413,7 @@ extension WalletRoastSetupController on WalletController {
             accounts: [...latest.accounts, successorAccount],
             roastSetups: [...latest.roastSetups, preparedSuccessor],
             groupTransitions: [...latest.groupTransitions, transition],
+            selectedAccountId: successorAccount.id,
           );
           await _repository.save(next);
           _vault = next;
@@ -532,6 +535,7 @@ extension WalletRoastSetupController on WalletController {
     final next = current.copyWith(
       accounts: [...current.accounts, account],
       roastSetups: [...current.roastSetups, setup],
+      selectedAccountId: account.id,
     );
     await _repository.save(next);
     _vault = next;

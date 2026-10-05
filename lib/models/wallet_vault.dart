@@ -13,6 +13,7 @@ class WalletVault {
     this.mnemonic,
     this.languageId,
     this.mnemonicWordCount,
+    this.selectedAccountId,
   });
 
   static const schemaVersion = 1;
@@ -22,6 +23,7 @@ class WalletVault {
   final String? mnemonic;
   final String? languageId;
   final int? mnemonicWordCount;
+  final String? selectedAccountId;
   final List<WalletAccount> accounts;
   final int nextAccountIndex;
   final List<RoastSetup> roastSetups;
@@ -34,10 +36,15 @@ class WalletVault {
     List<RoastSetup>? roastSetups,
     List<WalletGroupTransition>? groupTransitions,
     List<WalletActivity>? activities,
+    String? selectedAccountId,
+    bool clearSelectedAccountId = false,
   }) => WalletVault(
     mnemonic: mnemonic,
     languageId: languageId,
     mnemonicWordCount: mnemonicWordCount,
+    selectedAccountId: clearSelectedAccountId
+        ? null
+        : selectedAccountId ?? this.selectedAccountId,
     accounts: accounts ?? this.accounts,
     nextAccountIndex: nextAccountIndex ?? this.nextAccountIndex,
     roastSetups: roastSetups ?? this.roastSetups,
@@ -50,6 +57,7 @@ class WalletVault {
     'mnemonic': mnemonic,
     'languageId': languageId,
     'mnemonicWordCount': mnemonicWordCount,
+    'selectedAccountId': selectedAccountId,
     'accounts': accounts.map((account) => account.toJson()).toList(),
     'nextAccountIndex': nextAccountIndex,
     'roastSetups': roastSetups.map((setup) => setup.toJson()).toList(),
@@ -68,6 +76,7 @@ class WalletVault {
       mnemonic: json['mnemonic'] as String?,
       languageId: json['languageId'] as String?,
       mnemonicWordCount: json['mnemonicWordCount'] as int?,
+      selectedAccountId: json['selectedAccountId'] as String?,
       accounts: (json['accounts']! as List)
           .map((account) => WalletAccount.fromJson(account as Map))
           .toList(growable: false),

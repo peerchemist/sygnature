@@ -105,6 +105,9 @@ void main() {
 
     await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
     await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
+    await controller.selectAccount(0);
+
+    expect(repository.value?.selectedAccountId, controller.accounts.first.id);
 
     final restored = WalletController(
       repository,
@@ -121,6 +124,7 @@ void main() {
     expect(restored.vault?.mnemonicWordCount, 12);
     expect(restored.accounts[0].networkId, 'mainnet');
     expect(restored.accounts[1].networkId, 'testnet');
+    expect(restored.selectedAccount?.name, 'Main wallet');
   });
 
   test('streams ElectrumX UTXOs into account balance state', () async {
@@ -309,6 +313,7 @@ void main() {
 
     expect(controller.accounts.map((account) => account.name), ['Main wallet']);
     expect(controller.selectedAccount?.name, 'Main wallet');
+    expect(repository.value?.selectedAccountId, controller.selectedAccount?.id);
     expect(controller.vault?.nextAccountIndex, 2);
     expect(repository.value?.accounts, hasLength(1));
     expect(services['peercoin:testnet']!.closed, isTrue);
@@ -341,6 +346,7 @@ void main() {
     expect(controller.accounts.map((account) => account.name), ['Main wallet']);
     expect(controller.archivedAccounts.single.name, 'Savings');
     expect(controller.selectedAccount?.name, 'Main wallet');
+    expect(repository.value?.selectedAccountId, controller.selectedAccount?.id);
     expect(repository.value?.accounts, hasLength(2));
     expect(repository.value?.activities, isEmpty);
     expect(repository.value?.nextAccountIndex, 2);
@@ -354,6 +360,7 @@ void main() {
     ]);
     expect(controller.archivedAccounts, isEmpty);
     expect(controller.selectedAccount?.name, 'Savings');
+    expect(repository.value?.selectedAccountId, savingsId);
     expect(services['peercoin:testnet'], hasLength(2));
     expect(services['peercoin:testnet']!.last.watchedAddresses.last, {
       'tpc1paccount1',

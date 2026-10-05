@@ -18,6 +18,7 @@ void main() {
         ),
       ],
       nextAccountIndex: 0,
+      selectedAccountId: 'peercoin-testnet-0',
       activities: [
         WalletActivity(
           id: 'signed:1',
@@ -36,6 +37,7 @@ void main() {
 
     expect(restored.accounts.single.blockchainId, 'peercoin');
     expect(restored.accounts.single.networkId, 'testnet');
+    expect(restored.selectedAccountId, 'peercoin-testnet-0');
     expect(
       restored.accounts.single.derivationState,
       WalletDerivationState.pending,

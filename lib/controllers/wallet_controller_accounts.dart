@@ -40,7 +40,11 @@ extension WalletAccountsController on WalletController {
 
   Future<void> load() async {
     _vault = await _repository.load();
-    _selectedAccountId = accounts.firstOrNull?.id;
+    final storedAccountId = _vault?.selectedAccountId;
+    _selectedAccountId =
+        accounts.any((account) => account.id == storedAccountId)
+        ? storedAccountId
+        : accounts.firstOrNull?.id;
     await _restoreRoastSigningOperations();
     final runtime = _roastRuntime;
     if (runtime != null) {
@@ -84,6 +88,12 @@ extension WalletAccountsController on WalletController {
   Future<void> createVault(MnemonicSession mnemonic) async {
     await _guard(() async {
       final current = _vault;
+      final selectedAccountId =
+          _selectedAccountId ??
+          current?.accounts
+              .where((account) => !account.isArchived)
+              .lastOrNull
+              ?.id;
       final vault = WalletVault(
         mnemonic: mnemonic.phrase,
         languageId: mnemonic.language.id,
@@ -93,10 +103,11 @@ extension WalletAccountsController on WalletController {
         roastSetups: current?.roastSetups ?? const [],
         groupTransitions: current?.groupTransitions ?? const [],
         activities: current?.activities ?? const [],
+        selectedAccountId: selectedAccountId,
       );
       await _repository.save(vault);
       _vault = vault;
-      _selectedAccountId = accounts.lastOrNull?.id;
+      _selectedAccountId = selectedAccountId;
     });
   }
 
@@ -134,6 +145,7 @@ extension WalletAccountsController on WalletController {
         roastSetups: current?.roastSetups ?? const [],
         groupTransitions: current?.groupTransitions ?? const [],
         activities: current?.activities ?? const [],
+        selectedAccountId: first.id,
       );
       await _repository.save(vault);
       _vault = vault;
@@ -174,6 +186,7 @@ extension WalletAccountsController on WalletController {
       final next = current.copyWith(
         accounts: [...current.accounts, account],
         nextAccountIndex: current.nextAccountIndex + 1,
+        selectedAccountId: account.id,
       );
       await _repository.save(next);
       _vault = next;
@@ -223,8 +236,15 @@ extension WalletAccountsController on WalletController {
         createdAt: DateTime.now().toUtc(),
       );
       final next = current == null
-          ? WalletVault(accounts: [account], nextAccountIndex: 0)
-          : current.copyWith(accounts: [...current.accounts, account]);
+          ? WalletVault(
+              accounts: [account],
+              nextAccountIndex: 0,
+              selectedAccountId: account.id,
+            )
+          : current.copyWith(
+              accounts: [...current.accounts, account],
+              selectedAccountId: account.id,
+            );
       await _repository.save(next);
       _vault = next;
       _selectedAccountId = account.id;
@@ -251,6 +271,18 @@ extension WalletAccountsController on WalletController {
 
     final activeIndex = accounts.indexWhere((item) => item.id == accountId);
     final wasSelected = _selectedAccountId == accountId;
+    final remainingActive = current.accounts
+        .where((item) => !item.isArchived && item.id != accountId)
+        .toList(growable: false);
+    final nextSelectedAccountId = wasSelected
+        ? remainingActive.isEmpty
+              ? null
+              : remainingActive[activeIndex.clamp(
+                      0,
+                      remainingActive.length - 1,
+                    )]
+                    .id
+        : _selectedAccountId;
     await _guard(() async {
       final archived = account.archive(DateTime.now());
       final next = current.copyWith(
@@ -258,15 +290,12 @@ extension WalletAccountsController on WalletController {
           for (final item in current.accounts)
             if (item.id == accountId) archived else item,
         ],
+        selectedAccountId: nextSelectedAccountId,
+        clearSelectedAccountId: nextSelectedAccountId == null,
       );
       await _repository.save(next);
       _vault = next;
-      if (wasSelected) {
-        final remaining = accounts;
-        _selectedAccountId = remaining.isEmpty
-            ? null
-            : remaining[activeIndex.clamp(0, remaining.length - 1)].id;
-      }
+      _selectedAccountId = nextSelectedAccountId;
 
       Object? runtimeError;
       StackTrace? runtimeStack;
@@ -315,6 +344,7 @@ extension WalletAccountsController on WalletController {
           for (final item in current.accounts)
             if (item.id == accountId) restored else item,
         ],
+        selectedAccountId: restored.id,
       );
       await _repository.save(next);
       _vault = next;
@@ -367,6 +397,18 @@ extension WalletAccountsController on WalletController {
     final activeIndex = accounts.indexWhere(
       (account) => account.id == accountId,
     );
+    final remainingActive = remainingAccounts
+        .where((account) => !account.isArchived)
+        .toList(growable: false);
+    final nextSelectedAccountId = selectedId == removedAccount.id
+        ? remainingActive.isEmpty
+              ? null
+              : remainingActive[activeIndex.clamp(
+                      0,
+                      remainingActive.length - 1,
+                    )]
+                    .id
+        : selectedId;
     await _guard(() async {
       final next = current.copyWith(
         accounts: remainingAccounts,
@@ -380,6 +422,8 @@ extension WalletAccountsController on WalletController {
                 for (final setup in current.roastSetups)
                   if (setup.id != roastSetupId) setup,
               ],
+        selectedAccountId: nextSelectedAccountId,
+        clearSelectedAccountId: nextSelectedAccountId == null,
       );
       await _repository.save(next);
       _vault = next;
@@ -416,13 +460,7 @@ extension WalletAccountsController on WalletController {
         _completedRoastMessages.remove(roastSetupId);
       }
 
-      final remainingActive = accounts;
-      if (selectedId == removedAccount.id) {
-        _selectedAccountId = remainingActive.isEmpty
-            ? null
-            : remainingActive[activeIndex.clamp(0, remainingActive.length - 1)]
-                  .id;
-      }
+      _selectedAccountId = nextSelectedAccountId;
 
       await _restartElectrumxSync();
       await _closeUnusedNetworkServices();
@@ -457,10 +495,18 @@ extension WalletAccountsController on WalletController {
     });
   }
 
-  void selectAccount(int index) {
+  Future<void> selectAccount(int index) async {
     if (index < 0 || index >= accounts.length) return;
-    _selectedAccountId = accounts[index].id;
-    _notifyListeners();
+    final accountId = accounts[index].id;
+    if (accountId == _selectedAccountId) return;
+    final current = _vault;
+    if (current == null) return;
+    await _guard(() async {
+      final next = current.copyWith(selectedAccountId: accountId);
+      await _repository.save(next);
+      _vault = next;
+      _selectedAccountId = accountId;
+    });
   }
 
   Future<void> resetWallet() async {

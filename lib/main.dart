@@ -267,7 +267,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
     final accountIndex = controller.accounts.indexWhere(
       (account) => account.sourceId == setup!.id,
     );
-    if (accountIndex >= 0) controller.selectAccount(accountIndex);
+    if (accountIndex >= 0) await controller.selectAccount(accountIndex);
     try {
       await controller.joinRoastSetup(setup.id, invitation);
     } catch (error, stackTrace) {
