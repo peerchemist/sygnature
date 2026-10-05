@@ -97,6 +97,16 @@ readonly staging_dir="$temporary_dir/dmg"
 readonly temporary_dmg="$temporary_dir/Sygnature-macOS.dmg"
 mkdir -p -- "$staging_dir" "$(dirname -- "$output_path")"
 ditto "$app_path" "$staging_dir/Sygnature.app"
+# Xcode can preserve a development signature on cached plugin frameworks even
+# when the runner is built ad hoc. Re-sign the complete staged bundle so dyld's
+# library validation sees one consistent identity throughout the app.
+codesign \
+  --force \
+  --deep \
+  --sign - \
+  --options runtime \
+  --entitlements "$project_dir/macos/Runner/Release.entitlements" \
+  "$staging_dir/Sygnature.app"
 codesign --verify --deep --strict "$staging_dir/Sygnature.app"
 ln -s /Applications "$staging_dir/Applications"
 

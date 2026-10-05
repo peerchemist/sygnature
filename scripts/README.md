@@ -107,9 +107,9 @@ scripts/build_macos --no-pub
 
 The result is `build/Sygnature-macOS.dmg`, containing the ARM64 `Sygnature.app`
 and an Applications shortcut. Xcode ad-hoc signs the app with its sandbox and
-network entitlements; the script preserves and verifies that signature while
-packaging. No Apple signing certificate or provisioning profile is required,
-including on CI runners.
+network entitlements; the script then re-signs the complete staged bundle with
+one ad-hoc identity and verifies it before packaging. No Apple signing
+certificate or provisioning profile is required, including on CI runners.
 
 The app is not notarized. Testers should drag it into Applications and try to
 open it. If macOS blocks it, use **System Settings > Privacy & Security > Open
