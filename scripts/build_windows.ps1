@@ -258,6 +258,8 @@ Mirror-Directory $noosphereSource $noosphereCopy @(
     "ephemeral",
     "build"
 )
+& git -C $noosphereCopy config uploadpack.hideRefs refs/codex
+Assert-NativeSuccess "hiding internal Noosphere refs" $LASTEXITCODE
 
 Push-Location $projectCopy
 try {
