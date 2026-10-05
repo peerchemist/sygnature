@@ -13,8 +13,8 @@ usage() {
 Usage: scripts/build_macos [--output PATH] [FLUTTER_BUILD_OPTIONS]
 
 Builds the macOS release app and packages it in a compressed DMG for testers.
-Requires an Apple Development signing identity and provisioning profile for
-team V274DD3UKN, configured in Xcode.
+Uses ad-hoc signing; no Apple signing certificate or provisioning profile is
+required. Testers may need to allow the app in Privacy & Security on first launch.
 Additional options are passed to `flutter build macos`, for example:
 
   scripts/build_macos --no-pub --build-name 0.9.1 --build-number 3
@@ -67,7 +67,7 @@ if [[ "$output_path" != /* ]]; then
   output_path="$project_dir/$output_path"
 fi
 
-# Let Xcode resolve the Keychain entitlements and sign with the configured team.
+# Use ad-hoc signing while preserving the app's sandbox and network entitlements.
 # Bash 3.2 treats an empty array as unset under `set -u`.
 flutter build macos --release --config-only ${flutter_args[@]+"${flutter_args[@]}"}
 xcodebuild \
@@ -77,6 +77,10 @@ xcodebuild \
   -configuration Release \
   -derivedDataPath "$project_dir/build/macos" \
   -destination "generic/platform=macOS" \
+  CODE_SIGN_IDENTITY=- \
+  CODE_SIGN_STYLE=Manual \
+  DEVELOPMENT_TEAM= \
+  PROVISIONING_PROFILE_SPECIFIER= \
   ONLY_ACTIVE_ARCH=YES \
   ARCHS=arm64
 
@@ -108,4 +112,4 @@ mv -f -- "$temporary_dmg" "$output_path"
 
 echo "macOS DMG: $output_path"
 echo "Architecture: arm64"
-echo "Note: this development-signed build is not notarized and requires a provisioning profile covering the tester's Mac."
+echo "Note: this ad-hoc signed build is not notarized. If blocked on first launch, use System Settings > Privacy & Security > Open Anyway."

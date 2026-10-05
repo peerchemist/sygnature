@@ -132,5 +132,6 @@ scripts/build_macos
 ```
 
 The Apple Silicon package is written to `build/Sygnature-macOS.dmg`. It is
-ad-hoc signed but not notarized, so testers may need to Control-click Sygnature
-and choose **Open** the first time.
+ad-hoc signed but not notarized, so testers may need to use **System Settings >
+Privacy & Security > Open Anyway** after the first blocked launch. No Apple
+signing certificate or provisioning profile is required.
