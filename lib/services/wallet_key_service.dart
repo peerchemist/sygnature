@@ -1,8 +1,7 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:bip39_mnemonic/bip39_mnemonic.dart' as bip39;
 import 'package:coinlib/coinlib.dart';
-import 'package:unorm_dart/unorm_dart.dart' as unicode;
 
 import '../models/mnemonic_seed.dart';
 import '../models/wallet_network.dart';
@@ -28,18 +27,17 @@ abstract interface class WalletKeyService {
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,
     required int wordCount,
-    required List<String> wordlist,
   });
 
   MnemonicValidationResult validateMnemonic({
     required String mnemonic,
     required MnemonicLanguage language,
-    required List<String> wordlist,
   });
 
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required String mnemonic,
+    required MnemonicLanguage language,
     required int accountIndex,
   });
 }
@@ -48,15 +46,12 @@ class CoinlibWalletKeyService implements WalletKeyService {
   CoinlibWalletKeyService({EntropyGenerator? entropyGenerator})
     : _entropyGenerator = entropyGenerator ?? generateRandomBytes;
 
-  static const _pbkdf2Rounds = 2048;
-
   final EntropyGenerator _entropyGenerator;
 
   @override
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,
     required int wordCount,
-    required List<String> wordlist,
   }) {
     if (wordCount != 12 && wordCount != 24) {
       throw ArgumentError.value(
@@ -65,8 +60,6 @@ class CoinlibWalletKeyService implements WalletKeyService {
         'Only 12- and 24-word BIP-39 phrases are supported.',
       );
     }
-
-    final normalizedWordlist = _normalizeWordlist(wordlist);
 
     final entropy = _entropyGenerator(wordCount == 12 ? 16 : 32);
     final expectedLength = wordCount == 12 ? 16 : 32;
@@ -77,98 +70,59 @@ class CoinlibWalletKeyService implements WalletKeyService {
       );
     }
 
-    final checksum = sha256Hash(entropy);
-    final checksumBitCount = entropy.length ~/ 4;
-    final totalBitCount = entropy.length * 8 + checksumBitCount;
-    final words = <String>[];
-
-    for (var offset = 0; offset < totalBitCount; offset += 11) {
-      var index = 0;
-      for (var bit = 0; bit < 11; bit++) {
-        final position = offset + bit;
-        final source = position < entropy.length * 8 ? entropy : checksum;
-        final sourcePosition = position < entropy.length * 8
-            ? position
-            : position - entropy.length * 8;
-        final value =
-            (source[sourcePosition ~/ 8] >> (7 - sourcePosition % 8)) & 1;
-        index = (index << 1) | value;
-      }
-      words.add(normalizedWordlist[index]);
+    try {
+      final mnemonic = bip39.Mnemonic(entropy, language.bip39Language);
+      return MnemonicSession(
+        words: List.unmodifiable(mnemonic.words),
+        language: language,
+        createdInApp: true,
+      );
+    } finally {
+      entropy.fillRange(0, entropy.length, 0);
     }
-
-    return MnemonicSession(
-      words: List.unmodifiable(words),
-      language: language,
-      createdInApp: true,
-    );
   }
 
   @override
   MnemonicValidationResult validateMnemonic({
     required String mnemonic,
     required MnemonicLanguage language,
-    required List<String> wordlist,
   }) {
-    final normalizedWordlist = _normalizeWordlist(wordlist);
-    final normalizedMnemonic = unicode.nfkd(
-      mnemonic.replaceAll('\u3000', ' ').trim(),
-    );
-    final inputWords = normalizedMnemonic.isEmpty
+    final normalized = mnemonic.replaceAll('\u3000', ' ').trim();
+    final inputWords = normalized.isEmpty
         ? const <String>[]
-        : normalizedMnemonic.split(RegExp(r'\s+'));
+        : normalized.split(RegExp(r'\s+'));
     if (inputWords.length != 12 && inputWords.length != 24) {
       return const MnemonicValidationResult.invalid(
         'Recovery phrase must contain 12 or 24 words.',
       );
     }
 
-    final wordIndexes = <int>[];
-    for (final word in inputWords) {
-      final index = normalizedWordlist.indexOf(word);
-      if (index == -1) {
-        return const MnemonicValidationResult.invalid(
-          'Recovery phrase contains a word outside the selected wordlist.',
-        );
-      }
-      wordIndexes.add(index);
-    }
-
-    final checksumBitCount = inputWords.length ~/ 3;
-    final entropyBitCount = inputWords.length * 11 - checksumBitCount;
-    final entropy = Uint8List(entropyBitCount ~/ 8);
-    var suppliedChecksum = 0;
-    var position = 0;
-    for (final wordIndex in wordIndexes) {
-      for (var bit = 10; bit >= 0; bit--) {
-        final value = (wordIndex >> bit) & 1;
-        if (position < entropyBitCount) {
-          entropy[position ~/ 8] |= value << (7 - position % 8);
-        } else {
-          suppliedChecksum = (suppliedChecksum << 1) | value;
-        }
-        position++;
-      }
-    }
-    final expectedChecksum =
-        sha256Hash(entropy).first >> (8 - checksumBitCount);
-    if (suppliedChecksum != expectedChecksum) {
+    try {
+      final parsed = bip39.Mnemonic.fromWords(
+        words: inputWords,
+        language: language.bip39Language,
+      );
+      return MnemonicValidationResult.valid(List.unmodifiable(parsed.words));
+    } on bip39.MnemonicWordNotFoundException {
+      return const MnemonicValidationResult.invalid(
+        'Recovery phrase contains a word outside the selected wordlist.',
+      );
+    } on bip39.MnemonicInvalidChecksumException {
       return const MnemonicValidationResult.invalid(
         'Recovery phrase checksum is invalid.',
       );
+    } on bip39.MnemonicException {
+      return const MnemonicValidationResult.invalid(
+        'Recovery phrase is invalid.',
+      );
     }
-
-    return MnemonicValidationResult.valid(
-      wordIndexes
-          .map((index) => normalizedWordlist[index])
-          .toList(growable: false),
-    );
   }
 
   @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required String mnemonic,
+    required MnemonicLanguage language,
     required int accountIndex,
   }) {
     if (accountIndex < 0 || accountIndex >= HDKey.hardenBit) {
@@ -176,55 +130,40 @@ class CoinlibWalletKeyService implements WalletKeyService {
     }
     final peercoinNetwork = PeercoinNetworks.fromWalletNetwork(network);
     final path = network.derivationPathForAccount(accountIndex);
-    final seed = mnemonicToSeed(mnemonic);
-    final child = HDPrivateKey.fromSeed(seed).derivePath(path);
-    final taproot = Taproot(internalKey: child.publicKey);
-    final spendKey = taproot.tweakPrivateKey(child.privateKey);
-    final address = P2TRAddress.fromTaproot(
-      taproot,
-      hrp: peercoinNetwork.network.bech32Hrp,
-    ).toString();
+    final seed = mnemonicToSeed(mnemonic, language: language);
+    try {
+      final child = HDPrivateKey.fromSeed(seed).derivePath(path);
+      final taproot = Taproot(internalKey: child.publicKey);
+      final spendKey = taproot.tweakPrivateKey(child.privateKey);
+      final address = P2TRAddress.fromTaproot(
+        taproot,
+        hrp: peercoinNetwork.network.bech32Hrp,
+      ).toString();
 
-    return DerivedWalletMaterial(
-      derivationPath: path,
-      address: address,
-      privateKeyHex: bytesToHex(spendKey.data),
-    );
-  }
-
-  /// BIP-39 seed derivation using NFKD normalization and PBKDF2-HMAC-SHA512.
-  static Uint8List mnemonicToSeed(String mnemonic, {String passphrase = ''}) {
-    final password = Uint8List.fromList(utf8.encode(unicode.nfkd(mnemonic)));
-    final salt = Uint8List.fromList(
-      utf8.encode(unicode.nfkd('mnemonic$passphrase')),
-    );
-    final firstBlock = Uint8List(salt.length + 4)..setAll(0, salt);
-    firstBlock[firstBlock.length - 1] = 1;
-
-    var round = hmacSha512(password, firstBlock);
-    final result = Uint8List.fromList(round);
-    for (var iteration = 1; iteration < _pbkdf2Rounds; iteration++) {
-      round = hmacSha512(password, round);
-      for (var index = 0; index < result.length; index++) {
-        result[index] ^= round[index];
-      }
-    }
-    return result;
-  }
-
-  static List<String> _normalizeWordlist(List<String> wordlist) {
-    final normalized = wordlist
-        .map((word) => unicode.nfkd(word.trim()))
-        .toList(growable: false);
-    if (normalized.length != 2048 ||
-        normalized.any((word) => word.isEmpty) ||
-        normalized.toSet().length != 2048) {
-      throw ArgumentError.value(
-        wordlist,
-        'wordlist',
-        'A BIP-39 wordlist must contain 2,048 unique words.',
+      return DerivedWalletMaterial(
+        derivationPath: path,
+        address: address,
+        privateKeyHex: bytesToHex(spendKey.data),
       );
+    } finally {
+      seed.fillRange(0, seed.length, 0);
     }
-    return normalized;
+  }
+
+  static Uint8List mnemonicToSeed(
+    String mnemonic, {
+    String passphrase = '',
+    MnemonicLanguage? language,
+  }) {
+    final words = mnemonic
+        .replaceAll('\u3000', ' ')
+        .trim()
+        .split(RegExp(r'\s+'));
+    final parsed = bip39.Mnemonic.fromWords(
+      words: words,
+      language: (language ?? MnemonicLanguage.english).bip39Language,
+      passphrase: passphrase,
+    );
+    return Uint8List.fromList(parsed.seed);
   }
 }

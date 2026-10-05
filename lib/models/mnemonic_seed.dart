@@ -1,71 +1,40 @@
-class MnemonicLanguage {
-  const MnemonicLanguage({
-    required this.id,
-    required this.label,
-    required this.assetPath,
-  });
+import 'package:bip39_mnemonic/bip39_mnemonic.dart' as bip39;
 
-  final String id;
-  final String label;
-  final String assetPath;
+class const MnemonicLanguage({
+  required final bip39.Language bip39Language,
+  required final String label,
+}) {
+  String get id => bip39Language.label;
+
+  static const english = MnemonicLanguage(
+    bip39Language: bip39.Language.english,
+    label: 'English',
+  );
 
   static const supported = <MnemonicLanguage>[
+    english,
+    MnemonicLanguage(bip39Language: bip39.Language.czech, label: 'Czech'),
+    MnemonicLanguage(bip39Language: bip39.Language.french, label: 'French'),
+    MnemonicLanguage(bip39Language: bip39.Language.italian, label: 'Italian'),
+    MnemonicLanguage(bip39Language: bip39.Language.japanese, label: 'Japanese'),
+    MnemonicLanguage(bip39Language: bip39.Language.korean, label: 'Korean'),
     MnemonicLanguage(
-      id: 'english',
-      label: 'English',
-      assetPath: 'assets/wordlists/english.txt',
-    ),
-    MnemonicLanguage(
-      id: 'czech',
-      label: 'Czech',
-      assetPath: 'assets/wordlists/czech.txt',
-    ),
-    MnemonicLanguage(
-      id: 'french',
-      label: 'French',
-      assetPath: 'assets/wordlists/french.txt',
-    ),
-    MnemonicLanguage(
-      id: 'italian',
-      label: 'Italian',
-      assetPath: 'assets/wordlists/italian.txt',
-    ),
-    MnemonicLanguage(
-      id: 'japanese',
-      label: 'Japanese',
-      assetPath: 'assets/wordlists/japanese.txt',
-    ),
-    MnemonicLanguage(
-      id: 'korean',
-      label: 'Korean',
-      assetPath: 'assets/wordlists/korean.txt',
-    ),
-    MnemonicLanguage(
-      id: 'portuguese',
+      bip39Language: bip39.Language.portuguese,
       label: 'Portuguese',
-      assetPath: 'assets/wordlists/portuguese.txt',
+    ),
+    MnemonicLanguage(bip39Language: bip39.Language.spanish, label: 'Spanish'),
+    MnemonicLanguage(
+      bip39Language: bip39.Language.simplifiedChinese,
+      label: 'Chinese (simplified)',
     ),
     MnemonicLanguage(
-      id: 'russian',
-      label: 'Russian',
-      assetPath: 'assets/wordlists/russian.txt',
-    ),
-    MnemonicLanguage(
-      id: 'spanish',
-      label: 'Spanish',
-      assetPath: 'assets/wordlists/spanish.txt',
-    ),
-    MnemonicLanguage(
-      id: 'turkish',
-      label: 'Turkish',
-      assetPath: 'assets/wordlists/turkish.txt',
+      bip39Language: bip39.Language.traditionalChinese,
+      label: 'Chinese (traditional)',
     ),
   ];
 
-  static MnemonicLanguage byId(String id) => supported.firstWhere(
-    (language) => language.id == id,
-    orElse: () => supported.first,
-  );
+  static MnemonicLanguage byId(String id) =>
+      supported.firstWhere((language) => language.id == id);
 }
 
 class MnemonicSession {

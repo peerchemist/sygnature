@@ -48,22 +48,12 @@ extension WalletAccountsController on WalletController {
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,
     required int wordCount,
-    required List<String> wordlist,
-  }) => _keyService.generateMnemonic(
-    language: language,
-    wordCount: wordCount,
-    wordlist: wordlist,
-  );
+  }) => _keyService.generateMnemonic(language: language, wordCount: wordCount);
 
   MnemonicValidationResult validateMnemonic({
     required String mnemonic,
     required MnemonicLanguage language,
-    required List<String> wordlist,
-  }) => _keyService.validateMnemonic(
-    mnemonic: mnemonic,
-    language: language,
-    wordlist: wordlist,
-  );
+  }) => _keyService.validateMnemonic(mnemonic: mnemonic, language: language);
 
   Future<void> createVault(MnemonicSession mnemonic) async {
     await _guard(() async {
@@ -99,6 +89,7 @@ extension WalletAccountsController on WalletController {
       final material = _keyService.deriveAccount(
         network: selectedNetwork,
         mnemonic: mnemonic.phrase,
+        language: mnemonic.language,
         accountIndex: 0,
       );
       final first = _derivedAccount(
@@ -150,6 +141,7 @@ extension WalletAccountsController on WalletController {
         _keyService.deriveAccount(
           network: selectedNetwork,
           mnemonic: mnemonic,
+          language: MnemonicLanguage.byId(current.languageId!),
           accountIndex: index,
         ),
       );

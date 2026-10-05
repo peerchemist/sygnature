@@ -38,7 +38,7 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.6
   coinlib: ^6.0.1
-  unorm_dart: ^0.3.2
+  bip39_mnemonic: 4.1.0
   logger: ^2.8.0
   unique_names_generator: ^3.1.2
   web_socket_channel: ^3.0.3
@@ -97,9 +97,6 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
-
-  assets:
-    - assets/wordlists/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

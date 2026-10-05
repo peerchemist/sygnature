@@ -1,7 +1,4 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/mnemonic_seed.dart';
@@ -27,23 +24,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   _SetupStep _step = _SetupStep.mnemonic;
   _MnemonicSource _source = _MnemonicSource.generate;
   final TextEditingController _importController = TextEditingController();
-  MnemonicLanguage? _language = MnemonicLanguage.byId('english');
+  MnemonicLanguage? _language = MnemonicLanguage.english;
   int _wordCount = 12;
-  List<String>? _wordlist;
   MnemonicSession? _mnemonic;
   bool _backupConfirmed = false;
-  String? _wordlistError;
+  String? _mnemonicError;
   String? _importError;
   String? _creationError;
-  bool _loadingWordlist = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _selectLanguage(_language);
-    });
-  }
 
   @override
   void dispose() {
@@ -51,52 +38,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  Future<void> _selectLanguage(MnemonicLanguage? language) async {
+  void _selectLanguage(MnemonicLanguage? language) {
     if (language == null) return;
     setState(() {
       _language = language;
-      _wordlist = null;
       _mnemonic = null;
       _backupConfirmed = false;
-      _wordlistError = null;
+      _mnemonicError = null;
       _importError = null;
-      _loadingWordlist = true;
     });
-    try {
-      final source = await rootBundle.loadString(language.assetPath);
-      final words = const LineSplitter()
-          .convert(source)
-          .where((word) => word.trim().isNotEmpty)
-          .map((word) => word.trim())
-          .toList(growable: false);
-      if (!mounted || _language?.id != language.id) return;
-      setState(() {
-        _wordlist = words;
-        _loadingWordlist = false;
-        if (words.length != 2048) {
-          _wordlistError = 'Expected 2,048 words, found ${words.length}.';
-        }
-      });
-    } catch (_) {
-      if (!mounted || _language?.id != language.id) return;
-      setState(() {
-        _wordlistError = 'Unable to load the selected wordlist.';
-        _loadingWordlist = false;
-      });
-    }
   }
 
   void _generateMnemonic() {
     final language = _language;
-    final wordlist = _wordlist;
-    if (language == null || wordlist == null || wordlist.length != 2048) {
-      return;
-    }
+    if (language == null) return;
     try {
       final mnemonic = widget.controller.generateMnemonic(
         language: language,
         wordCount: _wordCount,
-        wordlist: wordlist,
       );
       setState(() {
         _mnemonic = mnemonic;
@@ -105,21 +64,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _step = _SetupStep.backup;
       });
     } catch (_) {
-      setState(() => _wordlistError = 'Unable to generate recovery words.');
+      setState(() => _mnemonicError = 'Unable to generate recovery words.');
     }
   }
 
   void _importMnemonic() {
     final language = _language;
-    final wordlist = _wordlist;
-    if (language == null || wordlist == null || wordlist.length != 2048) {
-      return;
-    }
+    if (language == null) return;
     try {
       final result = widget.controller.validateMnemonic(
         mnemonic: _importController.text,
         language: language,
-        wordlist: wordlist,
       );
       if (!result.isValid) {
         setState(() => _importError = result.error);
@@ -204,9 +159,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             source: _source,
                             language: _language,
                             wordCount: _wordCount,
-                            loadedWordCount: _wordlist?.length,
-                            loadingWordlist: _loadingWordlist,
-                            wordlistError: _wordlistError,
+                            mnemonicError: _mnemonicError,
                             importController: _importController,
                             importError: _importError,
                             onSourceChanged: (selection) => setState(() {
@@ -224,11 +177,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             onImportChanged: (_) => setState(() {
                               _importError = null;
                             }),
-                            onContinue: _wordlist?.length == 2048
-                                ? _source == _MnemonicSource.generate
-                                      ? _generateMnemonic
-                                      : _importMnemonic
-                                : null,
+                            onContinue: _source == _MnemonicSource.generate
+                                ? _generateMnemonic
+                                : _importMnemonic,
                             onWatchOnly: () => showWatchOnlyWalletDialog(
                               context,
                               widget.controller,
@@ -272,9 +223,7 @@ class _MnemonicStep extends StatelessWidget {
     required this.source,
     required this.language,
     required this.wordCount,
-    required this.loadedWordCount,
-    required this.loadingWordlist,
-    required this.wordlistError,
+    required this.mnemonicError,
     required this.importController,
     required this.importError,
     required this.onSourceChanged,
@@ -288,9 +237,7 @@ class _MnemonicStep extends StatelessWidget {
   final _MnemonicSource source;
   final MnemonicLanguage? language;
   final int wordCount;
-  final int? loadedWordCount;
-  final bool loadingWordlist;
-  final String? wordlistError;
+  final String? mnemonicError;
   final TextEditingController importController;
   final String? importError;
   final ValueChanged<Set<_MnemonicSource>> onSourceChanged;
@@ -462,22 +409,19 @@ class _MnemonicStep extends StatelessWidget {
 
   IconData get _statusIcon {
     if (language == null) return Icons.radio_button_unchecked;
-    if (loadingWordlist) return Icons.sync;
-    if (wordlistError != null) return Icons.error_outline;
+    if (mnemonicError != null) return Icons.error_outline;
     return Icons.check_circle_outline;
   }
 
   String get _statusLabel {
     if (language == null) return 'Wordlist: not selected';
-    if (loadingWordlist) return 'Wordlist: loading';
-    if (wordlistError != null) return wordlistError!;
-    return 'Wordlist: ${language!.label}, ${loadedWordCount ?? 0} words';
+    if (mnemonicError != null) return mnemonicError!;
+    return 'Wordlist: ${language!.label}, 2048 words';
   }
 
   Color get _statusColor {
-    if (wordlistError != null) return Colors.red;
-    if (loadedWordCount == 2048) return AppColors.greenDark;
-    return AppColors.inkMuted;
+    if (mnemonicError != null) return Colors.red;
+    return language == null ? AppColors.inkMuted : AppColors.greenDark;
   }
 }
 

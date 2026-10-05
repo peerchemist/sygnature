@@ -699,11 +699,7 @@ const _mnemonic = MnemonicSession(
     'abandon',
     'about',
   ],
-  language: MnemonicLanguage(
-    id: 'english',
-    label: 'English',
-    assetPath: 'assets/wordlists/english.txt',
-  ),
+  language: MnemonicLanguage.english,
   createdInApp: true,
 );
 
@@ -712,14 +708,12 @@ class _FakeWalletKeyService implements WalletKeyService {
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,
     required int wordCount,
-    required List<String> wordlist,
   }) => _mnemonic;
 
   @override
   MnemonicValidationResult validateMnemonic({
     required String mnemonic,
     required MnemonicLanguage language,
-    required List<String> wordlist,
   }) => mnemonic.trim() == _mnemonic.phrase
       ? MnemonicValidationResult.valid(_mnemonic.words)
       : const MnemonicValidationResult.invalid('Invalid recovery phrase.');
@@ -728,6 +722,7 @@ class _FakeWalletKeyService implements WalletKeyService {
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required String mnemonic,
+    required MnemonicLanguage language,
     required int accountIndex,
   }) => DerivedWalletMaterial(
     derivationPath: network.derivationPathForAccount(accountIndex),

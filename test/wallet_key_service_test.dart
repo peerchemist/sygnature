@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
@@ -10,8 +9,24 @@ import 'package:sygnature_ng/services/wallet_key_service.dart';
 void main() {
   setUpAll(loadCoinlib);
 
-  test('generates the official 128-bit zero-entropy BIP-39 vector', () async {
-    final words = await File('assets/wordlists/english.txt').readAsLines();
+  test('uses exactly the languages bundled by bip39_mnemonic', () {
+    expect(MnemonicLanguage.supported.map((language) => language.id), [
+      'english',
+      'czech',
+      'french',
+      'italian',
+      'japanese',
+      'korean',
+      'portuguese',
+      'spanish',
+      'chinese-simplified',
+      'chinese-traditional',
+    ]);
+    expect(() => MnemonicLanguage.byId('russian'), throwsStateError);
+    expect(() => MnemonicLanguage.byId('turkish'), throwsStateError);
+  });
+
+  test('generates the official 128-bit zero-entropy BIP-39 vector', () {
     final service = CoinlibWalletKeyService(
       entropyGenerator: (length) => Uint8List(length),
     );
@@ -19,7 +34,6 @@ void main() {
     final mnemonic = service.generateMnemonic(
       language: MnemonicLanguage.byId('english'),
       wordCount: 12,
-      wordlist: words,
     );
 
     expect(
@@ -29,8 +43,7 @@ void main() {
     );
   });
 
-  test('generates a valid 24-word checksum from 256-bit entropy', () async {
-    final words = await File('assets/wordlists/english.txt').readAsLines();
+  test('generates a valid 24-word checksum from 256-bit entropy', () {
     final service = CoinlibWalletKeyService(
       entropyGenerator: (length) => Uint8List(length),
     );
@@ -38,7 +51,6 @@ void main() {
     final mnemonic = service.generateMnemonic(
       language: MnemonicLanguage.byId('english'),
       wordCount: 24,
-      wordlist: words,
     );
 
     expect(mnemonic.words, hasLength(24));
@@ -49,21 +61,18 @@ void main() {
           .validateMnemonic(
             mnemonic: mnemonic.phrase,
             language: MnemonicLanguage.byId('english'),
-            wordlist: words,
           )
           .isValid,
       isTrue,
     );
   });
 
-  test('validates an imported BIP-39 recovery phrase', () async {
-    final words = await File('assets/wordlists/english.txt').readAsLines();
+  test('validates an imported BIP-39 recovery phrase', () {
     final result = CoinlibWalletKeyService().validateMnemonic(
       mnemonic:
           '  abandon abandon abandon abandon abandon abandon\n'
           'abandon abandon abandon abandon abandon about  ',
       language: MnemonicLanguage.byId('english'),
-      wordlist: words,
     );
 
     expect(result.isValid, isTrue);
@@ -71,20 +80,15 @@ void main() {
     expect(result.words.last, 'about');
   });
 
-  test(
-    'rejects an imported recovery phrase with an invalid checksum',
-    () async {
-      final words = await File('assets/wordlists/english.txt').readAsLines();
-      final result = CoinlibWalletKeyService().validateMnemonic(
-        mnemonic: List.filled(12, 'abandon').join(' '),
-        language: MnemonicLanguage.byId('english'),
-        wordlist: words,
-      );
+  test('rejects an imported recovery phrase with an invalid checksum', () {
+    final result = CoinlibWalletKeyService().validateMnemonic(
+      mnemonic: List.filled(12, 'abandon').join(' '),
+      language: MnemonicLanguage.byId('english'),
+    );
 
-      expect(result.isValid, isFalse);
-      expect(result.error, 'Recovery phrase checksum is invalid.');
-    },
-  );
+    expect(result.isValid, isFalse);
+    expect(result.error, 'Recovery phrase checksum is invalid.');
+  });
 
   test('derives the official BIP-39 seed', () {
     final seed = CoinlibWalletKeyService.mnemonicToSeed(
@@ -126,6 +130,7 @@ void main() {
     final material = service.deriveAccount(
       network: PeercoinNetworks.mainnet,
       mnemonic: mnemonic,
+      language: MnemonicLanguage.byId('english'),
       accountIndex: 0,
     );
     final spendKey = ECPrivateKey.fromHex(material.privateKeyHex);
@@ -149,11 +154,13 @@ void main() {
     final mainnet = service.deriveAccount(
       network: PeercoinNetworks.mainnet,
       mnemonic: mnemonic,
+      language: MnemonicLanguage.byId('english'),
       accountIndex: 0,
     );
     final testnet = service.deriveAccount(
       network: PeercoinNetworks.testnet,
       mnemonic: mnemonic,
+      language: MnemonicLanguage.byId('english'),
       accountIndex: 0,
     );
 

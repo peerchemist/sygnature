@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import 'controllers/wallet_controller.dart';
@@ -117,26 +115,15 @@ class _SygnatureAppState extends State<SygnatureApp> {
     if (mnemonic == null || languageId == null) {
       throw StateError('The wallet mnemonic is required for Iroh identity.');
     }
-    final language = MnemonicLanguage.supported.firstWhere(
-      (candidate) => candidate.id == languageId,
-      orElse: () =>
-          throw StateError('The wallet mnemonic language is invalid.'),
-    );
-    final source = await rootBundle.loadString(language.assetPath);
-    final wordlist = const LineSplitter()
-        .convert(source)
-        .where((word) => word.trim().isNotEmpty)
-        .map((word) => word.trim())
-        .toList(growable: false);
+    final language = MnemonicLanguage.byId(languageId);
     final validation = CoinlibWalletKeyService().validateMnemonic(
       mnemonic: mnemonic,
       language: language,
-      wordlist: wordlist,
     );
     if (!validation.isValid) {
       throw StateError('The stored wallet mnemonic is invalid.');
     }
-    return CoinlibWalletKeyService.mnemonicToSeed(mnemonic);
+    return CoinlibWalletKeyService.mnemonicToSeed(mnemonic, language: language);
   }
 
   @override
