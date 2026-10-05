@@ -1,202 +1,32 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:coinlib/coinlib.dart' show TaprootKeySignDetails, bytesToHex;
+import 'package:coinlib/coinlib.dart'
+    show TaprootKeySignDetails, bytesEqual, bytesToHex;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import '../models/roast_setup.dart';
 import '../storage/roast_storage.dart';
 import 'app_logger.dart';
+import 'roast_runtime.dart';
 import 'wallet_transaction_service.dart';
 
-const roastDkgAttemptTtl = Duration(hours: 1);
-const maxRoastSigningMessageBytes = SignaturesRequestDetails.maxMessageBytes;
-const maxRoastSignedMessageBytes = SignedMessagePayload.maxTextBytes;
+export 'roast_runtime.dart';
 
-sealed class RoastRuntimeEvent {
-  const RoastRuntimeEvent(this.setupId);
-
-  final String setupId;
-}
-
-final class RoastRuntimeSnapshotEvent(
-  super.setupId, {
-  required final bool connected,
-  required final bool signerRunning,
-  required final List<String> onlineParticipantIds,
-  required final String? coordinatorId,
-  required final List<String> coordinatorRelayUrls,
-  required final List<String> coordinatorIpAddrs,
-}) extends RoastRuntimeEvent;
-
-final class RoastRuntimeDkgEvent(
-  super.setupId, {
-  required final String proposalHex,
-  required final String name,
-  required final int threshold,
-  required final String creator,
-  required final DateTime expiry,
-  required final String description,
-  required final String stage,
-  required final bool rejected,
-  final List<String> completedParticipantIds = const [],
-  final String? failure,
-}) extends RoastRuntimeEvent;
-
-final class RoastRuntimeKeyEvent(
-  super.setupId, {
-  required final String groupKeyHex,
-  required final String keyName,
-  required final String description,
-}) extends RoastRuntimeEvent;
-
-final class RoastRuntimeFailureEvent(
-  super.setupId, {
-  required final String message,
-  required final bool interrupted,
-  required final String operation,
-  final String? requestIdHex,
-}) extends RoastRuntimeEvent;
-
-class RoastSigningOutput({
-  required final int valueSats,
-  required final String scriptHex,
-});
-
-enum RoastSigningRequestKind { transaction, message, unsupported }
-
-class RoastSigningRequest({
-  required final String idHex,
-  required final String proposalHex,
-  required final String creator,
-  required final DateTime expiry,
-  required final RoastSigningRequestKind kind,
-  required final bool hasTransactionMetadata,
-  required final bool usesSupportedSighash,
-  required final bool usesExpectedTaprootTweak,
-  required final bool usesUntweakedKey,
-  required final String status,
-  required final int inputSats,
-  required final int transactionInputCount,
-  required final List<int> signedInputIndexes,
-  required final List<String> previousOutputScripts,
-  required final List<String> inputOutpoints,
-  required final List<RoastSigningOutput> outputs,
-  required final List<String> masterGroupKeys,
-  required final List<List<int>> derivationPaths,
-  final String message = '',
-  final String? signedMessageText,
-}) {
-  int get outputSats =>
-      outputs.fold(0, (sum, output) => sum + output.valueSats);
-  int get feeSats => inputSats - outputSats;
-}
-
-final class RoastRuntimeSigningRequestEvent(
-  super.setupId, {
-  required final RoastSigningRequest request,
-}) extends RoastRuntimeEvent;
-
-final class RoastRuntimeSigningRequestRemovedEvent(
-  super.setupId, {
-  required final String requestIdHex,
-  required final bool expired,
-}) extends RoastRuntimeEvent;
-
-final class RoastRuntimeSigningResultEvent(
-  super.setupId, {
-  required final String requestIdHex,
-  required final String proposalHex,
-  required final List<Uint8List> signatures,
-  required final String creator,
-}) extends RoastRuntimeEvent;
-
-class RoastSignedMessage({
-  required final String text,
-  required final String publicKeyHex,
-  required final String signatureHex,
-  required final String encoded,
-});
-
-final class RoastRuntimeMessageSigningResultEvent(
-  super.setupId, {
-  required final String requestIdHex,
-  required final String creator,
-  required final RoastSignedMessage signedMessage,
-}) extends RoastRuntimeEvent;
-
-class RoastRuntimeSnapshot({
-  required final bool connected,
-  required final bool signerRunning,
-  required final List<String> onlineParticipantIds,
-  required final String? coordinatorId,
-  required final List<String> coordinatorRelayUrls,
-  required final List<String> coordinatorIpAddrs,
-  required final String? groupKeyHex,
-  required final String? pendingDkgProposalHex,
-  final String? pendingDkgStage,
-  final List<String> pendingDkgCompletedParticipantIds = const [],
-  final String? pendingDkgName,
-  final int? pendingDkgThreshold,
-  final String? pendingDkgCreator,
-  final DateTime? pendingDkgExpiry,
-});
-
-class RoastSigningProposal({
-  required final String idHex,
-  required final String proposalHex,
-  required final DateTime expiry,
-});
-
-class RoastRoomInvite({
-  required final String participantPublicKeyHex,
-  required final String encoded,
-  required final DateTime expiresAt,
-});
-
-class RoastRoomCreation({
-  required final List<RoastRoomInvite> invites,
-  required final String coordinatorId,
-  required final List<String> coordinatorRelayUrls,
-  required final List<String> coordinatorIpAddrs,
-});
-
-abstract interface class RoastRuntime {
-  Stream<RoastRuntimeEvent> get events;
-
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup);
-  Future<RoastRoomCreation> createRoom(RoastSetup setup);
-  Future<RoastRuntimeSnapshot> joinRoom(RoastSetup setup, String encodedInvite);
-  Future<void> requestDkg(RoastSetup setup);
-  Future<void> acceptDkg(String setupId, String proposalHex);
-  Future<void> rejectDkg(String setupId, String proposalHex);
-  RoastSigningProposal createTransactionSigningProposal(
-    RoastSetup setup,
-    ThresholdWalletTransaction transaction,
-    List<int> derivationPath, {
-    String message = '',
-  });
-  RoastSigningProposal createMessageSigningProposal(
-    RoastSetup setup,
-    String text, {
-    String message = '',
-  });
-  Future<void> requestSignatures(
-    RoastSetup setup,
-    RoastSigningProposal proposal,
-  );
-  Future<void> acceptSignatures(String setupId, String requestIdHex);
-  Future<void> rejectSignatures(String setupId, String requestIdHex);
-  Future<void> stopSetup(String setupId);
-  Future<void> deleteSetup(String setupId);
-  Future<void> close();
-}
+part 'roast_runtime_rooms.dart';
+part 'roast_runtime_dkg.dart';
+part 'roast_runtime_signing_mapper.dart';
 
 enum _ExistingDkgResolution { none, resumed, cancelled }
 
-final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
-    implements RoastRuntime {
+typedef WalletBip39SeedProvider = FutureOr<Uint8List> Function();
+
+final class RoastRuntimeManager(
+  RoastPersistenceFactory persistenceFactory, {
+  required WalletBip39SeedProvider getWalletBip39Seed,
+}) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
+  final WalletBip39SeedProvider _getWalletBip39Seed = getWalletBip39Seed;
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final Map<String, WorkerDkgStatus> _dkgProposals = {};
@@ -205,12 +35,14 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   final Map<String, String> _emittedGroupKeys = {};
   final Set<String> _serverSetups = {};
   final Set<String> _signerSetups = {};
+  final Map<String, RoastCoordinatorAddress> _signerCoordinators = {};
   final Map<String, NoosphereNode> _roomServers = {};
   final Map<String, StreamSubscription<RoomSnapshot>> _roomSubscriptions = {};
   final Set<String> _freezingRooms = {};
   final Map<String, Timer> _roomSignerTimers = {};
   final Set<String> _connectingRoomSigners = {};
   final Set<String> _synchronizingDkgSetups = {};
+  final Map<String, Uint8List> _approvedDkgDetailsBySetup = {};
   final Map<String, Timer> _keyReadinessTimers = {};
   NoosphereWorker? _worker;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
@@ -333,7 +165,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         setupId: setup.id,
         server: EmbeddedServerOptions(
           serverConfig: ServerConfig(group: group),
-          identityStore: persistence.serverIdentity(setup.id),
+          getIrohSecretKey: () => _irohSecretKey(setup, persistence),
           serverPersistence: persistence.serverPersistence(setup.id),
         ),
       );
@@ -343,27 +175,45 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       serverSnapshot = await worker.snapshot(setup.id);
     }
 
-    final coordinator = roomCoordinator ?? serverSnapshot?.coordinator;
-    final coordinatorId = setup.role == RoastSetupRole.host
-        ? coordinator?.id
-        : setup.coordinatorId;
-    if (coordinatorId == null) {
+    final embeddedCoordinator = roomCoordinator ?? serverSnapshot?.coordinator;
+    final selectedCoordinator =
+        setup.role == RoastSetupRole.host && embeddedCoordinator != null
+        ? RoastCoordinatorAddress(
+            id: embeddedCoordinator.id,
+            relayUrls: embeddedCoordinator.relayUrls,
+            ipAddrs: embeddedCoordinator.ipAddrs,
+          )
+        : setup.coordinatorId == null
+        ? embeddedCoordinator == null
+              ? null
+              : RoastCoordinatorAddress(
+                  id: embeddedCoordinator.id,
+                  relayUrls: embeddedCoordinator.relayUrls,
+                  ipAddrs: embeddedCoordinator.ipAddrs,
+                )
+        : RoastCoordinatorAddress(
+            id: setup.coordinatorId!,
+            relayUrls: setup.coordinatorRelayUrls,
+            ipAddrs: setup.coordinatorIpAddrs,
+          );
+    if (selectedCoordinator == null) {
       throw StateError('The coordinator did not publish an Iroh identity.');
     }
-    final relayUrls = setup.role == RoastSetupRole.host
-        ? coordinator?.relayUrls ?? const <String>[]
-        : setup.coordinatorRelayUrls;
-    final ipAddrs = setup.role == RoastSetupRole.host
-        ? coordinator?.ipAddrs ?? const <String>[]
-        : setup.coordinatorIpAddrs;
-    final pinnedId = PublicKey.fromZ32(coordinatorId);
-    final address = EndpointAddr(
-      pinnedId,
-      relayUrls: [for (final value in relayUrls) RelayUrl.parse(value)],
-      ipAddrs: ipAddrs,
-    );
+    final address = _endpointAddress(selectedCoordinator);
+    final pinnedId = address.id;
+    _signerCoordinators[setup.id] = selectedCoordinator;
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
+    );
+    final clientOptions = ClientNodeOptions(
+      clientConfig: ClientConfig(
+        group: group,
+        id: Identifier.fromHex(setup.localParticipant.identifierHex),
+      ),
+      bootstrapAddress: address,
+      pinnedServerId: pinnedId,
+      storage: persistence.clientStorage(setup.id),
+      getPrivateKey: (_) async => privateKey,
     );
     late final NoosphereWorkerSnapshot snapshot;
     try {
@@ -371,16 +221,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
           ? await worker.snapshot(setup.id)
           : await worker.startSetup(
               setupId: setup.id,
-              client: ClientNodeOptions(
-                clientConfig: ClientConfig(
-                  group: group,
-                  id: Identifier.fromHex(setup.localParticipant.identifierHex),
-                ),
-                bootstrapAddress: address,
-                pinnedServerId: pinnedId,
-                storage: persistence.clientStorage(setup.id),
-                getPrivateKey: (_) async => privateKey,
-              ),
+              client: clientOptions.withCoordinator(address),
             );
     } on Object catch (error) {
       if (scheduleRoomRetry &&
@@ -401,236 +242,82 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   }
 
   @override
-  Future<RoastRoomCreation> createRoom(RoastSetup setup) async {
-    if (setup.role != RoastSetupRole.host || !setup.isFinalized) {
-      throw StateError('Only a host with a complete roster can create a room.');
+  Future<RoastRuntimeSnapshot> switchCoordinator(
+    RoastSetup setup, {
+    required RoastCoordinatorAddress newCoordinator,
+    required Future<void> Function(RoastCoordinatorAddress address) persist,
+  }) async {
+    final worker = await _ensureWorker();
+    if (!_signerSetups.contains(setup.id)) {
+      throw StateError('The ROAST signer is not running.');
     }
-    AppLogger.info(
-      '${_roastScope(setup.id)} Creating room for '
-      '${setup.participantCount} participants (threshold ${setup.threshold})',
-    );
-    _setups[setup.id] = setup;
-    final node = await _ensureRoomServer(setup);
-    final server = node.server!;
-    await server.createRoom(
-      roomId: setup.groupId,
-      expectedParticipants: setup.participantCount,
-      threshold: setup.threshold,
-    );
-    final privateKey = ECPrivateKey.fromHex(
-      setup.localParticipantPrivateKeyHex,
-    );
-    final issued = <RoastRoomInvite>[];
-    for (final participant in setup.participants) {
-      final invite = await server.issueRoomInvite(
-        roomId: setup.groupId,
-        expectedParticipantPublicKey: ECCompressedPublicKey.fromHex(
-          participant.publicKeyHex,
-        ),
-        expiresAt: DateTime.now().toUtc().add(const Duration(days: 7)),
+    try {
+      final snapshot = await worker.switchCoordinator(
+        setup.id,
+        newCoordinator: _endpointAddress(newCoordinator),
+        persist: (_) async {
+          await persist(newCoordinator);
+          _signerCoordinators[setup.id] = newCoordinator;
+          _setups[setup.id] = setup.copyWith(
+            coordinatorId: newCoordinator.id,
+            coordinatorRelayUrls: newCoordinator.relayUrls,
+            coordinatorIpAddrs: newCoordinator.ipAddrs,
+          );
+        },
       );
-      if (participant.cardId == setup.localCardId) {
-        await _joinRoomInvite(invite, privateKey);
-      } else {
-        issued.add(
-          RoastRoomInvite(
-            participantPublicKeyHex: participant.publicKeyHex,
-            encoded: invite.encode(),
-            expiresAt: invite.expiresAt,
-          ),
-        );
-      }
+      _signerSetups.add(setup.id);
+      return await _snapshot(snapshot, _setups[setup.id] ?? setup);
+    } on NoosphereWorkerException catch (error, stackTrace) {
+      _signerSetups.remove(setup.id);
+      Error.throwWithStackTrace(
+        RoastCoordinatorSwitchFailure(
+          kind: switch (error.code) {
+            'pending_signing_operations' =>
+              RoastCoordinatorSwitchFailureKind.pendingSigningOperations,
+            'host_state' ||
+            'host_timeout' ||
+            'host_argument' ||
+            'host_failure' => RoastCoordinatorSwitchFailureKind.persistence,
+            _ => RoastCoordinatorSwitchFailureKind.connection,
+          },
+          code: error.code,
+          cause: error,
+        ),
+        stackTrace,
+      );
     }
-    final coordinator = _coordinator(server.address);
-    AppLogger.info(
-      '${_roastScope(setup.id)} Room created; issued ${issued.length} '
-      'participant-bound invites',
-    );
-    return RoastRoomCreation(
-      invites: issued,
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> updateCoordinatorAddress(
+    RoastSetup setup,
+    RoastCoordinatorAddress coordinator,
+  ) async {
+    final worker = await _ensureWorker();
+    if (!_signerSetups.contains(setup.id)) {
+      throw StateError('The ROAST signer is not running.');
+    }
+    await worker.updateSignerAddress(setup.id, _endpointAddress(coordinator));
+    _signerCoordinators[setup.id] = coordinator;
+    _setups[setup.id] = setup.copyWith(
       coordinatorId: coordinator.id,
       coordinatorRelayUrls: coordinator.relayUrls,
       coordinatorIpAddrs: coordinator.ipAddrs,
     );
+    return _snapshot(await worker.snapshot(setup.id), _setups[setup.id]!);
   }
+
+  @override
+  Future<RoastRoomCreation> createRoom(
+    RoastSetup setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) => _createRoom(setup, beforeInvitations: beforeInvitations);
 
   @override
   Future<RoastRuntimeSnapshot> joinRoom(
     RoastSetup setup,
     String encodedInvite,
-  ) async {
-    AppLogger.info('${_roastScope(setup.id)} Validating room invite');
-    final invite = RoomInvite.decode(encodedInvite);
-    if (invite.roomId != setup.groupId ||
-        invite.expectedParticipantPublicKey.hex !=
-            setup.localParticipant.publicKeyHex ||
-        bytesToHex(invite.coordinatorEndpointId) !=
-            bytesToHex(PublicKey.fromZ32(setup.coordinatorId!).asBytes())) {
-      throw const FormatException(
-        'The room invite does not match this participant setup.',
-      );
-    }
-    final privateKey = ECPrivateKey.fromHex(
-      setup.localParticipantPrivateKeyHex,
-    );
-    invite.requirePrivateKey(privateKey);
-    await _joinRoomInvite(invite, privateKey);
-    AppLogger.info('${_roastScope(setup.id)} Room enrollment completed');
-    _setups[setup.id] = setup;
-    _scheduleRoomSignerConnection(setup);
-    return _pendingRoomSnapshot(setup);
-  }
-
-  static RoastRuntimeSnapshot _pendingRoomSnapshot(RoastSetup setup) =>
-      RoastRuntimeSnapshot(
-        connected: false,
-        signerRunning: false,
-        onlineParticipantIds: const [],
-        coordinatorId: setup.coordinatorId,
-        coordinatorRelayUrls: setup.coordinatorRelayUrls,
-        coordinatorIpAddrs: setup.coordinatorIpAddrs,
-        groupKeyHex: null,
-        pendingDkgProposalHex: null,
-      );
-
-  void _scheduleRoomSignerConnection(RoastSetup setup) {
-    if (_roomSignerTimers.containsKey(setup.id)) return;
-    AppLogger.info(
-      '${_roastScope(setup.id)} Waiting for the frozen room; signer connection '
-      'will retry in the background',
-    );
-    unawaited(_connectRoomSigner(setup));
-    _roomSignerTimers[setup.id] = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => unawaited(_connectRoomSigner(setup)),
-    );
-  }
-
-  Future<void> _connectRoomSigner(RoastSetup setup) async {
-    if (!_connectingRoomSigners.add(setup.id)) return;
-    try {
-      final snapshot = await _startSetup(setup, scheduleRoomRetry: false);
-      _roomSignerTimers.remove(setup.id)?.cancel();
-      AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
-      _emitSnapshotValues(setup.id, snapshot);
-    } on Object {
-      // The ordinary ROAST group becomes available only after the host freezes
-      // the full room. Retry quietly while enrollment is still in progress.
-    } finally {
-      _connectingRoomSigners.remove(setup.id);
-    }
-  }
-
-  Future<NoosphereNode> _ensureRoomServer(RoastSetup setup) async {
-    final existing = _roomServers[setup.id];
-    if (existing != null) return existing;
-    AppLogger.info('${_irohScope(setup.id)} Starting room coordinator');
-    final persistence = await _persistenceFactory.open();
-    final node = await NoosphereNode.start(
-      server: EmbeddedServerOptions(
-        serverConfig: ServerConfig(group: _bootstrapGroup(setup.groupId)),
-        identityStore: persistence.serverIdentity(setup.id),
-        serverPersistence: persistence.serverPersistence(setup.id),
-        roomPersistence: persistence.roomPersistence(setup.id),
-      ),
-    );
-    _roomServers[setup.id] = node;
-    _roomSubscriptions[setup.id] = node.server!.rooms!.snapshots.listen(
-      (room) => _onRoomSnapshot(setup.id, room),
-      onError: (Object error) => _emitRoomFailure(setup.id, error),
-    );
-    for (final room in await node.server!.rooms!.getRooms()) {
-      _onRoomSnapshot(setup.id, room);
-    }
-    AppLogger.info('${_irohScope(setup.id)} Room coordinator started');
-    return node;
-  }
-
-  void _onRoomSnapshot(String setupId, RoomSnapshot room) {
-    if (room.lifecycle != RoomLifecycle.enrolling ||
-        !room.isFull ||
-        !_freezingRooms.add(setupId)) {
-      return;
-    }
-    AppLogger.info('${_roastScope(setupId)} Room is full; freezing roster');
-    unawaited(_freezeRoomAndStartSigner(setupId));
-  }
-
-  Future<void> _freezeRoomAndStartSigner(String setupId) async {
-    try {
-      final setup = _setups[setupId];
-      final server = _roomServers[setupId]?.server;
-      if (setup == null || server == null) return;
-      final frozen = await server.freezeRoom(setup.groupId);
-      final expected = _group(setup);
-      if (bytesToHex(frozen.groupFingerprint!) !=
-          bytesToHex(expected.fingerprint)) {
-        throw StateError('The frozen room roster does not match the setup.');
-      }
-      AppLogger.info('${_roastScope(setupId)} Room roster frozen and verified');
-      final snapshot = await startSetup(setup);
-      _emitSnapshotValues(setupId, snapshot);
-    } catch (error, stackTrace) {
-      _emitRoomFailure(setupId, error, stackTrace);
-    } finally {
-      _freezingRooms.remove(setupId);
-    }
-  }
-
-  void _emitRoomFailure(
-    String setupId,
-    Object error, [
-    StackTrace? stackTrace,
-  ]) {
-    AppLogger.error(
-      '${_roastScope(setupId)} Room operation failed',
-      error: error,
-      stackTrace: stackTrace,
-    );
-    if (_events.isClosed) return;
-    _events.add(
-      RoastRuntimeFailureEvent(
-        setupId,
-        message: 'ROAST room failed: $error',
-        interrupted: true,
-        operation: 'room',
-      ),
-    );
-  }
-
-  void _emitSnapshotValues(String setupId, RoastRuntimeSnapshot snapshot) {
-    if (_events.isClosed) return;
-    _events.add(
-      RoastRuntimeSnapshotEvent(
-        setupId,
-        connected: snapshot.connected,
-        signerRunning: snapshot.signerRunning,
-        onlineParticipantIds: snapshot.onlineParticipantIds,
-        coordinatorId: snapshot.coordinatorId,
-        coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
-        coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
-      ),
-    );
-  }
-
-  static Future<RoomSnapshot> _joinRoomInvite(
-    RoomInvite invite,
-    ECPrivateKey privateKey,
-  ) {
-    final endpointId = PublicKey.fromBytes(invite.coordinatorEndpointId);
-    return IrohRoomEnrollmentApi.joinRoom(
-      IrohClientTransportConfig(
-        bootstrapAddress: EndpointAddr(
-          endpointId,
-          relayUrls: [for (final url in invite.relayUrls) RelayUrl.parse(url)],
-          ipAddrs: invite.ipAddrs,
-        ),
-        pinnedServerId: endpointId,
-      ),
-      invite,
-      (_) async => privateKey,
-    );
-  }
+  ) => _joinRoom(setup, encodedInvite);
 
   static WorkerCoordinatorAddress _coordinator(EndpointAddr address) =>
       WorkerCoordinatorAddress(
@@ -639,178 +326,33 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         ipAddrs: address.ipAddrs,
       );
 
-  @override
-  Future<void> requestDkg(RoastSetup setup) async {
-    AppLogger.info('${_roastScope(setup.id)} Requesting DKG');
-    final worker = await _ensureWorker();
-    final existing = await _resolveExistingDkg(
-      worker,
-      setup,
-      await worker.snapshot(setup.id),
-    );
-    if (existing == _ExistingDkgResolution.resumed) return;
-
-    final details = NewDkgDetails(
-      name: setup.keyName,
-      description: roastKeyDescription(setup),
-      threshold: setup.threshold,
-      expiry: Expiry(roastDkgAttemptTtl),
-    );
-    try {
-      await worker.requestDkg(setup.id, details);
-    } catch (error, stackTrace) {
-      if (!_isDuplicateDkgError(error)) {
-        AppLogger.error(
-          '${_roastScope(setup.id)} DKG request failed',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        rethrow;
-      }
-      AppLogger.warn(
-        '${_roastScope(setup.id)} Coordinator already has this DKG name; '
-        'reloading the signer session before retrying',
+  static EndpointAddr _endpointAddress(RoastCoordinatorAddress address) =>
+      EndpointAddr(
+        PublicKey.fromZ32(address.id),
+        relayUrls: [
+          for (final value in address.relayUrls) RelayUrl.parse(value),
+        ],
+        ipAddrs: address.ipAddrs,
       );
-      final recovered = await _reloadExistingDkg(worker, setup);
-      if (recovered == _ExistingDkgResolution.resumed) return;
-      if (recovered == _ExistingDkgResolution.cancelled) {
-        await _runDkgCommand(
-          setup.id,
-          'DKG retry after cancelling the conflicting proposal',
-          () => worker.requestDkg(setup.id, details),
-        );
-      } else {
-        AppLogger.error(
-          '${_roastScope(setup.id)} Existing DKG could not be recovered',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        Error.throwWithStackTrace(error, stackTrace);
-      }
-    }
-    AppLogger.info(
-      '${_roastScope(setup.id)} DKG request submitted; '
-      'waiting for signer approvals',
-    );
-  }
-
-  Future<_ExistingDkgResolution> _reloadExistingDkg(
-    NoosphereWorker worker,
-    RoastSetup setup,
-  ) async {
-    AppLogger.info(
-      '${_irohScope(setup.id)} Restarting signer session to synchronize DKGs',
-    );
-    _synchronizingDkgSetups.add(setup.id);
-    try {
-      await worker.stopSetup(setup.id, roles: NoosphereWorkerRoles.signer);
-      _signerSetups.remove(setup.id);
-      await _startSetup(setup, scheduleRoomRetry: false, publishDkgs: false);
-      final snapshot = await worker.snapshot(setup.id);
-      AppLogger.info(
-        '${_irohScope(setup.id)} Signer session synchronized; '
-        '${snapshot.dkgs.length} DKG proposal(s) loaded',
-      );
-      return await _resolveExistingDkg(worker, setup, snapshot);
-    } finally {
-      _synchronizingDkgSetups.remove(setup.id);
-    }
-  }
-
-  Future<_ExistingDkgResolution> _resolveExistingDkg(
-    NoosphereWorker worker,
-    RoastSetup setup,
-    NoosphereWorkerSnapshot snapshot,
-  ) async {
-    final sameName = snapshot.dkgs
-        .where((proposal) => proposal.name == setup.keyName)
-        .toList(growable: false);
-    if (sameName.isEmpty) return _ExistingDkgResolution.none;
-    if (sameName.length > 1) {
-      throw StateError('Multiple DKG proposals use the expected key name.');
-    }
-    final proposal = sameName.single;
-    final proposalHex = bytesToHex(proposal.proposalBytes);
-    if (_dkgMatchesSetup(proposal, setup)) {
-      AppLogger.info(
-        '${_roastScope(setup.id)} Resuming existing DKG '
-        '${_shortId(proposalHex)} at stage=${proposal.stage}',
-      );
-      _rememberDkgs(snapshot);
-      _emitSnapshot(snapshot);
-      return _ExistingDkgResolution.resumed;
-    }
-
-    AppLogger.warn(
-      '${_roastScope(setup.id)} Cancelling incompatible DKG '
-      '${_shortId(proposalHex)} before creating a replacement',
-    );
-    await _runDkgCommand(
-      setup.id,
-      'Conflicting DKG cancellation',
-      () => worker.rejectDkg(setup.id, proposal),
-    );
-    _dkgProposals.remove('${setup.id}:$proposalHex');
-    return _ExistingDkgResolution.cancelled;
-  }
-
-  static bool _isDuplicateDkgError(Object error) =>
-      error is NoosphereWorkerException &&
-      error.code == 'iroh_protocol_error' &&
-      error.message.contains('DKG request with same name exists');
 
   @override
-  Future<void> acceptDkg(String setupId, String proposalHex) async {
-    final proposal = _dkgProposals['$setupId:$proposalHex'];
-    if (proposal == null) {
-      throw StateError('The DKG proposal is no longer available.');
-    }
-    AppLogger.info(
-      '${_roastScope(setupId)} Accepting DKG ${_shortId(proposalHex)}',
-    );
-    final worker = await _ensureWorker();
-    await _runDkgCommand(
-      setupId,
-      'DKG approval',
-      () => worker.acceptDkg(setupId, proposal),
-    );
-    AppLogger.info('${_roastScope(setupId)} DKG approved locally');
-  }
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) => _requestDkg(
+    setup,
+    approvedDetails: approvedDetails,
+    transitionKeyPlan: transitionKeyPlan,
+  );
 
   @override
-  Future<void> rejectDkg(String setupId, String proposalHex) async {
-    final proposal = _dkgProposals['$setupId:$proposalHex'];
-    if (proposal == null) {
-      throw StateError('The DKG proposal is no longer available.');
-    }
-    AppLogger.info(
-      '${_roastScope(setupId)} Rejecting DKG ${_shortId(proposalHex)}',
-    );
-    final worker = await _ensureWorker();
-    await _runDkgCommand(
-      setupId,
-      'DKG rejection',
-      () => worker.rejectDkg(setupId, proposal),
-    );
-    AppLogger.info('${_roastScope(setupId)} DKG rejected locally');
-  }
+  Future<void> acceptDkg(String setupId, String proposalHex) =>
+      _acceptDkg(setupId, proposalHex);
 
-  Future<void> _runDkgCommand(
-    String setupId,
-    String operation,
-    Future<void> Function() command,
-  ) async {
-    try {
-      await command();
-    } catch (error, stackTrace) {
-      AppLogger.error(
-        '${_roastScope(setupId)} $operation failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      rethrow;
-    }
-  }
+  @override
+  Future<void> rejectDkg(String setupId, String proposalHex) =>
+      _rejectDkg(setupId, proposalHex);
 
   @override
   RoastSigningProposal createTransactionSigningProposal(
@@ -818,7 +360,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     ThresholdWalletTransaction transaction,
     List<int> derivationPath, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
+    _validateSigningRequestTimeout(timeout);
     final groupKeyHex = setup.groupKeyHex;
     if (groupKeyHex == null) {
       throw StateError('The shared key is not available.');
@@ -836,7 +380,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         transaction: transaction.transaction,
         signDetails: transaction.signDetails,
       ),
-      expiry: Expiry(const Duration(minutes: 5)),
+      expiry: Expiry(timeout),
       message: message,
     );
     return _signingProposal(details);
@@ -847,7 +391,9 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     RoastSetup setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
+    _validateSigningRequestTimeout(timeout);
     final groupKeyHex = setup.groupKeyHex;
     if (groupKeyHex == null) {
       throw StateError('The shared key is not available.');
@@ -856,7 +402,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       SignaturesRequestDetails.forMessage(
         text: text,
         groupKey: ECCompressedPublicKey.fromHex(groupKeyHex),
-        expiry: Expiry(const Duration(minutes: 5)),
+        expiry: Expiry(timeout),
         message: message,
       ),
     );
@@ -872,6 +418,17 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
       proposalHex: bytesToHex(proposalBytes),
       expiry: persistedDetails.expiry.time,
     );
+  }
+
+  static void _validateSigningRequestTimeout(Duration timeout) {
+    if (timeout.inMicroseconds <= 0 ||
+        timeout > maxRoastSigningRequestTimeout) {
+      throw ArgumentError.value(
+        timeout,
+        'timeout',
+        'Must be greater than zero and no more than 24 hours.',
+      );
+    }
   }
 
   @override
@@ -927,6 +484,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _emittedGroupKeys.remove(setupId);
     _serverSetups.remove(setupId);
     _signerSetups.remove(setupId);
+    _signerCoordinators.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
     await _roomServers.remove(setupId)?.close();
@@ -1011,7 +569,10 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         AppLogger.info(
           '${_roastScope(event.setupId)} Signing request '
           '${_shortId(bytesToHex(event.request.id))} '
-          'status=${event.request.status}',
+          'status=${event.request.status}, '
+          'stage=${event.request.progress.stage}, '
+          'contributors=${event.request.progress.contributingParticipants.length}/'
+          '${event.request.progress.threshold}',
         );
         _emitSigningRequest(event.setupId, event.request);
       case WorkerSigningResultEvent():
@@ -1260,105 +821,16 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
   void _emitSigningRequest(String setupId, WorkerSigningRequest request) {
     final idHex = bytesToHex(request.id);
     _signingRequests['$setupId:$idHex'] = request;
-    final proposal = request.decodeProposal();
-    final metadata = proposal.metadata;
-    final kind = switch (metadata) {
-      TaprootTransactionSignatureMetadata() =>
-        RoastSigningRequestKind.transaction,
-      MessageSignatureMetadata() => RoastSigningRequestKind.message,
-      _ => RoastSigningRequestKind.unsupported,
-    };
-    var inputSats = 0;
-    var transactionInputCount = 0;
-    var usesSupportedSighash = false;
-    final usesExpectedTaprootTweak = proposal.requiredSigs.every(
-      (signature) => signature.signDetails.mastHash?.isEmpty == true,
-    );
-    final usesUntweakedKey = proposal.requiredSigs.every(
-      (signature) => signature.signDetails.mastHash == null,
-    );
-    var signedInputIndexes = const <int>[];
-    var previousOutputScripts = const <String>[];
-    var inputOutpoints = const <String>[];
-    var outputs = const <RoastSigningOutput>[];
-    final hasTransactionMetadata =
-        metadata is TaprootTransactionSignatureMetadata;
-    if (metadata is TaprootTransactionSignatureMetadata) {
-      transactionInputCount = metadata.transaction.inputs.length;
-      inputOutpoints = [
-        for (final input in metadata.transaction.inputs)
-          '${bytesToHex(Uint8List.fromList(input.prevOut.hash.reversed.toList()))}:${input.prevOut.n}',
-      ];
-      usesSupportedSighash = metadata.signDetails.every(
-        (details) =>
-            details is TaprootKeySignDetails && details.hashType.schnorrDefault,
-      );
-      signedInputIndexes = [
-        for (final details in metadata.signDetails) details.inputN,
-      ];
-      final previousOutputSets = metadata.signDetails
-          .where((details) => details.prevOuts.isNotEmpty)
-          .map((details) => details.prevOuts)
-          .toList();
-      if (previousOutputSets.isNotEmpty) {
-        final previousOutputs = previousOutputSets.reduce(
-          (first, next) => first.length >= next.length ? first : next,
-        );
-        inputSats = previousOutputs.fold(
-          0,
-          (sum, output) => sum + output.value.toInt(),
-        );
-        previousOutputScripts = [
-          for (final output in previousOutputs) bytesToHex(output.scriptPubKey),
-        ];
-      }
-      outputs = [
-        for (final output in metadata.transaction.outputs)
-          RoastSigningOutput(
-            valueSats: output.value.toInt(),
-            scriptHex: bytesToHex(output.scriptPubKey),
-          ),
-      ];
-    }
     _events.add(
       RoastRuntimeSigningRequestEvent(
         setupId,
-        request: RoastSigningRequest(
-          idHex: idHex,
-          proposalHex: bytesToHex(request.proposalBytes),
-          creator: request.creator,
-          expiry: request.expiry,
-          kind: kind,
-          hasTransactionMetadata: hasTransactionMetadata,
-          usesSupportedSighash: usesSupportedSighash,
-          usesExpectedTaprootTweak: usesExpectedTaprootTweak,
-          usesUntweakedKey: usesUntweakedKey,
-          status: request.status,
-          inputSats: inputSats,
-          transactionInputCount: transactionInputCount,
-          signedInputIndexes: signedInputIndexes,
-          previousOutputScripts: previousOutputScripts,
-          inputOutpoints: inputOutpoints,
-          outputs: outputs,
-          masterGroupKeys: [
-            for (final signature in proposal.requiredSigs)
-              signature.groupKey.hex,
-          ],
-          derivationPaths: [
-            for (final signature in proposal.requiredSigs)
-              List.unmodifiable(signature.hdDerivation),
-          ],
-          message: proposal.message,
-          signedMessageText: metadata is MessageSignatureMetadata
-              ? metadata.payload.text
-              : null,
-        ),
+        request: _mapSigningRequest(request, idHex: idHex),
       ),
     );
   }
 
   void _emitSnapshot(NoosphereWorkerSnapshot snapshot) {
-    final coordinator = snapshot.coordinator;
+    final coordinator = _selectedCoordinator(snapshot.setupId);
     _events.add(
       RoastRuntimeSnapshotEvent(
         snapshot.setupId,
@@ -1378,7 +850,8 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     bool publishDkgs = true,
   }) async {
     if (publishDkgs) _rememberDkgs(snapshot);
-    final coordinator = snapshot.coordinator;
+    _rememberSigningRequests(snapshot);
+    final coordinator = _selectedCoordinator(snapshot.setupId);
     final matchingKeys = snapshot.keys
         .where(
           (key) =>
@@ -1423,12 +896,30 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     );
   }
 
-  static bool _dkgMatchesSetup(WorkerDkgStatus status, RoastSetup setup) =>
-      status.name == setup.keyName &&
-      status.threshold == setup.threshold &&
-      status.creator == setup.hostParticipantId &&
-      status.description == roastKeyDescription(setup) &&
-      status.expiry.isAfter(DateTime.now());
+  bool _dkgMatchesSetup(WorkerDkgStatus status, RoastSetup setup) {
+    final approved = _approvedDkgDetailsBySetup[setup.id];
+    return status.name == setup.keyName &&
+        status.threshold == setup.threshold &&
+        status.creator == setup.hostParticipantId &&
+        status.expiry.isAfter(DateTime.now()) &&
+        (approved == null
+            ? status.description == roastKeyDescription(setup)
+            : bytesEqual(status.proposalBytes, approved));
+  }
+
+  RoastCoordinatorAddress? _selectedCoordinator(String setupId) {
+    final selected = _signerCoordinators[setupId];
+    if (selected != null) return selected;
+    final setup = _setups[setupId];
+    final id = setup?.coordinatorId;
+    return id == null
+        ? null
+        : RoastCoordinatorAddress(
+            id: id,
+            relayUrls: setup!.coordinatorRelayUrls,
+            ipAddrs: setup.coordinatorIpAddrs,
+          );
+  }
 
   static GroupConfig _group(RoastSetup setup) => GroupConfig(
     id: setup.groupId,
@@ -1438,6 +929,24 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
             ECCompressedPublicKey.fromHex(participant.publicKeyHex),
     },
   );
+
+  Future<SecretKey> _irohSecretKey(
+    RoastSetup setup,
+    RoastPersistence persistence,
+  ) async {
+    final legacy = await persistence.legacyIrohSecretKey(setup.id);
+    if (legacy != null) return legacy;
+
+    final seed = await _getWalletBip39Seed();
+    try {
+      return deriveIrohSecretKeyFromBip39Seed(
+        seed,
+        index: setup.irohIdentityIndex,
+      );
+    } finally {
+      seed.fillRange(0, seed.length, 0);
+    }
+  }
 
   static GroupConfig _bootstrapGroup(String roomId) => GroupConfig(
     id: '$roomId:enrollment-bootstrap',
@@ -1460,6 +969,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     _emittedGroupKeys.clear();
     _serverSetups.clear();
     _signerSetups.clear();
+    _signerCoordinators.clear();
     for (final subscription in _roomSubscriptions.values) {
       await subscription.cancel();
     }

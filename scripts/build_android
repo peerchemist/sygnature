@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+
+build_mode="debug"
+device_id=""
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/build_android [--debug|--release] [--device SERIAL]
+
+Builds the Android APK and installs it on a connected device with
+`adb install -r`, preserving existing application data.
+EOF
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --debug)
+      build_mode="debug"
+      ;;
+    --release)
+      build_mode="release"
+      ;;
+    -d | --device)
+      if (($# < 2)); then
+        echo "error: $1 requires an ADB device serial" >&2
+        exit 2
+      fi
+      device_id="$2"
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+for tool in flutter adb; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "error: required command not found: $tool" >&2
+    exit 1
+  fi
+done
+
+cd -- "$project_dir"
+flutter build apk "--$build_mode"
+
+readonly apk="$project_dir/build/app/outputs/flutter-apk/app-$build_mode.apk"
+if [[ ! -f "$apk" ]]; then
+  echo "error: Flutter did not create the expected APK: $apk" >&2
+  exit 1
+fi
+
+mapfile -t connected_devices < <(
+  adb devices | awk 'NR > 1 && $2 == "device" { print $1 }'
+)
+
+if [[ -z "$device_id" ]]; then
+  case "${#connected_devices[@]}" in
+    0)
+      echo "error: no authorized Android device is connected" >&2
+      exit 1
+      ;;
+    1)
+      device_id="${connected_devices[0]}"
+      ;;
+    *)
+      echo "error: multiple Android devices are connected; choose one with --device SERIAL" >&2
+      printf '  %s\n' "${connected_devices[@]}" >&2
+      exit 1
+      ;;
+  esac
+elif ! printf '%s\n' "${connected_devices[@]}" | grep -Fxq -- "$device_id"; then
+  echo "error: Android device is not connected or authorized: $device_id" >&2
+  exit 1
+fi
+
+adb -s "$device_id" install -r "$apk"
+
+echo "Installed $apk on $device_id"

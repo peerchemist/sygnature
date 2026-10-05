@@ -54,11 +54,14 @@ Noosphere uses Iroh's QUIC connection with the ALPN `noosphere/roast/1`. Iroh
 may establish a direct route or use a configured relay; that choice does not
 change the application wire format.
 
-The coordinator has a persistent Iroh endpoint secret. The invitation supplies
-address hints, while Sygnature separately persists the expected coordinator
-endpoint ID. Before connecting, the client requires the ID embedded in the
-bootstrap address to equal the pinned ID. It checks the remote endpoint ID again
-after Iroh establishes the connection.
+For new setups, the coordinator's Iroh endpoint secret is deterministically
+derived from the validated wallet BIP-39 seed using the domain-separated path
+`m/83696968'/128169'/32'/index'`. The non-secret per-setup index and expected
+endpoint ID are persisted, but the derived secret is not. A valid legacy secret
+is still read for an existing setup so an upgrade preserves its pinned endpoint.
+The invitation supplies address hints. Before connecting, the client requires
+the ID embedded in the bootstrap address to equal the pinned ID and checks the
+remote endpoint ID again after Iroh establishes the connection.
 
 The Iroh endpoint identity and the ROAST participant authentication key have
 different roles:
@@ -83,9 +86,9 @@ Every RPC opens a new bidirectional QUIC stream:
 ```text
 client                                  coordinator
   │ openBi()                                 │
-  │── one framed Envelope/RpcRequest ───────►│
+  │── operation varint + request protobuf ──►│
   │ finish sending                           │
-  │◄─ one framed Envelope/RpcResponse ───────│
+  │◄─ status varint + response protobuf ─────│
   │ stream closes                            │
 ```
 
@@ -114,54 +117,45 @@ stream:
 client                                  coordinator
   │── StartSession ─────────────────────────►│
   │◄─ SessionStarted(session ID, snapshot) ──│
-  │── Ready ────────────────────────────────►│
-  │◄─ Event ─────────────────────────────────│
-  │◄─ Event ─────────────────────────────────│
+  │◄─ EventMessage ──────────────────────────│
+  │◄─ EventMessage ──────────────────────────│
   │                 ...                      │
-  │── Logout ───────────────────────────────►│
+  │ close connection                         │
 ```
 
-The snapshot and live stream form one logical state feed. The client must parse
-and install the snapshot before it consumes subsequent events. The `Ready`
-handshake prevents live events from racing ahead of snapshot initialization.
+The snapshot and live stream form one logical state feed. The server subscribes
+the session to queued/live events before writing the snapshot, preserving the
+snapshot boundary without a separate `Ready` message.
 
 ## 4. Wire encoding layers
 
-A Noosphere message is not encoded entirely as protobuf. The transport uses a
-protobuf envelope, while most cryptographic domain objects use a deterministic
-Noosphere/coinlib binary representation carried in protobuf `bytes` fields.
+A Noosphere message is not encoded entirely as protobuf. Each operation uses a
+concrete protobuf type, while most cryptographic domain objects use a
+deterministic Noosphere/coinlib binary representation carried in protobuf
+`bytes` fields.
 
 ```text
 Iroh QUIC stream
-└── 4-byte unsigned big-endian frame-body length
-    └── protobuf Envelope
-        ├── wire_version
-        └── oneof payload
-            ├── RpcRequest / RpcResponse
-            ├── StartSession / SessionStarted / Ready / Logout
-            ├── Events
-            └── ProtocolError
-                └── bytes fields
-                    └── Noosphere domain binary encoding
-                        └── transaction, keys, commitments, signed details, ...
+├── operation/status QUIC varint
+└── concrete protobuf body, delimited by FIN
+    └── bytes fields
+        └── Noosphere domain binary encoding
+            └── transaction, keys, commitments, signed details, ...
 ```
 
-The sender serializes `Envelope` with protobuf `writeToBuffer()`, verifies that
-the body fits the configured maximum, prefixes its length, and writes the frame
-to the QUIC stream. The receiver reads arbitrary chunks, reconstructs the
-four-byte header and exact frame body, then calls protobuf `Envelope.fromBuffer`.
-An empty payload, malformed protobuf, truncated frame or oversized declared
-length is rejected before domain dispatch.
+RPC request and response bodies are delimited by stream FIN and do not carry a
+message-length prefix. Only the persistent session stream frames its
+`SessionStarted` and `EventMessage` records, using QUIC-varint lengths so an
+incremental decoder can handle arbitrary transport chunks.
 
-The current Iroh wire version is `1`. It is carried in every `Envelope` and is
-independent of the domain `protocol_version` sent during login. A first stream
-message must be an RPC request, `StartSession` or `Logout`; other payloads are
-rejected.
+The preview `/1` ALPN remains in use, but the former envelope format is not
+decoded. Clients and servers must therefore be upgraded together. The login
+domain `protocol_version` remains separate from transport framing.
 
 ### Size limits
 
-The default maximum protobuf `Envelope` body is 1 MiB (1,048,576 bytes), on
-both client and server. The four-byte framing header is outside that body. The
+The default `maxMessageLength` is 1 MiB (1,048,576 bytes) on both client and
+server. It bounds a FIN-delimited protobuf body and each persistent record. The
 effective limit is the smaller of the client and server configurations.
 
 The planned Sygnature request-context block is separately limited to 1 KiB
@@ -175,18 +169,16 @@ The 1 KiB context limit must be checked:
 1. after deterministic serialization and before signing/sending;
 2. immediately after decoding and before rendering or persistence.
 
-Both sides must also retain the 1 MiB frame limit. The smaller domain limit
+Both sides must also retain the 1 MiB message limit. The smaller domain limit
 prevents an otherwise-valid transport frame from becoming an oversized UI or
 storage payload.
 
 ## 5. Protobuf transport messages
 
-`Envelope` is the only framed top-level protobuf message. Its payload is a
-protobuf `oneof`, so exactly one transport operation is selected.
-
-An RPC request contains a non-empty request ID and another `oneof` identifying
-the operation. A response echoes the request ID and contains either the matching
-response type or a structured `ProtocolError`. Signature creation uses:
+Each `RoastOperation` or `EnrollmentOperation` ID selects one concrete request
+and response protobuf pair. QUIC stream ownership correlates the pair; response
+status `0` carries the success type and status `1` carries `ProtocolError`.
+Signature creation uses:
 
 ```text
 SignaturesRequest
@@ -201,18 +193,19 @@ connection handler passes each byte sequence to its specific Noosphere domain
 decoder. Protobuf therefore provides transport routing and field framing, but
 does not describe the internal transaction, FROST or proposal structures.
 
-Server-to-client events use:
+Server-to-client events use an `EventMessage` protobuf `oneof` whose selected
+field identifies the concrete event payload:
 
 ```text
-Events
-  type                EventType enum
-  data                bytes
+EventMessage
+  oneof event
+    signatures_request
+    signature_new_rounds
+    signatures_complete
+    ...
 ```
 
-The enum selects the domain decoder for `data`, for example
-`SignaturesRequestEvent.fromBytes`, `SignatureNewRoundsEvent.fromBytes` or
-`SignaturesCompleteEvent.fromBytes`. Unknown event types are protocol errors;
-they are not passed to the application as arbitrary data.
+Unknown selections are protocol errors rather than arbitrary application data.
 
 ## 6. Domain binary parsing
 
@@ -253,10 +246,10 @@ creator signature and proposal ID.
 
 Parsing is intentionally layered:
 
-1. reconstruct one length-prefixed frame;
-2. decode the protobuf `Envelope`;
-3. validate `wire_version` and the selected `oneof` payload;
-4. match the response request ID or route the event enum;
+1. decode the operation or response-status QUIC varint;
+2. read the FIN-delimited body, or one QUIC-varint-length session record;
+3. decode the concrete protobuf selected by the operation;
+4. route the selected `EventMessage` field for persistent events;
 5. extract protobuf `bytes` fields;
 6. invoke the exact domain `fromBytes`/`fromReader` decoder;
 7. validate lengths, ranges, expiry and object relationships;
@@ -434,15 +427,16 @@ Platform secret storage
 ```
 
 Wallet secret material and FROST shares are held in encrypted Hive data.
-Coordinator Iroh identity secrets use logical secure-storage keys named
-`sygnature_iroh_identity_<setupId>` directly; they are separate from Hive
-encryption keys and FROST shares.
+Legacy coordinator Iroh identity secrets may remain under logical
+secure-storage keys named `sygnature_iroh_identity_<setupId>`. New identities
+are derived transiently from the BIP-39 seed and persisted index, and remain
+separate from Hive encryption keys and FROST shares.
 
 #### macOS
 
 At application startup, `main.dart` creates one `KeyringSecureKeyStore` shared
 by the wallet repository and ROAST persistence. It stores their logical
-secrets, including Iroh identities, in the single macOS Keychain item
+secrets, including any legacy Iroh identities, in the single macOS Keychain item
 `sygnature_secure_keyring_v1`. This is one container holding distinct secrets,
 not one encryption key reused for every purpose.
 

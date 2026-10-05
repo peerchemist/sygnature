@@ -14,6 +14,7 @@ import '../services/app_notifications.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
+import 'about_screen.dart';
 import 'app_theme.dart';
 import 'onboarding_screen.dart';
 import 'roast_setup_flow.dart';
@@ -285,7 +286,9 @@ class _WalletListTile extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       setup != null && !setup!.isActive
-                          ? 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
+                          ? setup!.isWaitingForInvitation
+                                ? 'Resume setup'
+                                : 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
                           : accountStatus,
                       style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
                     ),
@@ -362,6 +365,24 @@ class _WalletDashboard extends StatelessWidget {
                       _confirmDeleteWallet(context, controller, account),
                   onRename: () =>
                       _showRenameWallet(context, controller, account),
+                  onChangeSignerGroup:
+                      roastSetup?.isActive == true && controller.roastAvailable
+                      ? () => showRoastGroupTransition(
+                          context,
+                          controller,
+                          roastSetup!,
+                        )
+                      : null,
+                  onSwitchCoordinator:
+                      roastSetup?.isFinalized == true &&
+                          roastSetup?.coordinatorId != null &&
+                          controller.roastCoordinatorSwitchAvailable
+                      ? () => showRoastCoordinatorSwitch(
+                          context,
+                          controller,
+                          roastSetup!,
+                        )
+                      : null,
                 ),
                 if (roastSetup != null) ...[
                   const SizedBox(height: 18),
@@ -436,7 +457,7 @@ class const _RoastPriorityRequests({
           ),
           SizedBox(width: 8),
           Text(
-            'ROAST ACTION REQUIRED',
+            'ROAST SIGNING REQUESTS',
             style: TextStyle(
               color: AppColors.danger,
               fontSize: 11,
@@ -528,21 +549,30 @@ class _DashboardHeader extends StatelessWidget {
     required this.syncStatus,
     required this.onDelete,
     required this.onRename,
+    this.onChangeSignerGroup,
+    this.onSwitchCoordinator,
   });
   final WalletAccount account;
   final AccountSyncStatus syncStatus;
   final VoidCallback onDelete;
   final VoidCallback onRename;
+  final VoidCallback? onChangeSignerGroup;
+  final VoidCallback? onSwitchCoordinator;
 
   @override
   Widget build(BuildContext context) {
+    final awaitsRoastKey =
+        account.keySource == WalletKeySource.roast &&
+        account.derivationState == WalletDerivationState.pending;
     final ready = syncStatus == AccountSyncStatus.synced;
-    final statusLabel = switch (syncStatus) {
-      AccountSyncStatus.synced => 'Ready',
-      AccountSyncStatus.syncing => 'Synchronizing',
-      AccountSyncStatus.error => 'Sync failed',
-      AccountSyncStatus.unavailable => 'Unavailable',
-    };
+    final statusLabel = awaitsRoastKey
+        ? 'Key setup required'
+        : switch (syncStatus) {
+            AccountSyncStatus.synced => 'Ready',
+            AccountSyncStatus.syncing => 'Synchronizing',
+            AccountSyncStatus.error => 'Sync failed',
+            AccountSyncStatus.unavailable => 'Unavailable',
+          };
     final statusColor = ready ? AppColors.greenDark : const Color(0xff795400);
     return Wrap(
       key: const Key('wallet-dashboard-header'),
@@ -582,7 +612,11 @@ class _DashboardHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    ready ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                    awaitsRoastKey
+                        ? Icons.key_rounded
+                        : ready
+                        ? Icons.check_circle_rounded
+                        : Icons.schedule_rounded,
                     size: 15,
                     color: statusColor,
                   ),
@@ -609,6 +643,8 @@ class _DashboardHeader extends StatelessWidget {
               ),
               onSelected: (value) {
                 if (value == 'rename') onRename();
+                if (value == 'signers') onChangeSignerGroup?.call();
+                if (value == 'coordinator') onSwitchCoordinator?.call();
                 if (value == 'delete') onDelete();
               },
               itemBuilder: (_) => [
@@ -622,6 +658,28 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (onChangeSignerGroup != null)
+                  const PopupMenuItem(
+                    value: 'signers',
+                    child: Row(
+                      children: [
+                        Icon(Icons.manage_accounts_outlined),
+                        SizedBox(width: 10),
+                        Text('Change signers'),
+                      ],
+                    ),
+                  ),
+                if (onSwitchCoordinator != null)
+                  const PopupMenuItem(
+                    value: 'coordinator',
+                    child: Row(
+                      children: [
+                        Icon(Icons.swap_horiz_rounded),
+                        SizedBox(width: 10),
+                        Flexible(child: Text('Change ROAST coordinator')),
+                      ],
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: 'delete',
                   child: Row(
@@ -651,6 +709,15 @@ class _BalanceCard extends StatelessWidget {
     final hasAddress = account.address != null;
     final canSign =
         hasAddress && account.derivationState == WalletDerivationState.ready;
+    final roastSetup = controller.setupForAccount(account);
+    final messageSigning =
+        roastSetup != null &&
+        controller.roastMessageSigningInProgress(roastSetup.id);
+    final canSignMessage =
+        canSign &&
+        roastSetup?.isActive == true &&
+        !controller.roastOperationInProgress(roastSetup!.id) &&
+        !messageSigning;
     final syncStatus = controller.syncStatusFor(account);
     final balance = controller.balanceSatsFor(account);
     final confirmedBalance = controller.confirmedBalanceSatsFor(account);
@@ -748,6 +815,22 @@ class _BalanceCard extends StatelessWidget {
                         ? () => _showSendDialog(context, controller, account)
                         : null,
                   ),
+                  if (roastSetup?.isActive == true)
+                    _BalanceAction(
+                      key: const Key('sign-roast-message'),
+                      icon: Icons.draw_outlined,
+                      label: messageSigning
+                          ? 'Signing message…'
+                          : 'Sign message',
+                      enabled: canSignMessage,
+                      onPressed: canSignMessage
+                          ? () => showRoastSignMessageDialog(
+                              context,
+                              controller,
+                              account,
+                            )
+                          : null,
+                    ),
                   const _BalanceAction(
                     icon: Icons.history,
                     label: 'History',
@@ -773,18 +856,13 @@ String _formatPpc(int satoshis) {
   return '$whole.$fraction';
 }
 
-class _BalanceAction extends StatelessWidget {
-  const _BalanceAction({
-    required this.icon,
-    required this.label,
-    required this.enabled,
-    required this.onPressed,
-  });
-  final IconData icon;
-  final String label;
-  final bool enabled;
-  final VoidCallback? onPressed;
-
+class const _BalanceAction({
+  super.key,
+  required final IconData icon,
+  required final String label,
+  required final bool enabled,
+  required final VoidCallback? onPressed,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
@@ -1004,7 +1082,11 @@ class _ActivityCard extends StatelessWidget {
             ] else ...[
               const SizedBox(height: 12),
               for (var index = 0; index < activities.length; index++) ...[
-                _ActivityRow(activity: activities[index]),
+                _ActivityRow(
+                  activity: activities[index],
+                  account: account,
+                  controller: controller,
+                ),
                 if (index != activities.length - 1) const Divider(height: 1),
               ],
             ],
@@ -1015,75 +1097,223 @@ class _ActivityCard extends StatelessWidget {
   }
 }
 
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.activity});
-
-  final WalletActivity activity;
-
+class const _ActivityRow({
+  required final WalletActivity activity,
+  required final WalletAccount account,
+  required final WalletController controller,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final presentation = _activityPresentation(activity);
     final reference = activity.reference;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: presentation.color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+    final signedMessage = _signedMessageFromActivity(activity);
+    return InkWell(
+      key: Key('activity-${activity.id}'),
+      onTap: () => signedMessage == null
+          ? _showActivityDetails(
+              context,
+              activity: activity,
+              account: account,
+              controller: controller,
+            )
+          : showRoastSignMessageDialog(
+              context,
+              controller,
+              account,
+              result: signedMessage,
             ),
-            child: Icon(presentation.icon, size: 20, color: presentation.color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  presentation.title,
-                  style: const TextStyle(
-                    color: AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (activity.details case final details?) ...[
-                  const SizedBox(height: 3),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: presentation.color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                presentation.icon,
+                size: 20,
+                color: presentation.color,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    details,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    presentation.title,
                     style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 12,
+                      color: AppColors.ink,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ] else if (reference != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    _activityReference(activity.type, reference),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 12,
+                  if (activity.details case final details?) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      details,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
+                  ] else if (reference != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      _activityReference(activity.type, reference),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            _activityTime(activity.occurredAt),
-            style: const TextStyle(color: AppColors.inkMuted, fontSize: 11),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Text(
+              _activityTime(activity.occurredAt),
+              style: const TextStyle(color: AppColors.inkMuted, fontSize: 11),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.inkMuted,
+              size: 18,
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+RoastSignedMessage? _signedMessageFromActivity(WalletActivity activity) {
+  final publicKeyHex = activity.signedMessagePublicKeyHex;
+  final signatureHex = activity.signedMessageSignatureHex;
+  final encoded = activity.signedMessageEncoded;
+  if (activity.type != WalletActivityType.messageSigned ||
+      publicKeyHex == null ||
+      signatureHex == null ||
+      encoded == null) {
+    return null;
+  }
+  return RoastSignedMessage(
+    text: activity.details ?? '',
+    publicKeyHex: publicKeyHex,
+    signatureHex: signatureHex,
+    encoded: encoded,
+  );
+}
+
+Future<void> _showActivityDetails(
+  BuildContext context, {
+  required WalletActivity activity,
+  required WalletAccount account,
+  required WalletController controller,
+}) {
+  final presentation = _activityPresentation(activity);
+  final setup = controller.setupForAccount(account);
+  final reference = switch (activity.type) {
+    WalletActivityType.messageSignatureRequested ||
+    WalletActivityType.messageSigned => null,
+    _ => activity.reference,
+  };
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('activity-details-dialog'),
+      title: Text(presentation.title),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _ActivityDetail(label: 'Wallet', value: account.name),
+              _ActivityDetail(
+                label: 'Created',
+                value: _activityDateTime(activity.occurredAt),
+              ),
+              if (setup != null) ...[
+                _ActivityDetail(label: 'Signer group', value: setup.name),
+                _ActivityDetail(
+                  label: 'Signers required',
+                  value: '${setup.threshold} of ${setup.participantCount}',
+                ),
+              ],
+              if (activity.transactionStatus case final status?)
+                _ActivityDetail(
+                  label: 'Transaction status',
+                  value: _transactionStatusLabel(status),
+                ),
+              if (activity.blockHeight case final height?)
+                _ActivityDetail(label: 'Block height', value: '$height'),
+              if (activity.details case final details?)
+                _ActivityDetail(
+                  label:
+                      activity.type ==
+                              WalletActivityType.messageSignatureRequested ||
+                          activity.type == WalletActivityType.messageSigned
+                      ? 'Message'
+                      : 'Details',
+                  value: details,
+                ),
+              if (reference != null)
+                _ActivityDetail(
+                  label: _activityReferenceLabel(activity.type),
+                  value: reference,
+                ),
+              _ActivityDetail(label: 'Event ID', value: activity.id),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+class const _ActivityDetail({
+  required final String label,
+  required final String value,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.inkMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 4),
+        SelectableText(
+          value,
+          style: const TextStyle(color: AppColors.ink, fontSize: 13),
+        ),
+      ],
+    ),
+  );
 }
 
 ({String title, IconData icon, Color color}) _activityPresentation(
@@ -1123,6 +1353,11 @@ class _ActivityRow extends StatelessWidget {
     title: 'Shared key creation failed',
     icon: Icons.error_outline,
     color: AppColors.danger,
+  ),
+  WalletActivityType.transactionSignatureRequested => (
+    title: 'Transaction signature requested',
+    icon: Icons.pending_actions_outlined,
+    color: AppColors.greenDark,
   ),
   WalletActivityType.transactionSigned => (
     title: 'Transaction signed',
@@ -1166,17 +1401,37 @@ class _ActivityRow extends StatelessWidget {
 };
 
 String _activityReference(WalletActivityType type, String value) {
-  final label = switch (type) {
-    WalletActivityType.dkgStarted ||
-    WalletActivityType.dkgCompleted ||
-    WalletActivityType.dkgFailed => 'DKG',
-    WalletActivityType.transactionSigned ||
-    WalletActivityType.transactionBroadcast => 'Transaction',
-    WalletActivityType.messageSignatureRequested ||
-    WalletActivityType.messageSigned => 'Message request',
-    _ => 'Request',
-  };
-  return '$label ${_shortTransactionId(value)}';
+  return '${_activityReferenceLabel(type)} ${_shortTransactionId(value)}';
+}
+
+String _activityReferenceLabel(WalletActivityType type) => switch (type) {
+  WalletActivityType.dkgStarted ||
+  WalletActivityType.dkgCompleted ||
+  WalletActivityType.dkgFailed => 'DKG',
+  WalletActivityType.transactionSignatureRequested => 'Transaction request',
+  WalletActivityType.transactionSigned ||
+  WalletActivityType.transactionBroadcast => 'Transaction',
+  WalletActivityType.messageSignatureRequested ||
+  WalletActivityType.messageSigned => 'Message request',
+  _ => 'Request',
+};
+
+String _transactionStatusLabel(WalletTransactionStatus status) =>
+    switch (status) {
+      WalletTransactionStatus.broadcasting => 'Broadcasting',
+      WalletTransactionStatus.broadcast => 'Broadcast',
+      WalletTransactionStatus.mempool => 'In mempool',
+      WalletTransactionStatus.confirmed => 'Confirmed',
+      WalletTransactionStatus.failed => 'Failed',
+    };
+
+String _activityDateTime(DateTime value) {
+  final local = value.toLocal();
+  return '${local.day.toString().padLeft(2, '0')}.'
+      '${local.month.toString().padLeft(2, '0')}.${local.year}. · '
+      '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}:'
+      '${local.second.toString().padLeft(2, '0')}';
 }
 
 String _activityTime(DateTime value) {
@@ -1228,7 +1483,11 @@ class _SendDialogState extends State<_SendDialog> {
   final _destinationController = TextEditingController();
   final _amountController = TextEditingController();
   final _signingMessageController = TextEditingController();
+  final _signatureRequestTimeoutController = TextEditingController(
+    text: '${defaultRoastSigningRequestTimeout.inMinutes}',
+  );
   late final int _feeRateSatsPerKb;
+  Duration _signatureRequestTimeout = defaultRoastSigningRequestTimeout;
   WalletTransactionPreview? _preview;
   String? _error;
   bool _submitting = false;
@@ -1250,6 +1509,7 @@ class _SendDialogState extends State<_SendDialog> {
     _destinationController.dispose();
     _amountController.dispose();
     _signingMessageController.dispose();
+    _signatureRequestTimeoutController.dispose();
     super.dispose();
   }
 
@@ -1282,6 +1542,9 @@ class _SendDialogState extends State<_SendDialog> {
   void _review() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     try {
+      final signatureRequestTimeout = Duration(
+        minutes: int.parse(_signatureRequestTimeoutController.text.trim()),
+      );
       final preview = widget.controller.prepareSend(
         WalletSendRequest(
           destinationAddress: _destinationController.text,
@@ -1295,6 +1558,7 @@ class _SendDialogState extends State<_SendDialog> {
       );
       setState(() {
         _preview = preview;
+        _signatureRequestTimeout = signatureRequestTimeout;
         _error = null;
       });
     } on WalletTransactionFailure catch (error) {
@@ -1312,7 +1576,10 @@ class _SendDialogState extends State<_SendDialog> {
       _error = null;
     });
     try {
-      final result = await widget.controller.sendTransaction(preview);
+      final result = await widget.controller.sendTransaction(
+        preview,
+        signatureRequestTimeout: _signatureRequestTimeout,
+      );
       if (!mounted) return;
       Navigator.pop(context, result);
     } on WalletTransactionFailure catch (error) {
@@ -1336,8 +1603,10 @@ class _SendDialogState extends State<_SendDialog> {
   @override
   Widget build(BuildContext context) {
     final preview = _preview;
+    final canClosePendingRequest =
+        _submitting && widget.account.keySource == WalletKeySource.roast;
     return PopScope(
-      canPop: !_submitting,
+      canPop: !_submitting || canClosePendingRequest,
       child: AlertDialog(
         title: Text(preview == null ? 'Send Peercoin' : 'Review transaction'),
         content: ConstrainedBox(
@@ -1348,15 +1617,24 @@ class _SendDialogState extends State<_SendDialog> {
         ),
         actions: [
           TextButton(
+            key: const Key('send-dismiss-button'),
             onPressed: _submitting
-                ? null
+                ? canClosePendingRequest
+                      ? () => Navigator.pop(context)
+                      : null
                 : preview == null
                 ? () => Navigator.pop(context)
                 : () => setState(() {
                     _preview = null;
                     _error = null;
                   }),
-            child: Text(preview == null ? 'Cancel' : 'Back'),
+            child: Text(
+              canClosePendingRequest
+                  ? 'Close'
+                  : preview == null
+                  ? 'Cancel'
+                  : 'Back',
+            ),
           ),
           FilledButton(
             key: Key(
@@ -1403,7 +1681,7 @@ class _SendDialogState extends State<_SendDialog> {
             autofocus: true,
             autocorrect: false,
             enableSuggestions: false,
-            decoration: const InputDecoration(labelText: 'Taproot address'),
+            decoration: const InputDecoration(labelText: 'Destination address'),
             validator: (value) => value == null || value.trim().isEmpty
                 ? 'Enter a destination address.'
                 : null,
@@ -1446,6 +1724,18 @@ class _SendDialogState extends State<_SendDialog> {
                     ? 'Message must be no more than 1 KiB of UTF-8 text.'
                     : null;
               },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              key: const Key('send-signature-timeout-field'),
+              controller: _signatureRequestTimeoutController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Request timeout',
+                suffixText: 'minutes',
+                helperText: 'Maximum 1440 minutes (24 hours).',
+              ),
+              validator: _validateSigningRequestTimeoutMinutes,
             ),
           ],
           CheckboxListTile(
@@ -1510,10 +1800,23 @@ class _SendDialogState extends State<_SendDialog> {
       ),
       if (preview.signingMessage.isNotEmpty)
         _TransactionRow(label: 'Message', value: preview.signingMessage),
+      if (widget.account.keySource == WalletKeySource.roast)
+        _TransactionRow(
+          label: 'Request timeout',
+          value: '${_signatureRequestTimeout.inMinutes} minutes',
+        ),
       _TransactionRow(
         label: 'Inputs',
         value: '${preview.selectedUtxos.length}',
       ),
+      if (_submitting && widget.account.keySource == WalletKeySource.roast) ...[
+        const SizedBox(height: 12),
+        const Text(
+          'You can close this window. The approval request will continue in '
+          'the wallet.',
+          style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        ),
+      ],
       if (_error != null) ...[
         const SizedBox(height: 12),
         Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -1557,6 +1860,17 @@ class _TransactionRow extends StatelessWidget {
       ],
     ),
   );
+}
+
+String? _validateSigningRequestTimeoutMinutes(String? value) {
+  final minutes = int.tryParse(value?.trim() ?? '');
+  if (minutes == null || minutes <= 0) {
+    return 'Enter a timeout in whole minutes.';
+  }
+  if (minutes > maxRoastSigningRequestTimeout.inMinutes) {
+    return 'Timeout cannot exceed 24 hours.';
+  }
+  return null;
 }
 
 int? _parsePpc(String input) {
@@ -1852,10 +2166,6 @@ Future<void> _showSettings(
               children: [
                 Text('Settings', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
-                const Text(
-                  'Private data is stored in the encrypted Hive CE vault.',
-                  style: TextStyle(color: AppColors.inkMuted),
-                ),
                 const SizedBox(height: 20),
                 Text(
                   'NOTIFICATIONS',
@@ -1954,6 +2264,26 @@ Future<void> _showSettings(
                     icon: const Icon(Icons.send_outlined),
                     label: const Text('Send test notification'),
                   ),
+                ),
+                const Divider(height: 32),
+                ListTile(
+                  key: const Key('about-button'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.info_outline_rounded),
+                  title: const Text('About'),
+                  subtitle: Text(
+                    'Version $sygnatureVersionString',
+                    key: const Key('settings-version'),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AboutScreen(),
+                      ),
+                    );
+                  },
                 ),
                 const Divider(height: 32),
                 ListTile(
@@ -2095,7 +2425,23 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
   @override
   Widget build(BuildContext context) {
     final request = widget.item.request;
+    final requester = widget.controller.roastSetups
+        .where((setup) => setup.id == widget.item.setupId)
+        .firstOrNull
+        ?.participants
+        .where((participant) => participant.identifierHex == request.creator)
+        .firstOrNull;
+    final requesterLabel = requester == null
+        ? _shortTransactionId(request.creator)
+        : '${_shortTransactionId(requester.publicKeyHex)} (${requester.name})';
     final signsMessage = request.kind == RoastSigningRequestKind.message;
+    final waitingForDecision = request.status == 'waiting';
+    final progress = request.progress;
+    final progressColor = switch (progress.stage) {
+      'completed' => AppColors.success,
+      'failed' => AppColors.danger,
+      _ => AppColors.warningDark,
+    };
     return Card(
       key: ValueKey('roast-signing-request-${request.idHex}'),
       child: Padding(
@@ -2112,9 +2458,12 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  signsMessage
-                      ? 'MESSAGE SIGNATURE · ACTION REQUIRED'
-                      : 'TRANSACTION SIGNATURE · ACTION REQUIRED',
+                  '${signsMessage ? 'MESSAGE' : 'TRANSACTION'} SIGNATURE · '
+                  '${switch (request.status) {
+                    'accepted' => 'ACCEPTED',
+                    'rejected' => 'REJECTED',
+                    _ => 'ACTION REQUIRED',
+                  }}',
                   style: const TextStyle(
                     color: AppColors.danger,
                     fontSize: 10,
@@ -2132,11 +2481,59 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
             const SizedBox(height: 4),
             Text(
               signsMessage
-                  ? 'Requested by ${_shortTransactionId(request.creator)} · '
+                  ? 'Requested by $requesterLabel · '
                         'shared group key'
-                  : 'Requested by ${_shortTransactionId(request.creator)} · '
+                  : 'Requested by $requesterLabel · '
                         '${request.masterGroupKeys.length} input(s)',
               style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              key: Key('roast-signing-progress-${request.idHex}'),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: progressColor.withValues(alpha: 0.08),
+                border: Border.all(
+                  color: progressColor.withValues(alpha: 0.35),
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    switch (progress.stage) {
+                      'signing' => 'Potpisivanje',
+                      'completed' => 'Potpis dovršen',
+                      'failed' => 'Potpisivanje nije uspjelo',
+                      _ => 'Prikupljanje potvrda',
+                    },
+                    style: TextStyle(
+                      color: progressColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${progress.contributingParticipants.length}/'
+                    '${progress.threshold} potrebna potpisnika',
+                    style: const TextStyle(color: AppColors.ink),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Lokalni status: ${switch (request.status) {
+                      'accepted' => 'prihvaćeno',
+                      'rejected' => 'odbijeno',
+                      _ => 'čeka odluku',
+                    }}',
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
             if (request.signedMessageText case final signedText?) ...[
               const SizedBox(height: 12),
@@ -2228,33 +2625,35 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
               const SizedBox(height: 8),
               Text(_error!, style: const TextStyle(color: Colors.red)),
             ],
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(
-                          () => widget.controller.rejectRoastSigningRequest(
-                            widget.item,
+            if (waitingForDecision) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _perform(
+                            () => widget.controller.rejectRoastSigningRequest(
+                              widget.item,
+                            ),
                           ),
-                        ),
-                  child: const Text('Reject'),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(
-                          () => widget.controller.acceptRoastSigningRequest(
-                            widget.item,
+                    child: const Text('Reject'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _perform(
+                            () => widget.controller.acceptRoastSigningRequest(
+                              widget.item,
+                            ),
                           ),
-                        ),
-                  child: Text(_busy ? 'Submitting…' : 'Approve and sign'),
-                ),
-              ],
-            ),
+                    child: Text(_busy ? 'Submitting…' : 'Approve and sign'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

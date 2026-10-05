@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.github.peerchemist.sygnature"
+    namespace = "network.noosphere.sygnature"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "29.0.14206865"
 
@@ -16,7 +16,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.github.peerchemist.sygnature"
+        applicationId = "network.noosphere.sygnature"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

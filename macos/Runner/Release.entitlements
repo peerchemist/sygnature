@@ -7,6 +7,8 @@
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>keychain-access-groups</key>
-	<array/>
+	<array>
+		<string>$(AppIdentifierPrefix)network.noosphere.sygnature</string>
+	</array>
 </dict>
 </plist>

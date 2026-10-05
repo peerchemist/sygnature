@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
+import 'package:flutter/widgets.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -136,13 +137,15 @@ class WebSocketElectrumxConnection implements ElectrumxConnection {
   Future<void> close() => _channel.sink.close();
 }
 
-class PeercoinElectrumxService implements ElectrumxService {
+class PeercoinElectrumxService
+    with WidgetsBindingObserver
+    implements ElectrumxService {
   PeercoinElectrumxService({
     required this.electrumNetwork,
     this.connector = WebSocketElectrumxConnection.connect,
     this.timeout = const Duration(seconds: 12),
     this.reconnectDelay = const Duration(seconds: 5),
-    this.keepAliveInterval = const Duration(seconds: 450),
+    this.keepAliveInterval = const Duration(seconds: 30),
     Uri? preferredServer,
   }) : preferredServer = preferredServer ?? electrumNetwork.servers.first {
     if (!_isConfiguredBackend(electrumNetwork, this.preferredServer)) {
@@ -152,6 +155,7 @@ class PeercoinElectrumxService implements ElectrumxService {
         'Backend is not configured for ${electrumNetwork.preset.label}.',
       );
     }
+    WidgetsBinding.instance.addObserver(this);
   }
 
   final PeercoinElectrumxNetwork electrumNetwork;
@@ -172,7 +176,7 @@ class PeercoinElectrumxService implements ElectrumxService {
     ElectrumxConnector connector = WebSocketElectrumxConnection.connect,
     Duration timeout = const Duration(seconds: 12),
     Duration reconnectDelay = const Duration(seconds: 5),
-    Duration keepAliveInterval = const Duration(seconds: 450),
+    Duration keepAliveInterval = const Duration(seconds: 30),
     Uri? preferredServer,
   }) {
     return PeercoinElectrumxService(
@@ -190,7 +194,7 @@ class PeercoinElectrumxService implements ElectrumxService {
     ElectrumxConnector connector = WebSocketElectrumxConnection.connect,
     Duration timeout = const Duration(seconds: 12),
     Duration reconnectDelay = const Duration(seconds: 5),
-    Duration keepAliveInterval = const Duration(seconds: 450),
+    Duration keepAliveInterval = const Duration(seconds: 30),
   }) async {
     return PeercoinElectrumxService.forPreset(
       preset,
@@ -211,8 +215,14 @@ class PeercoinElectrumxService implements ElectrumxService {
     if (_closed) {
       throw const ElectrumxException('ElectrumX service is closed.');
     }
-    if (_persistentClient != null && !_persistentClient!.isClosed) {
-      return _persistentClient!;
+    final current = _persistentClient;
+    if (current != null && !current.isClosed) {
+      // Refresh must not reuse a socket that only appears connected after sleep.
+      await current.checkConnection();
+      if (_closed) {
+        throw const ElectrumxException('ElectrumX service is closed.');
+      }
+      if (!current.isClosed) return current;
     }
     final pending = _persistentClientFuture;
     if (pending != null) {
@@ -231,9 +241,13 @@ class PeercoinElectrumxService implements ElectrumxService {
 
   Future<_ElectrumxClient> _connectPersistentClient() async {
     await _persistentClient?.close();
+    _persistentClient = null;
 
     final failures = <String>[];
     for (final server in _orderedServers) {
+      if (_closed) {
+        throw const ElectrumxException('ElectrumX service is closed.');
+      }
       AppLogger.debug('Connecting persistent ElectrumX server=$server');
       final client = _ElectrumxClient(
         server: server,
@@ -244,6 +258,10 @@ class PeercoinElectrumxService implements ElectrumxService {
       );
       try {
         await client.connect();
+        if (_closed) {
+          await client.close();
+          throw const ElectrumxException('ElectrumX service is closed.');
+        }
         _persistentClient = client;
         return client;
       } catch (error) {
@@ -293,7 +311,9 @@ class PeercoinElectrumxService implements ElectrumxService {
         stopping ??= Future<void>(() async {
           if (error != null) output.addError(error, stackTrace);
           await Future.wait(subscriptions.map((item) => item.cancel()));
-          await output.close();
+          // Do not wait for the consumer to receive done: its cancellation can
+          // itself be waiting for this stop future.
+          unawaited(output.close());
         });
 
     void fail(Object error, StackTrace stackTrace) {
@@ -365,9 +385,17 @@ class PeercoinElectrumxService implements ElectrumxService {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_closed) {
+      unawaited(_persistentClient?.checkConnection());
+    }
+  }
+
+  @override
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    WidgetsBinding.instance.removeObserver(this);
     final pendingClient = _persistentClientFuture;
     _persistentClientFuture = null;
     final client = _persistentClient;
@@ -496,21 +524,13 @@ class PeercoinElectrumxService implements ElectrumxService {
   }
 }
 
-class _ElectrumxClient {
-  _ElectrumxClient({
-    required this.server,
-    required this.electrumNetwork,
-    required this.connector,
-    required this.timeout,
-    required this.keepAliveInterval,
-  });
-
-  final Uri server;
-  final PeercoinElectrumxNetwork electrumNetwork;
-  final ElectrumxConnector connector;
-  final Duration timeout;
-  final Duration keepAliveInterval;
-
+class _ElectrumxClient({
+  required final Uri server,
+  required final PeercoinElectrumxNetwork electrumNetwork,
+  required final ElectrumxConnector connector,
+  required final Duration timeout,
+  required final Duration keepAliveInterval,
+}) {
   ElectrumxConnection? _connection;
   StreamSubscription<dynamic>? _subscription;
   Timer? _keepAliveTimer;
@@ -518,6 +538,9 @@ class _ElectrumxClient {
   final Map<String, StreamController<String?>> _subscriptions = {};
   int _nextId = 0;
   bool _usable = false;
+  bool _closed = false;
+  Future<void>? _closing;
+  Future<void>? _checkingConnection;
 
   bool get isClosed => !_usable;
 
@@ -526,7 +549,15 @@ class _ElectrumxClient {
       return;
     }
 
-    final connection = await connector(server).timeout(timeout);
+    final connection = await connector(server)
+        .then((connection) {
+          if (_closed) {
+            unawaited(_closeConnection(connection));
+            throw const ElectrumxException('ElectrumX client closed.');
+          }
+          return connection;
+        })
+        .timeout(timeout);
     _connection = connection;
     _subscription = connection.stream.listen(
       _handleIncomingMessage,
@@ -560,11 +591,14 @@ class _ElectrumxClient {
         'Server $server reported an incompatible network.',
       );
     }
+    if (_closed) {
+      throw const ElectrumxException('ElectrumX client closed.');
+    }
     _usable = true;
     if (keepAliveInterval > Duration.zero) {
       _keepAliveTimer = Timer.periodic(
         keepAliveInterval,
-        (_) => unawaited(_sendKeepAlive()),
+        (_) => unawaited(checkConnection()),
       );
     }
   }
@@ -662,18 +696,38 @@ class _ElectrumxClient {
     return result;
   }
 
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
+    _closed = true;
     _usable = false;
     _keepAliveTimer?.cancel();
     _keepAliveTimer = null;
-    await _subscription?.cancel();
+    final subscription = _subscription;
     _subscription = null;
     final connection = _connection;
     _connection = null;
-    if (connection != null) {
-      await connection.close();
-    }
+    // Notify listeners before transport cleanup, which may stall while offline.
     _failPending(const ElectrumxException('ElectrumX client closed.'));
+    await Future.wait([
+      if (subscription != null) _finishCleanup(subscription.cancel),
+      if (connection != null) _closeConnection(connection),
+    ]);
+  }
+
+  Future<void> _closeConnection(ElectrumxConnection connection) =>
+      _finishCleanup(connection.close);
+
+  Future<void> _finishCleanup(Future<void> Function() cleanup) async {
+    try {
+      await cleanup().timeout(timeout);
+    } catch (error, stackTrace) {
+      AppLogger.warn(
+        'ElectrumX cleanup failed for $server; continuing recovery.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<Object?> _request(String method, List<Object?> params) async {
@@ -685,20 +739,31 @@ class _ElectrumxClient {
     final id = _nextId++;
     final completer = Completer<Object?>();
     _pending[id] = completer;
-    connection.send(
-      jsonEncode({
-        'jsonrpc': '2.0',
-        'id': id,
-        'method': method,
-        'params': params,
-      }),
-    );
+    try {
+      connection.send(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'id': id,
+          'method': method,
+          'params': params,
+        }),
+      );
+    } catch (error, stackTrace) {
+      _pending.remove(id);
+      _handleTransportFailure(error, stackTrace);
+      rethrow;
+    }
 
     return completer.future.timeout(
       timeout,
       onTimeout: () {
         _pending.remove(id);
-        throw TimeoutException('ElectrumX request $id timed out.', timeout);
+        final error = TimeoutException(
+          'ElectrumX $method request $id timed out on $server.',
+          timeout,
+        );
+        _handleTransportFailure(error, StackTrace.current);
+        throw error;
       },
     );
   }
@@ -773,6 +838,11 @@ class _ElectrumxClient {
         negotiated.startsWith('${electrumNetwork.requiredProtocol}.');
   }
 
+  Future<void> checkConnection() =>
+      _checkingConnection ??= _sendKeepAlive().whenComplete(() {
+        _checkingConnection = null;
+      });
+
   Future<void> _sendKeepAlive() async {
     if (!_usable) return;
     try {
@@ -790,10 +860,12 @@ class _ElectrumxClient {
   }
 
   void _handleTransportFailure(Object error, StackTrace stackTrace) {
+    if (_closed) return;
     _usable = false;
     _keepAliveTimer?.cancel();
     _keepAliveTimer = null;
     _failPending(error, stackTrace);
+    unawaited(close());
   }
 
   void _failPending(Object error, [StackTrace? stackTrace]) {

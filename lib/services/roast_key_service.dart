@@ -2,6 +2,10 @@ import 'package:coinlib/coinlib.dart'
     show
         Address,
         Output,
+        P2PKH,
+        P2PKHAddress,
+        P2SH,
+        P2SHAddress,
         P2TR,
         P2TRAddress,
         bytesToHex,
@@ -238,6 +242,7 @@ class RoastKeyService {
       onlineParticipantIds: const [],
       keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: draft.createdAt,
+      irohIdentityIndex: draft.irohIdentityIndex,
       usesRoomEnrollment: true,
       hostParticipantId: hostParticipantId,
       coordinatorId: PublicKey.fromBytes(
@@ -310,10 +315,20 @@ class RoastKeyService {
       BigInt.zero,
       hexToBytes(scriptHex),
     ).program;
-    if (program is! P2TR) return 'Unsupported output script';
-    return P2TRAddress.fromTweakedKeyX(
-      program.data,
-      hrp: preset.network.bech32Hrp,
-    ).toString();
+    return switch (program) {
+      P2TR() => P2TRAddress.fromTweakedKeyX(
+        program.data,
+        hrp: preset.network.bech32Hrp,
+      ).toString(),
+      P2PKH() => P2PKHAddress.fromHash(
+        program.pkHash,
+        version: preset.network.p2pkhPrefix,
+      ).toString(),
+      P2SH() => P2SHAddress.fromHash(
+        program.scriptHash,
+        version: preset.network.p2shPrefix,
+      ).toString(),
+      _ => 'Unsupported output script',
+    };
   }
 }

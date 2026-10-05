@@ -1,4 +1,4 @@
-package com.github.peerchemist.sygnature
+package network.noosphere.sygnature
 
 import io.flutter.embedding.android.FlutterActivity
 

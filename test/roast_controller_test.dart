@@ -1,16 +1,21 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart'
     show
         Expiry,
+        GroupTransitionKeyPlan,
         HDKeyInfo,
+        Identifier,
         MessageSignatureMetadata,
         NewDkgDetails,
+        NoosphereFlutter,
         SignaturesRequestDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
+import 'package:sygnature_ng/models/group_transition.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/roast_signing_operation.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
@@ -26,7 +31,10 @@ import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
 
 void main() {
-  setUpAll(loadCoinlib);
+  setUpAll(() async {
+    await loadCoinlib();
+    await NoosphereFlutter.initializeNative();
+  });
 
   test('uses the threshold BIP-86 hierarchy for new ROAST accounts', () {
     final service = const RoastKeyService();
@@ -142,7 +150,10 @@ void main() {
           network: PeercoinNetworks.mainnet,
           preview: preview,
         );
-    final runtime = RoastRuntimeManager(RoastPersistenceFactory());
+    final runtime = RoastRuntimeManager(
+      RoastPersistenceFactory(),
+      getWalletBip39Seed: () => Uint8List(64),
+    );
     addTearDown(runtime.close);
 
     final proposal = runtime.createTransactionSigningProposal(
@@ -157,6 +168,10 @@ void main() {
     final persisted = SignaturesRequestDetails.fromHex(proposal.proposalHex);
 
     expect(proposal.expiry, persisted.expiry.time);
+    expect(
+      proposal.expiry.difference(DateTime.now()),
+      greaterThan(const Duration(minutes: 29)),
+    );
     expect(proposal.expiry.microsecond % 1000, 0);
     expect(proposal.idHex, bytesToHex(persisted.id.toBytes()));
     expect(persisted.message, 'Quarterly hosting bill');
@@ -194,12 +209,17 @@ void main() {
       ).copyWith(groupKeyHex: signingKey.pubkey.hex),
       'Exact message\nwith preserved whitespace ',
       message: 'Please verify the release note.',
+      timeout: maxRoastSigningRequestTimeout,
     );
     final messageDetails = SignaturesRequestDetails.fromHex(
       messageProposal.proposalHex,
     );
     final messageMetadata = messageDetails.metadata as MessageSignatureMetadata;
     expect(messageProposal.expiry, messageDetails.expiry.time);
+    expect(
+      messageProposal.expiry.difference(DateTime.now()),
+      greaterThan(const Duration(hours: 23, minutes: 59)),
+    );
     expect(messageProposal.idHex, bytesToHex(messageDetails.id.toBytes()));
     expect(
       messageMetadata.payload.text,
@@ -209,6 +229,17 @@ void main() {
     expect(messageDetails.requiredSigs.single.groupKey, signingKey.pubkey);
     expect(messageDetails.requiredSigs.single.hdDerivation, isEmpty);
     expect(messageDetails.requiredSigs.single.signDetails.mastHash, isNull);
+    expect(
+      () => runtime.createMessageSigningProposal(
+        _setup(
+          RoastSetupRole.host,
+          active: true,
+        ).copyWith(groupKeyHex: signingKey.pubkey.hex),
+        'Too long-lived',
+        timeout: maxRoastSigningRequestTimeout + const Duration(minutes: 1),
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
@@ -235,6 +266,7 @@ void main() {
             expiresAt: DateTime.now().add(const Duration(days: 1)),
           ),
         ],
+        coordinatorEndpointId: Uint8List(32),
         coordinatorId: 'coordinator',
         coordinatorRelayUrls: const [],
         coordinatorIpAddrs: const [],
@@ -299,6 +331,594 @@ void main() {
     expect(controller.issuedRoastInvitations('setup'), invitations);
     controller.dispose();
   });
+
+  test(
+    'any signer can persist a transition before successor invites are issued',
+    () async {
+      final localKey = ECPrivateKey.generate();
+      final localPublicKey = ECCompressedPublicKey.fromPubkey(localKey.pubkey);
+      final remotePublicKey = ECCompressedPublicKey.fromPubkey(
+        ECPrivateKey.generate().pubkey,
+      );
+      final sourceGroupKey = ECCompressedPublicKey.fromPubkey(
+        ECPrivateKey.generate().pubkey,
+      );
+      final remoteIdentifier = Identifier.fromUint16(1).toString();
+      final localIdentifier = Identifier.fromUint16(2).toString();
+      final coordinatorEndpointId = Uint8List.fromList(
+        List<int>.generate(32, (index) => index + 1),
+      );
+      final sourceSetup = RoastSetup(
+        id: 'source-setup',
+        groupId: 'source-group',
+        name: 'Current treasury',
+        role: RoastSetupRole.member,
+        status: RoastSetupStatus.active,
+        threshold: 2,
+        participantCount: 2,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        localCardId: 'local-card',
+        localParticipantPrivateKeyHex: bytesToHex(localKey.data),
+        participants: [
+          RoastParticipant(
+            cardId: 'remote-card',
+            name: 'Original host',
+            identifierHex: remoteIdentifier,
+            publicKeyHex: remotePublicKey.hex,
+          ),
+          RoastParticipant(
+            cardId: 'local-card',
+            name: 'This signer',
+            identifierHex: localIdentifier,
+            publicKeyHex: localPublicKey.hex,
+          ),
+        ],
+        onlineParticipantIds: const [],
+        keyName: 'source-key',
+        createdAt: DateTime.utc(2026),
+        usesRoomEnrollment: true,
+        hostParticipantId: remoteIdentifier,
+        coordinatorId: 'old-coordinator',
+        groupFingerprintHex: 'old-fingerprint',
+        groupKeyHex: sourceGroupKey.hex,
+      );
+      final repository = MemoryWalletRepository()
+        ..value = WalletVault(
+          accounts: [
+            WalletAccount(
+              id: 'shared',
+              name: 'Current treasury',
+              accountIndex: 0,
+              blockchainId: 'peercoin',
+              networkId: 'mainnet',
+              derivationState: WalletDerivationState.ready,
+              keySource: WalletKeySource.roast,
+              sourceId: sourceSetup.id,
+              keyId: sourceSetup.keyName,
+              derivationPath: 'R/0/6/0/0/0/0',
+              address: 'pc1pshared',
+              createdAt: DateTime.utc(2026),
+            ),
+          ],
+          nextAccountIndex: 0,
+          roastSetups: [sourceSetup],
+        );
+      final runtime = _FakeRoastRuntime()
+        ..snapshotGroupKey = sourceGroupKey.hex
+        ..roomCreation = RoastRoomCreation(
+          invites: [
+            RoastRoomInvite(
+              participantPublicKeyHex: remotePublicKey.hex,
+              encoded: 'successor-room-invite',
+              expiresAt: DateTime.now().add(const Duration(days: 1)),
+            ),
+          ],
+          coordinatorEndpointId: coordinatorEndpointId,
+          coordinatorId: 'new-coordinator',
+          coordinatorRelayUrls: const ['https://relay.example'],
+          coordinatorIpAddrs: const ['127.0.0.1:443'],
+        );
+      var proposalWasPersistedBeforeInvitations = false;
+      runtime.afterRoomPrepared = () {
+        final vault = repository.value!;
+        proposalWasPersistedBeforeInvitations =
+            vault.groupTransitions.length == 1 &&
+            vault.roastSetups.length == 2 &&
+            vault.accounts.length == 2;
+      };
+      final controller = WalletController(repository, roastRuntime: runtime);
+      await controller.load();
+      await _flushEvents();
+
+      final created = await controller.proposeRoastGroupTransition(
+        sourceSetupId: sourceSetup.id,
+        successorWalletName: 'Next treasury',
+        successorThreshold: 2,
+        otherParticipants: [
+          (name: 'Original host', publicKeyHex: remotePublicKey.hex),
+        ],
+      );
+
+      expect(proposalWasPersistedBeforeInvitations, isTrue);
+      expect(created.invitations, hasLength(1));
+      expect(
+        RoastExchangeCodec.decodeInvitation(
+          created.invitations.single.encoded,
+        )['transitionSourceGroupId'],
+        sourceSetup.groupId,
+      );
+      final successor = controller.roastSetups.singleWhere(
+        (setup) => setup.id == created.successorSetupId,
+      );
+      expect(successor.role, RoastSetupRole.host);
+      expect(successor.localCardId, sourceSetup.localCardId);
+      expect(
+        successor.localParticipantPrivateKeyHex,
+        sourceSetup.localParticipantPrivateKeyHex,
+      );
+      expect(
+        successor.participants.map((participant) => participant.cardId),
+        containsAll(['local-card', 'remote-card']),
+      );
+      final transition = controller.groupTransitions.single;
+      expect(transition.transitionId, created.transitionId);
+      expect(transition.sourceSetupId, sourceSetup.id);
+      expect(transition.successorSetupId, successor.id);
+      expect(transition.proposal.coordinatorEndpointId, coordinatorEndpointId);
+      expect(
+        transition.signedApprovalsHexByParticipant,
+        contains(localPublicKey.hex),
+      );
+      final policy = SygnatureWalletTransitionPolicy.fromBytes(
+        transition.proposal.migrationPolicy.payload,
+      );
+      expect(policy.maxTotalFeeSats, 0);
+      expect(policy.destinationDerivationPath, [86, 6, 0, 0, 0]);
+      expect(runtime.createdRoomSetup?.localCardId, sourceSetup.localCardId);
+
+      runtime.emit(
+        RoastRuntimeSnapshotEvent(
+          successor.id,
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: successor.participants
+              .map((participant) => participant.identifierHex)
+              .toList(),
+          coordinatorId: successor.coordinatorId,
+          coordinatorRelayUrls: successor.coordinatorRelayUrls,
+          coordinatorIpAddrs: successor.coordinatorIpAddrs,
+        ),
+      );
+      await _flushEvents();
+      await controller.startRoastDkg(successor.id);
+
+      expect(runtime.requestedDkgSetupIds, contains(successor.id));
+      expect(runtime.lastApprovedDkgDetails?.name, successor.keyName);
+      expect(runtime.lastTransitionKeyPlan?.keyId, sourceSetup.keyName);
+      expect(
+        controller.groupTransitions.single.phase,
+        WalletGroupTransitionPhase.preparing,
+      );
+
+      runtime.emit(
+        RoastRuntimeKeyEvent(
+          successor.id,
+          groupKeyHex: ECCompressedPublicKey.fromPubkey(
+            ECPrivateKey.generate().pubkey,
+          ).hex,
+          keyName: successor.keyName,
+          description: roastKeyDescription(successor),
+        ),
+      );
+      await _flushEvents();
+      expect(
+        controller.groupTransitions.single.phase,
+        WalletGroupTransitionPhase.ready,
+      );
+
+      final retainedDraftId = await controller.createRoastTransitionJoinDraft(
+        sourceSetupId: sourceSetup.id,
+        walletName: 'Next treasury',
+        threshold: 2,
+        participantCount: 2,
+      );
+      final retainedDraft = controller.roastSetups.singleWhere(
+        (setup) => setup.id == retainedDraftId,
+      );
+      expect(retainedDraft.role, RoastSetupRole.member);
+      expect(retainedDraft.localCardId, sourceSetup.localCardId);
+      expect(
+        retainedDraft.localParticipantPrivateKeyHex,
+        sourceSetup.localParticipantPrivateKeyHex,
+      );
+      expect(
+        retainedDraft.localParticipant.publicKeyHex,
+        sourceSetup.localParticipant.publicKeyHex,
+      );
+      controller.dispose();
+    },
+  );
+
+  test(
+    'requires exact local approval and serializes coordinator switching',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime()
+        ..switchGate = Completer<void>()
+        ..signatureRequestGate = Completer<void>();
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+      const next = RoastCoordinatorAddress(
+        id: 'approved-coordinator',
+        relayUrls: [],
+        ipAddrs: [],
+      );
+
+      await expectLater(
+        controller.switchRoastCoordinator('setup', next, approved: false),
+        throwsStateError,
+      );
+      expect(runtime.switchCalls, 0);
+
+      final switching = controller.switchRoastCoordinator(
+        'setup',
+        next,
+        approved: true,
+      );
+      await _flushEvents();
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.switching,
+      );
+      await expectLater(
+        controller.switchRoastCoordinator('setup', next, approved: true),
+        throwsStateError,
+      );
+      expect(runtime.switchCalls, 1);
+      runtime.switchGate!.complete();
+      await switching;
+
+      expect(controller.roastSetups.single.coordinatorId, next.id);
+      expect(controller.roastSetups.single.groupKeyHex, 'expected-key');
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.connected,
+      );
+
+      final signing = controller.signRoastMessage(
+        controller.accounts.single,
+        text: 'Coordinator switched',
+      );
+      await _flushEvents();
+      runtime.signatureRequestGate!.complete();
+      runtime.emit(
+        RoastRuntimeMessageSigningResultEvent(
+          'setup',
+          requestIdHex: 'cc' * 16,
+          creator: '01',
+          signedMessage: RoastSignedMessage(
+            text: 'Coordinator switched',
+            publicKeyHex: '11' * 32,
+            signatureHex: '22' * 64,
+            encoded: 'signed-after-switch',
+          ),
+        ),
+      );
+      expect((await signing).encoded, 'signed-after-switch');
+      await _flushEvents();
+      controller.dispose();
+    },
+  );
+
+  test(
+    'uses address update when the approved endpoint ID is unchanged',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime();
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+
+      await controller.switchRoastCoordinator(
+        'setup',
+        const RoastCoordinatorAddress(
+          id: 'coordinator',
+          relayUrls: ['https://relay.example'],
+          ipAddrs: ['127.0.0.1:443'],
+        ),
+        approved: true,
+      );
+
+      expect(runtime.addressUpdateCalls, 1);
+      expect(runtime.switchCalls, 0);
+      expect(controller.roastSetups.single.coordinatorRelayUrls, [
+        'https://relay.example',
+      ]);
+      controller.dispose();
+    },
+  );
+
+  test('pending signing state stops switching before persistence', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime()
+      ..switchFailure = RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.pendingSigningOperations,
+        code: 'pending_signing_operations',
+        cause: StateError('pending signing state'),
+      );
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+
+    await expectLater(
+      controller.switchRoastCoordinator(
+        'setup',
+        const RoastCoordinatorAddress(
+          id: 'new-coordinator',
+          relayUrls: [],
+          ipAddrs: [],
+        ),
+        approved: true,
+      ),
+      throwsA(isA<RoastCoordinatorSwitchFailure>()),
+    );
+
+    expect(repository.value!.roastSetups.single.coordinatorId, 'coordinator');
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.recoveryRequired,
+    );
+    expect(
+      controller.roastSetups.single.errorMessage,
+      contains('signing operations or nonce records'),
+    );
+    controller.dispose();
+  });
+
+  for (final testCase in [
+    (
+      failure: _CoordinatorSaveFailure.beforeCommit,
+      expectedCoordinator: 'coordinator',
+    ),
+    (
+      failure: _CoordinatorSaveFailure.afterCommit,
+      expectedCoordinator: 'new-coordinator',
+    ),
+  ]) {
+    test(
+      'recovers from ${testCase.failure.name} coordinator storage failure',
+      () async {
+        final repository = _CoordinatorRepository();
+        final runtime = _CoordinatorRoastRuntime();
+        final controller = _coordinatorController(repository, runtime);
+        await controller.load();
+        await _flushEvents();
+        repository.failure = testCase.failure;
+
+        await expectLater(
+          controller.switchRoastCoordinator(
+            'setup',
+            const RoastCoordinatorAddress(
+              id: 'new-coordinator',
+              relayUrls: [],
+              ipAddrs: [],
+            ),
+            approved: true,
+          ),
+          throwsA(isA<RoastCoordinatorSwitchFailure>()),
+        );
+
+        expect(
+          repository.value!.roastSetups.single.coordinatorId,
+          testCase.expectedCoordinator,
+        );
+        expect(
+          runtime.startedCoordinatorIds.last,
+          testCase.expectedCoordinator,
+        );
+        expect(
+          controller.roastCoordinatorState('setup'),
+          RoastCoordinatorLocalState.connected,
+        );
+        controller.dispose();
+      },
+    );
+  }
+
+  test('waits for a late coordinator commit after host timeout', () async {
+    final repository = _CoordinatorRepository()
+      ..coordinatorWriteGate = Completer<void>();
+    final runtime = _CoordinatorRoastRuntime()
+      ..failBeforePersistenceSettles = true;
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+    var completed = false;
+
+    final switching = controller
+        .switchRoastCoordinator(
+          'setup',
+          const RoastCoordinatorAddress(
+            id: 'late-coordinator',
+            relayUrls: [],
+            ipAddrs: [],
+          ),
+          approved: true,
+        )
+        .whenComplete(() => completed = true);
+    await _flushEvents();
+    expect(completed, isFalse);
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.switching,
+    );
+
+    repository.coordinatorWriteGate!.complete();
+    await expectLater(switching, throwsA(isA<RoastCoordinatorSwitchFailure>()));
+    expect(
+      repository.value!.roastSetups.single.coordinatorId,
+      'late-coordinator',
+    );
+    expect(runtime.startedCoordinatorIds.last, 'late-coordinator');
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.connected,
+    );
+    controller.dispose();
+  });
+
+  for (final code in ['connection_refused', 'group_mismatch']) {
+    test('keeps the approved pin after coordinator $code', () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime()
+        ..switchFailure = RoastCoordinatorSwitchFailure(
+          kind: RoastCoordinatorSwitchFailureKind.connection,
+          code: code,
+          cause: StateError(code),
+        );
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+
+      await expectLater(
+        controller.switchRoastCoordinator(
+          'setup',
+          const RoastCoordinatorAddress(
+            id: 'approved-new-coordinator',
+            relayUrls: [],
+            ipAddrs: [],
+          ),
+          approved: true,
+        ),
+        throwsA(isA<RoastCoordinatorSwitchFailure>()),
+      );
+
+      expect(
+        repository.value!.roastSetups.single.coordinatorId,
+        'approved-new-coordinator',
+      );
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.recoveryRequired,
+      );
+      runtime.switchFailure = null;
+      await controller.resumeRoastSetup('setup');
+      expect(runtime.startedCoordinatorIds.last, 'approved-new-coordinator');
+      expect(
+        controller.roastCoordinatorState('setup'),
+        RoastCoordinatorLocalState.connected,
+      );
+      controller.dispose();
+    });
+  }
+
+  test('loads a saved coordinator pin before restart setup', () async {
+    final repository = _CoordinatorRepository();
+    final firstRuntime = _CoordinatorRoastRuntime()
+      ..switchFailure = RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.connection,
+        code: 'connection_refused',
+        cause: StateError('offline'),
+      );
+    final first = _coordinatorController(repository, firstRuntime);
+    await first.load();
+    await _flushEvents();
+    await expectLater(
+      first.switchRoastCoordinator(
+        'setup',
+        const RoastCoordinatorAddress(
+          id: 'saved-coordinator',
+          relayUrls: [],
+          ipAddrs: [],
+        ),
+        approved: true,
+      ),
+      throwsA(isA<RoastCoordinatorSwitchFailure>()),
+    );
+    first.dispose();
+
+    final restartedRuntime = _CoordinatorRoastRuntime();
+    final restarted = _coordinatorController(repository, restartedRuntime);
+    await restarted.load();
+    await _flushEvents();
+
+    expect(
+      restartedRuntime.startedCoordinatorIds,
+      contains('saved-coordinator'),
+    );
+    expect(restarted.roastSetups.single.coordinatorId, 'saved-coordinator');
+    restarted.dispose();
+  });
+
+  test(
+    'distinguishes enrollment rejection and interruption without retrying',
+    () async {
+      final cases = <({RoastEnrollmentFailure failure, String message})>[
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.rejected,
+            cause: StateError('rejected'),
+            roomFailureCode: 0,
+          ),
+          message: 'room code 0',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.timeout,
+            cause: TimeoutException('timeout'),
+          ),
+          message: 'timed out',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.malformedResponse,
+            cause: const FormatException('malformed'),
+          ),
+          message: 'invalid enrollment response',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.connection,
+            cause: StateError('connection closed'),
+          ),
+          message: 'connection was interrupted',
+        ),
+      ];
+
+      for (final testCase in cases) {
+        final repository = MemoryWalletRepository();
+        final runtime = _FakeRoastRuntime()..joinRoomError = testCase.failure;
+        final controller = WalletController(
+          repository,
+          roastRuntime: runtime,
+          roastKeyService: _EnrollmentRoastKeyService(),
+        );
+        await controller.load();
+        final setupId = await controller.createRoastSetupDraft(
+          role: RoastSetupRole.member,
+          walletName: 'Enrollment test',
+          participantName: 'Signer',
+          threshold: 2,
+          participantCount: 2,
+          network: PeercoinNetworks.mainnet,
+        );
+
+        await expectLater(
+          controller.joinRoastSetup(setupId, 'room-invite'),
+          throwsA(same(testCase.failure)),
+        );
+
+        expect(runtime.joinRoomCalls, 1);
+        expect(
+          controller.roastSetups.single.errorMessage,
+          contains(testCase.message),
+        );
+        controller.dispose();
+      }
+    },
+  );
 
   test('deletes the last ROAST wallet and its local setup data', () async {
     final runtime = _FakeRoastRuntime();
@@ -579,13 +1199,23 @@ void main() {
     await controller.acceptRoastSigningRequest(
       controller.roastSigningRequests.single,
     );
+    expect(controller.roastSigningRequests.single.request.status, 'accepted');
 
     final rejected = _signingRequest('bb' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: rejected));
     await _flushEvents();
     expect(notificationCount, 2);
     await controller.rejectRoastSigningRequest(
-      controller.roastSigningRequests.single,
+      controller.roastSigningRequests.singleWhere(
+        (item) => item.request.idHex == rejected.idHex,
+      ),
+    );
+    expect(
+      controller.roastSigningRequests
+          .singleWhere((item) => item.request.idHex == rejected.idHex)
+          .request
+          .status,
+      'rejected',
     );
 
     final expired = _signingRequest('cc' * 16);
@@ -619,6 +1249,120 @@ void main() {
 
     controller.dispose();
   });
+
+  test(
+    'replaces signing progress for the same request until terminal flow',
+    () async {
+      final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+      final controller = _controller(runtime: runtime, active: true);
+      await controller.load();
+      await _flushEvents();
+
+      final requestId = 'ab' * 16;
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            threshold: 3,
+            contributingParticipants: const ['01', '02', '03'],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'signing',
+            threshold: 3,
+            contributingParticipants: const [],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      expect(controller.roastSigningRequests, hasLength(1));
+      expect(controller.roastSigningRequests.single.request.status, 'accepted');
+      expect(
+        controller.roastSigningRequests.single.request.progress.stage,
+        'signing',
+      );
+      expect(
+        controller
+            .roastSigningRequests
+            .single
+            .request
+            .progress
+            .contributingParticipants,
+        isEmpty,
+      );
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            requestId,
+            status: 'accepted',
+            stage: 'completed',
+            threshold: 2,
+            contributingParticipants: const ['01', '02'],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      final completed = controller.roastSigningRequests.single.request;
+      expect(completed.progress.threshold, 2);
+      expect(completed.progress.stage, 'completed');
+
+      runtime.emit(
+        RoastRuntimeSigningResultEvent(
+          'setup',
+          requestIdHex: requestId,
+          proposalHex: completed.proposalHex,
+          signatures: const [],
+          creator: completed.creator,
+        ),
+      );
+      await _flushEvents();
+      expect(controller.roastSigningRequests, isEmpty);
+
+      final failedId = 'cd' * 16;
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _messageSigningRequest(
+            failedId,
+            status: 'accepted',
+            stage: 'failed',
+          ),
+        ),
+      );
+      await _flushEvents();
+      expect(
+        controller.roastSigningRequests.single.request.progress.stage,
+        'failed',
+      );
+
+      runtime.emit(
+        RoastRuntimeFailureEvent(
+          'setup',
+          message: 'Signing request failed.',
+          interrupted: false,
+          operation: 'signatures',
+          requestIdHex: failedId,
+        ),
+      );
+      await _flushEvents();
+      expect(controller.roastSigningRequests, isEmpty);
+
+      controller.dispose();
+    },
+  );
 
   test(
     'accepts message requests and returns the portable signed result',
@@ -699,6 +1443,15 @@ void main() {
       expect(result.encoded, contains('noosphere-signed-message'));
       expect(controller.completedRoastMessage('setup'), same(result));
       expect(controller.roastMessageSigningInProgress('setup'), isFalse);
+      final signedActivity = controller
+          .activitiesFor(controller.accounts.single)
+          .first;
+      expect(signedActivity.signedMessagePublicKeyHex, '11' * 32);
+      expect(signedActivity.signedMessageSignatureHex, '22' * 64);
+      expect(
+        signedActivity.signedMessageEncoded,
+        '{"format":"noosphere-signed-message"}',
+      );
       expect(
         controller
             .activitiesFor(controller.accounts.single)
@@ -712,6 +1465,59 @@ void main() {
       controller.dispose();
     },
   );
+
+  test('stores replayed signed messages for every participant', () async {
+    final requestId = 'ab' * 16;
+    final occurredAt = DateTime.utc(2026, 1, 1);
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final controller = _controller(
+      runtime: runtime,
+      active: true,
+      activities: [
+        WalletActivity(
+          id: 'message-signed:setup:$requestId',
+          accountId: 'shared',
+          type: WalletActivityType.messageSigned,
+          occurredAt: occurredAt,
+          reference: requestId,
+          details: 'Previously stored text',
+        ),
+      ],
+    );
+    await controller.load();
+    await _flushEvents();
+
+    runtime.emit(
+      RoastRuntimeMessageSigningResultEvent(
+        'setup',
+        requestIdHex: requestId,
+        creator: '01',
+        signedMessage: RoastSignedMessage(
+          text: 'Signed by the group',
+          publicKeyHex: '11' * 32,
+          signatureHex: '22' * 64,
+          encoded: '{"format":"noosphere-signed-message"}',
+        ),
+      ),
+    );
+    await _flushEvents();
+
+    final activities = controller.activitiesFor(controller.accounts.single);
+    expect(activities, hasLength(1));
+    expect(activities.single.occurredAt, occurredAt);
+    expect(activities.single.details, 'Signed by the group');
+    expect(activities.single.signedMessagePublicKeyHex, '11' * 32);
+    expect(activities.single.signedMessageSignatureHex, '22' * 64);
+    expect(
+      activities.single.signedMessageEncoded,
+      '{"format":"noosphere-signed-message"}',
+    );
+    expect(
+      controller.completedRoastMessage('setup')?.text,
+      'Signed by the group',
+    );
+    controller.dispose();
+  });
 
   test('hides legacy approvals for locally requested messages', () async {
     final requestId = 'ab' * 16;
@@ -883,6 +1689,7 @@ void main() {
       [
         WalletActivityType.transactionBroadcast,
         WalletActivityType.transactionSigned,
+        WalletActivityType.transactionSignatureRequested,
       ],
     );
 
@@ -1026,6 +1833,38 @@ void main() {
   );
 }
 
+WalletController _coordinatorController(
+  _CoordinatorRepository repository,
+  _CoordinatorRoastRuntime runtime,
+) {
+  repository.value ??= WalletVault(
+    accounts: [
+      WalletAccount(
+        id: 'shared',
+        name: 'Shared wallet',
+        accountIndex: 0,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        derivationState: WalletDerivationState.ready,
+        keySource: WalletKeySource.roast,
+        sourceId: 'setup',
+        keyId: 'setup:generation:1',
+        derivationPath: 'R/0/6/0/0/0/0',
+        address: 'pc1pshared',
+        createdAt: DateTime.utc(2026),
+      ),
+    ],
+    nextAccountIndex: 0,
+    roastSetups: [_setup(RoastSetupRole.host, active: true)],
+  );
+  return WalletController(
+    repository,
+    roastRuntime: runtime,
+    roastKeyService: _FakeRoastKeyService(),
+    networkServiceFactory: (_) async => null,
+  );
+}
+
 WalletController _activeController({
   required _FakeRoastRuntime runtime,
   required RoastSigningOperationRepository operations,
@@ -1148,7 +1987,13 @@ Future<void> _flushEvents() async {
   }
 }
 
-RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
+RoastSigningRequest _signingRequest(
+  String idHex, {
+  String status = 'waiting',
+  String stage = 'collecting',
+  int threshold = 2,
+  List<String> contributingParticipants = const ['01'],
+}) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'dd',
   creator: '01',
@@ -1158,7 +2003,12 @@ RoastSigningRequest _signingRequest(String idHex) => RoastSigningRequest(
   usesSupportedSighash: true,
   usesExpectedTaprootTweak: true,
   usesUntweakedKey: false,
-  status: 'waiting',
+  status: status,
+  progress: RoastSigningProgress(
+    threshold: threshold,
+    contributingParticipants: contributingParticipants,
+    stage: stage,
+  ),
   inputSats: 2000000,
   transactionInputCount: 1,
   signedInputIndexes: const [0],
@@ -1178,6 +2028,9 @@ RoastSigningRequest _messageSigningRequest(
   String idHex, {
   String creator = '01',
   String status = 'waiting',
+  String stage = 'collecting',
+  int threshold = 2,
+  List<String> contributingParticipants = const ['01'],
 }) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'ee',
@@ -1189,6 +2042,11 @@ RoastSigningRequest _messageSigningRequest(
   usesExpectedTaprootTweak: false,
   usesUntweakedKey: true,
   status: status,
+  progress: RoastSigningProgress(
+    threshold: threshold,
+    contributingParticipants: contributingParticipants,
+    stage: stage,
+  ),
   inputSats: 0,
   transactionInputCount: 0,
   signedInputIndexes: const [],
@@ -1243,6 +2101,24 @@ final class _RoomRoastKeyService(final List<RoastParticipant> roster)
   String groupFingerprint(setup) => 'fingerprint';
 }
 
+final class _EnrollmentRoastKeyService extends RoastKeyService {
+  var _nextId = 0;
+
+  @override
+  RoastParticipantMaterial generateParticipant() => RoastParticipantMaterial(
+    cardId: 'local-card',
+    privateKeyHex: '11' * 32,
+    publicKeyHex: '02${'22' * 32}',
+  );
+
+  @override
+  String newSetupId() => 'enrollment-${_nextId++}';
+
+  @override
+  RoastInvitation applyInvitation(RoastSetup draft, String encodedInvitation) =>
+      RoastInvitation(setup: draft, roomInvite: encodedInvitation);
+}
+
 final class _FixedRoastKeyService(final RoastDerivedAddress address)
     extends RoastKeyService {
   @override
@@ -1255,7 +2131,7 @@ final class _FixedRoastKeyService(final RoastDerivedAddress address)
   }) => address;
 }
 
-final class _FakeRoastRuntime implements RoastRuntime {
+class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final List<String> requestedDkgSetupIds = [];
@@ -1267,9 +2143,16 @@ final class _FakeRoastRuntime implements RoastRuntime {
   bool failSigningRequests = false;
   RoastRoomCreation? roomCreation;
   RoastSetup? createdRoomSetup;
+  NewDkgDetails? lastApprovedDkgDetails;
+  GroupTransitionKeyPlan? lastTransitionKeyPlan;
   RoastRuntimeSnapshot? startSnapshot;
+  void Function()? afterRoomPrepared;
+  Object? joinRoomError;
+  int joinRoomCalls = 0;
   String? messageText;
   String? messageNote;
+  Duration? transactionRequestTimeout;
+  Duration? messageRequestTimeout;
   Completer<void>? signatureRequestGate;
 
   @override
@@ -1292,18 +2175,42 @@ final class _FakeRoastRuntime implements RoastRuntime {
       );
 
   @override
-  Future<RoastRoomCreation> createRoom(setup) async {
+  Future<RoastRoomCreation> createRoom(
+    setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) async {
     createdRoomSetup = setup;
-    return roomCreation ?? (throw UnimplementedError());
+    final room = roomCreation ?? (throw UnimplementedError());
+    await beforeInvitations?.call(
+      RoastRoomCreation(
+        invites: const [],
+        coordinatorEndpointId: room.coordinatorEndpointId,
+        coordinatorId: room.coordinatorId,
+        coordinatorRelayUrls: room.coordinatorRelayUrls,
+        coordinatorIpAddrs: room.coordinatorIpAddrs,
+      ),
+    );
+    afterRoomPrepared?.call();
+    return room;
   }
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
-      throw UnimplementedError();
+  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) async {
+    joinRoomCalls++;
+    final error = joinRoomError;
+    if (error != null) throw error;
+    throw UnimplementedError();
+  }
 
   @override
-  Future<void> requestDkg(RoastSetup setup) async {
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) async {
     requestedDkgSetupIds.add(setup.id);
+    lastApprovedDkgDetails = approvedDetails;
+    lastTransitionKeyPlan = transitionKeyPlan;
   }
 
   @override
@@ -1320,24 +2227,30 @@ final class _FakeRoastRuntime implements RoastRuntime {
     transaction,
     List<int> derivationPath, {
     String message = '',
-  }) => RoastSigningProposal(
-    idHex: 'aa' * 16,
-    proposalHex: 'bb',
-    expiry: DateTime.now().add(const Duration(minutes: 1)),
-  );
+    Duration timeout = defaultRoastSigningRequestTimeout,
+  }) {
+    transactionRequestTimeout = timeout;
+    return RoastSigningProposal(
+      idHex: 'aa' * 16,
+      proposalHex: 'bb',
+      expiry: DateTime.now().add(timeout),
+    );
+  }
 
   @override
   RoastSigningProposal createMessageSigningProposal(
     setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
     messageText = text;
     messageNote = message;
+    messageRequestTimeout = timeout;
     return RoastSigningProposal(
       idHex: 'cc' * 16,
       proposalHex: 'dd',
-      expiry: DateTime.now().add(const Duration(minutes: 1)),
+      expiry: DateTime.now().add(timeout),
     );
   }
 
@@ -1376,6 +2289,121 @@ final class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<void> close() => _events.close();
+}
+
+final class _CoordinatorRoastRuntime extends _FakeRoastRuntime
+    implements RoastCoordinatorRuntime {
+  int switchCalls = 0;
+  int addressUpdateCalls = 0;
+  final List<String?> startedCoordinatorIds = [];
+  RoastCoordinatorSwitchFailure? switchFailure;
+  Completer<void>? switchGate;
+  bool failBeforePersistenceSettles = false;
+  Object? startFailure;
+
+  @override
+  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+    startedCoordinatorIds.add(setup.coordinatorId);
+    final error = startFailure;
+    if (error != null) throw error;
+    return _snapshotFor(setup.coordinatorId, groupKeyHex: setup.groupKeyHex);
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> switchCoordinator(
+    RoastSetup setup, {
+    required RoastCoordinatorAddress newCoordinator,
+    required Future<void> Function(RoastCoordinatorAddress address) persist,
+  }) async {
+    switchCalls++;
+    final failure = switchFailure;
+    if (failure?.kind ==
+        RoastCoordinatorSwitchFailureKind.pendingSigningOperations) {
+      throw failure!;
+    }
+    final persistence = persist(newCoordinator);
+    if (failBeforePersistenceSettles) {
+      unawaited(persistence);
+      throw RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.persistence,
+        code: 'host_timeout',
+        cause: TimeoutException('host persistence timed out'),
+      );
+    }
+    try {
+      await persistence;
+    } catch (error) {
+      throw RoastCoordinatorSwitchFailure(
+        kind: RoastCoordinatorSwitchFailureKind.persistence,
+        code: 'host_state',
+        cause: error,
+      );
+    }
+    await switchGate?.future;
+    if (failure != null) throw failure;
+    return _snapshotFor(
+      newCoordinator.id,
+      groupKeyHex: setup.groupKeyHex,
+      relayUrls: newCoordinator.relayUrls,
+      ipAddrs: newCoordinator.ipAddrs,
+    );
+  }
+
+  @override
+  Future<RoastRuntimeSnapshot> updateCoordinatorAddress(
+    RoastSetup setup,
+    RoastCoordinatorAddress coordinator,
+  ) async {
+    addressUpdateCalls++;
+    return _snapshotFor(
+      coordinator.id,
+      groupKeyHex: setup.groupKeyHex,
+      relayUrls: coordinator.relayUrls,
+      ipAddrs: coordinator.ipAddrs,
+    );
+  }
+
+  static RoastRuntimeSnapshot _snapshotFor(
+    String? coordinatorId, {
+    required String? groupKeyHex,
+    List<String> relayUrls = const [],
+    List<String> ipAddrs = const [],
+  }) => RoastRuntimeSnapshot(
+    connected: true,
+    signerRunning: true,
+    onlineParticipantIds: const ['01', '02'],
+    coordinatorId: coordinatorId,
+    coordinatorRelayUrls: relayUrls,
+    coordinatorIpAddrs: ipAddrs,
+    groupKeyHex: groupKeyHex,
+    pendingDkgProposalHex: null,
+  );
+}
+
+enum _CoordinatorSaveFailure { none, beforeCommit, afterCommit }
+
+final class _CoordinatorRepository extends MemoryWalletRepository {
+  _CoordinatorSaveFailure failure = _CoordinatorSaveFailure.none;
+  Completer<void>? coordinatorWriteGate;
+
+  @override
+  Future<void> save(WalletVault vault) async {
+    final previousId = value?.roastSetups.singleOrNull?.coordinatorId;
+    final nextId = vault.roastSetups.singleOrNull?.coordinatorId;
+    final coordinatorChanged = previousId != nextId;
+    if (!coordinatorChanged) {
+      value = vault;
+      return;
+    }
+    await coordinatorWriteGate?.future;
+    if (failure == _CoordinatorSaveFailure.beforeCommit) {
+      throw StateError('storage failed before commit');
+    }
+    value = vault;
+    if (failure == _CoordinatorSaveFailure.afterCommit) {
+      throw StateError('storage failed after commit');
+    }
+  }
 }
 
 final class _FakeElectrumxService implements ElectrumxService {
@@ -1418,6 +2446,7 @@ final class _SigningRoastRuntime(
   ThresholdWalletTransaction? _transaction;
   List<int>? _derivationPath;
   String? signingMessage;
+  Duration? signingRequestTimeout;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -1436,7 +2465,10 @@ final class _SigningRoastRuntime(
       );
 
   @override
-  Future<RoastRoomCreation> createRoom(setup) => throw UnimplementedError();
+  Future<RoastRoomCreation> createRoom(
+    setup, {
+    Future<void> Function(RoastRoomCreation room)? beforeInvitations,
+  }) => throw UnimplementedError();
 
   @override
   Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
@@ -1448,14 +2480,16 @@ final class _SigningRoastRuntime(
     ThresholdWalletTransaction transaction,
     List<int> derivationPath, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
     _transaction = transaction;
     _derivationPath = List.unmodifiable(derivationPath);
     signingMessage = message;
+    signingRequestTimeout = timeout;
     return RoastSigningProposal(
       idHex: 'aa' * 16,
       proposalHex: 'bb',
-      expiry: DateTime.now().add(const Duration(minutes: 1)),
+      expiry: DateTime.now().add(timeout),
     );
   }
 
@@ -1464,6 +2498,7 @@ final class _SigningRoastRuntime(
     RoastSetup setup,
     String text, {
     String message = '',
+    Duration timeout = defaultRoastSigningRequestTimeout,
   }) => throw UnimplementedError();
 
   @override
@@ -1505,7 +2540,11 @@ final class _SigningRoastRuntime(
   }
 
   @override
-  Future<void> requestDkg(RoastSetup setup) async {}
+  Future<void> requestDkg(
+    RoastSetup setup, {
+    NewDkgDetails? approvedDetails,
+    GroupTransitionKeyPlan? transitionKeyPlan,
+  }) async {}
 
   @override
   Future<void> acceptDkg(String setupId, String proposalHex) async {}

@@ -56,6 +56,520 @@ Future<void> showRoastSetupCreation(
   }
 }
 
+Future<void> showRoastGroupTransition(
+  BuildContext context,
+  WalletController controller,
+  RoastSetup source,
+) async {
+  final creation = await showDialog<RoastGroupTransitionCreation>(
+    context: context,
+    builder: (_) =>
+        _RoastGroupTransitionDialog(controller: controller, source: source),
+  );
+  if (creation == null || !context.mounted) return;
+  await _showIssuedInvitations(context, creation.invitations);
+}
+
+Future<void> showRoastCoordinatorSwitch(
+  BuildContext context,
+  WalletController controller,
+  RoastSetup setup,
+) => showDialog<void>(
+  context: context,
+  builder: (_) =>
+      _RoastCoordinatorSwitchDialog(controller: controller, setup: setup),
+);
+
+class const _RoastCoordinatorSwitchDialog({
+  required final WalletController controller,
+  required final RoastSetup setup,
+}) extends StatefulWidget {
+  @override
+  State<_RoastCoordinatorSwitchDialog> createState() =>
+      _RoastCoordinatorSwitchDialogState();
+}
+
+class _RoastCoordinatorSwitchDialogState
+    extends State<_RoastCoordinatorSwitchDialog> {
+  final TextEditingController _endpointId = TextEditingController();
+  final TextEditingController _relayUrls = TextEditingController();
+  final TextEditingController _ipAddrs = TextEditingController();
+  bool _approved = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _endpointId.dispose();
+    _relayUrls.dispose();
+    _ipAddrs.dispose();
+    super.dispose();
+  }
+
+  List<String> _lines(String value) => value
+      .split(RegExp(r'[\r\n]+'))
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+
+  Future<void> _switch() async {
+    if (!_approved) {
+      setState(() => _error = 'Approve the exact endpoint ID to continue.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final address = widget.controller.parseRoastCoordinatorAddress(
+        id: _endpointId.text,
+        relayUrls: _lines(_relayUrls.text),
+        ipAddrs: _lines(_ipAddrs.text),
+      );
+      await widget.controller.switchRoastCoordinator(
+        widget.setup.id,
+        address,
+        approved: true,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentId = widget.setup.coordinatorId ?? 'Not configured';
+    final proposedId = _endpointId.text.trim();
+    final sameIdentity = proposedId.isNotEmpty && proposedId == currentId;
+    return AlertDialog(
+      title: const Text('Coordinator'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'The destination must already serve this exact ROAST group. '
+                'An invitation or imported address is not approval.',
+                style: TextStyle(color: AppColors.inkMuted),
+              ),
+              const SizedBox(height: 16),
+              _CoordinatorEndpointBox(
+                label: 'CURRENT ENDPOINT ID',
+                value: currentId,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('coordinator-endpoint-id'),
+                controller: _endpointId,
+                onChanged: (_) => setState(() {
+                  _approved = false;
+                  _error = null;
+                }),
+                decoration: const InputDecoration(
+                  labelText: 'Proposed endpoint ID',
+                  helperText: 'Verify this identity through a trusted channel.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('coordinator-relay-urls'),
+                controller: _relayUrls,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Relay URLs (optional)',
+                  helperText: 'One URL per line.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('coordinator-ip-addresses'),
+                controller: _ipAddrs,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Direct IP addresses (optional)',
+                  helperText: 'One host:port address per line.',
+                ),
+              ),
+              const SizedBox(height: 14),
+              _CoordinatorEndpointBox(
+                label: 'PROPOSED ENDPOINT ID',
+                value: proposedId.isEmpty ? 'Enter an endpoint ID' : proposedId,
+              ),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                key: const Key('approve-coordinator-endpoint'),
+                value: _approved,
+                onChanged: _busy || proposedId.isEmpty
+                    ? null
+                    : (value) => setState(() => _approved = value == true),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('I approve this exact endpoint identity'),
+                subtitle: const Text(
+                  'This approves only this signer’s local selection. It does '
+                  'not approve the coordinator for other group members.',
+                ),
+              ),
+              if (sameIdentity)
+                const Text(
+                  'The endpoint identity is unchanged. Only reconnect address '
+                  'hints will be updated.',
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('switch-coordinator'),
+          onPressed: _busy || !_approved ? null : _switch,
+          child: Text(
+            _busy
+                ? 'Switching…'
+                : sameIdentity
+                ? 'Update address hints'
+                : 'Switch coordinator',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class const _CoordinatorEndpointBox({
+  required final String label,
+  required final String value,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.canvas,
+      border: Border.all(color: AppColors.line),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.inkMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.7,
+          ),
+        ),
+        const SizedBox(height: 5),
+        SelectableText(value, style: const TextStyle(fontFamily: 'monospace')),
+      ],
+    ),
+  );
+}
+
+class const _RoastGroupTransitionDialog({
+  required final WalletController controller,
+  required final RoastSetup source,
+}) extends StatefulWidget {
+  @override
+  State<_RoastGroupTransitionDialog> createState() =>
+      _RoastGroupTransitionDialogState();
+}
+
+class _RoastGroupTransitionDialogState
+    extends State<_RoastGroupTransitionDialog> {
+  late final TextEditingController _walletName = TextEditingController(
+    text: '${widget.source.name} successor',
+  );
+  late final Set<String> _retainedPublicKeys = {
+    for (final participant in widget.source.participants)
+      if (participant.cardId != widget.source.localCardId)
+        participant.publicKeyHex,
+  };
+  final List<_TransitionSignerFields> _added = [];
+  late int _threshold = widget.source.threshold;
+  bool _busy = false;
+  String? _error;
+
+  int get _participantCount => 1 + _retainedPublicKeys.length + _added.length;
+
+  @override
+  void dispose() {
+    _walletName.dispose();
+    for (final fields in _added) {
+      fields.dispose();
+    }
+    super.dispose();
+  }
+
+  void _normalizeThreshold() {
+    if (_threshold > _participantCount) _threshold = _participantCount;
+    if (_threshold < 2) _threshold = 2;
+  }
+
+  void _addSigner() {
+    if (_participantCount >= 5) return;
+    final name = _newParticipantAliases(
+      1,
+      excluding: widget.source.participants.map((item) => item.name),
+    ).single;
+    setState(() {
+      _added.add(_TransitionSignerFields(name: name));
+      _normalizeThreshold();
+      _error = null;
+    });
+  }
+
+  void _removeAddedSigner(int index) {
+    setState(() {
+      _added.removeAt(index).dispose();
+      _normalizeThreshold();
+      _error = null;
+    });
+  }
+
+  Future<void> _create() async {
+    if (_walletName.text.trim().isEmpty) {
+      setState(() => _error = 'Enter a name for the successor wallet.');
+      return;
+    }
+    if (_participantCount < 2) {
+      setState(() => _error = 'Keep or add at least one other signer.');
+      return;
+    }
+    final rosterChanged =
+        _retainedPublicKeys.length != widget.source.participantCount - 1 ||
+        _added.isNotEmpty;
+    if (!rosterChanged && _threshold == widget.source.threshold) {
+      setState(() => _error = 'Change the signer group or signing threshold.');
+      return;
+    }
+    final added = <({String name, String publicKeyHex})>[];
+    try {
+      for (final fields in _added) {
+        final name = fields.name.text.trim();
+        if (name.isEmpty) throw const FormatException('Enter a signer name.');
+        added.add((
+          name: name,
+          publicKeyHex: widget.controller.normalizeRoastParticipantPublicKey(
+            fields.publicKey.text,
+          ),
+        ));
+      }
+    } catch (error) {
+      setState(() => _error = '$error');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final creation = await widget.controller.proposeRoastGroupTransition(
+        sourceSetupId: widget.source.id,
+        successorWalletName: _walletName.text,
+        successorThreshold: _threshold,
+        otherParticipants: [
+          for (final participant in widget.source.participants)
+            if (_retainedPublicKeys.contains(participant.publicKeyHex))
+              (name: participant.name, publicKeyHex: participant.publicKeyHex),
+          ...added,
+        ],
+      );
+      if (mounted) Navigator.pop(context, creation);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final local = widget.source.localParticipant;
+    return AlertDialog(
+      title: const Text('Change signer group'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This creates a successor wallet with a new shared key. The '
+                'current wallet stays active and its balance is not moved '
+                'automatically.',
+                style: TextStyle(color: AppColors.inkMuted),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('transition-wallet-name'),
+                controller: _walletName,
+                maxLength: 32,
+                decoration: const InputDecoration(
+                  labelText: 'Successor wallet name',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('Signers', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 6),
+              CheckboxListTile(
+                value: true,
+                onChanged: null,
+                contentPadding: EdgeInsets.zero,
+                title: Text('${local.name} (this device)'),
+                subtitle: const Text(
+                  'The signer starting the change must remain in the group.',
+                ),
+              ),
+              for (final participant in widget.source.participants)
+                if (participant.cardId != widget.source.localCardId)
+                  CheckboxListTile(
+                    key: Key('retain-signer-${participant.cardId}'),
+                    value: _retainedPublicKeys.contains(
+                      participant.publicKeyHex,
+                    ),
+                    onChanged: _busy
+                        ? null
+                        : (selected) => setState(() {
+                            if (selected == true) {
+                              _retainedPublicKeys.add(participant.publicKeyHex);
+                            } else {
+                              _retainedPublicKeys.remove(
+                                participant.publicKeyHex,
+                              );
+                            }
+                            _normalizeThreshold();
+                            _error = null;
+                          }),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(participant.name),
+                    subtitle: Text(
+                      RoastSetupPanel._short(participant.publicKeyHex),
+                      style: const TextStyle(fontFamily: 'monospace'),
+                    ),
+                  ),
+              for (final (index, fields) in _added.indexed) ...[
+                const Divider(height: 24),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        key: Key('transition-new-signer-name-$index'),
+                        controller: fields.name,
+                        decoration: const InputDecoration(
+                          labelText: 'New signer name',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        key: Key('transition-new-signer-key-$index'),
+                        controller: fields.publicKey,
+                        decoration: const InputDecoration(
+                          labelText: 'Signer public key',
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove new signer',
+                      onPressed: _busy ? null : () => _removeAddedSigner(index),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('transition-add-signer'),
+                onPressed: _busy || _participantCount >= 5 ? null : _addSigner,
+                icon: const Icon(Icons.person_add_alt_1_outlined),
+                label: const Text('Add signer'),
+              ),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<int>(
+                key: const Key('transition-threshold'),
+                initialValue: _participantCount >= 2 ? _threshold : null,
+                decoration: const InputDecoration(
+                  labelText: 'Required signers',
+                ),
+                items: [
+                  for (var value = 2; value <= _participantCount; value++)
+                    DropdownMenuItem(
+                      value: value,
+                      child: Text('$value of $_participantCount'),
+                    ),
+                ],
+                onChanged: _busy || _participantCount < 2
+                    ? null
+                    : (value) => setState(() => _threshold = value!),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Share the generated participant-bound invitations. Once '
+                'everyone is online, start key creation from the successor '
+                'wallet.',
+                style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('create-group-transition'),
+          onPressed: _busy ? null : _create,
+          child: Text(_busy ? 'Creating…' : 'Create successor'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TransitionSignerFields {
+  _TransitionSignerFields({required String name})
+    : name = TextEditingController(text: name),
+      publicKey = TextEditingController();
+
+  final TextEditingController name;
+  final TextEditingController publicKey;
+
+  void dispose() {
+    name.dispose();
+    publicKey.dispose();
+  }
+}
+
 class const _RoastCreationDialog({required final WalletController controller})
     extends StatefulWidget {
   @override
@@ -320,7 +834,7 @@ Future<void> _showIssuedInvitations(
   ),
 );
 
-Future<void> _showSignMessageDialog(
+Future<void> showRoastSignMessageDialog(
   BuildContext context,
   WalletController controller,
   WalletAccount account, {
@@ -348,10 +862,14 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
   final _formKey = GlobalKey<FormState>();
   final _textController = TextEditingController();
   final _noteController = TextEditingController();
+  final _timeoutController = TextEditingController(
+    text: '${defaultRoastSigningRequestTimeout.inMinutes}',
+  );
   bool _reviewing = false;
   bool _submitting = false;
   String? _error;
   late RoastSignedMessage? _result;
+  Duration _requestTimeout = defaultRoastSigningRequestTimeout;
 
   @override
   void initState() {
@@ -363,12 +881,16 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
   void dispose() {
     _textController.dispose();
     _noteController.dispose();
+    _timeoutController.dispose();
     super.dispose();
   }
 
   void _review() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() {
+      _requestTimeout = Duration(
+        minutes: int.parse(_timeoutController.text.trim()),
+      );
       _reviewing = true;
       _error = null;
     });
@@ -384,6 +906,7 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
         widget.account,
         text: _textController.text,
         message: _noteController.text.trim(),
+        requestTimeout: _requestTimeout,
       );
       if (mounted) setState(() => _result = result);
     } catch (error) {
@@ -522,6 +1045,18 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
               ? 'Note must be no more than 1 KiB of UTF-8 text.'
               : null,
         ),
+        const SizedBox(height: 12),
+        TextFormField(
+          key: const Key('roast-message-timeout-field'),
+          controller: _timeoutController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Request timeout',
+            suffixText: 'minutes',
+            helperText: 'Maximum 1440 minutes (24 hours).',
+          ),
+          validator: _validateSigningRequestTimeoutMinutes,
+        ),
         if (_error != null) ...[
           const SizedBox(height: 12),
           Text(_error!, style: const TextStyle(color: AppColors.danger)),
@@ -548,6 +1083,11 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
           text: _noteController.text.trim(),
         ),
       ],
+      const SizedBox(height: 12),
+      _MessageBox(
+        label: 'REQUEST TIMEOUT',
+        text: '${_requestTimeout.inMinutes} minutes',
+      ),
       if (_error != null) ...[
         const SizedBox(height: 12),
         Text(_error!, style: const TextStyle(color: AppColors.danger)),
@@ -574,9 +1114,24 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       const SizedBox(height: 16),
       _MessageBox(label: 'SIGNED TEXT', text: result.text),
       const SizedBox(height: 12),
+      _MessageBox(label: 'PUBLIC KEY', text: result.publicKeyHex),
+      const SizedBox(height: 12),
+      _MessageBox(label: 'SIGNATURE', text: result.signatureHex),
+      const SizedBox(height: 12),
       _MessageBox(label: 'PORTABLE SIGNED MESSAGE', text: result.encoded),
     ],
   );
+}
+
+String? _validateSigningRequestTimeoutMinutes(String? value) {
+  final minutes = int.tryParse(value?.trim() ?? '');
+  if (minutes == null || minutes <= 0) {
+    return 'Enter a timeout in whole minutes.';
+  }
+  if (minutes > maxRoastSigningRequestTimeout.inMinutes) {
+    return 'Timeout cannot exceed 24 hours.';
+  }
+  return null;
 }
 
 class const _MessageBox({
@@ -624,7 +1179,8 @@ class const RoastSetupPanel({
     final busy =
         controller.roastOperationInProgress(setup.id) || messageSigning;
     final onlineSigners = controller.onlineSignerCount(setup);
-    final actions = _actions(context, setup, busy, messageSigning);
+    final coordinatorState = controller.roastCoordinatorState(setup.id);
+    final actions = _actions(context, setup, busy);
     final errorMessage = _displayError(setup);
     return Card(
       child: Padding(
@@ -677,6 +1233,11 @@ class const RoastSetupPanel({
               ],
             ),
             if (setup.isFinalized) ...[
+              const SizedBox(height: 14),
+              _CoordinatorConnectionStatus(
+                state: coordinatorState,
+                endpointId: setup.coordinatorId,
+              ),
               const SizedBox(height: 18),
               _SwarmHealth(
                 online: onlineSigners,
@@ -846,12 +1407,23 @@ class const RoastSetupPanel({
     );
   }
 
-  List<Widget> _actions(
-    BuildContext context,
-    RoastSetup setup,
-    bool busy,
-    bool messageSigning,
-  ) {
+  List<Widget> _actions(BuildContext context, RoastSetup setup, bool busy) {
+    final coordinatorRecovery = controller.roastCoordinatorRecovery(setup.id);
+    if (coordinatorRecovery != null) {
+      return [
+        FilledButton.icon(
+          key: const Key('retry-coordinator-connection'),
+          onPressed: busy
+              ? null
+              : () => _perform(
+                  context,
+                  () => controller.resumeRoastSetup(setup.id),
+                ),
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Restart signer with saved coordinator'),
+        ),
+      ];
+    }
     final recoverableBroadcast = controller.recoverableBroadcastForSetup(
       setup.id,
     );
@@ -890,7 +1462,7 @@ class const RoastSetupPanel({
             'Signer public key copied.',
           ),
           icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copy signer public key'),
+          label: const Text('Copy my public key'),
         ),
         FilledButton(
           onPressed: busy ? null : () => _join(context, setup),
@@ -935,36 +1507,6 @@ class const RoastSetupPanel({
                 ),
           icon: const Icon(Icons.refresh_rounded),
           label: const Text('Reconnect'),
-        ),
-      ];
-    }
-    if (setup.isActive) {
-      final completedMessage = controller.completedRoastMessage(setup.id);
-      return [
-        if (completedMessage != null)
-          OutlinedButton.icon(
-            key: const Key('view-signed-message'),
-            onPressed: () => _showSignMessageDialog(
-              context,
-              controller,
-              account,
-              result: completedMessage,
-            ),
-            icon: const Icon(Icons.verified_rounded),
-            label: const Text('View signed message'),
-          ),
-        OutlinedButton.icon(
-          key: const Key('sign-roast-message'),
-          onPressed: busy
-              ? null
-              : () => _showSignMessageDialog(context, controller, account),
-          icon: messageSigning
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.draw_outlined),
-          label: Text(messageSigning ? 'Signing message…' : 'Sign message'),
         ),
       ];
     }
@@ -1079,6 +1621,88 @@ class const RoastSetupPanel({
           : participant.name;
     }
     return _short(creatorId);
+  }
+}
+
+class const _CoordinatorConnectionStatus({
+  required final RoastCoordinatorLocalState state,
+  required final String? endpointId,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final (label, detail, icon, color) = switch (state) {
+      RoastCoordinatorLocalState.switching => (
+        'Switching coordinator',
+        'The signer is stopped while the approved selection is saved.',
+        Icons.sync_rounded,
+        AppColors.warningDark,
+      ),
+      RoastCoordinatorLocalState.connected => (
+        'Signer connected',
+        'This device is connected to its saved coordinator.',
+        Icons.link_rounded,
+        AppColors.success,
+      ),
+      RoastCoordinatorLocalState.stopped => (
+        'Signer stopped',
+        'This device is not currently connected to its saved coordinator.',
+        Icons.link_off_rounded,
+        AppColors.inkMuted,
+      ),
+      RoastCoordinatorLocalState.recoveryRequired => (
+        'Coordinator recovery required',
+        'The signer is stopped. Use the durable selection shown below.',
+        Icons.warning_amber_rounded,
+        AppColors.danger,
+      ),
+    };
+    return Container(
+      key: ValueKey('coordinator-${state.name}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  style: const TextStyle(
+                    color: AppColors.inkMuted,
+                    fontSize: 12,
+                  ),
+                ),
+                if (endpointId != null) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    'Coordinator ID ${RoastSetupPanel._short(endpointId!)}',
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1610,7 +2234,9 @@ class const _RoastBadge({required final RoastSetup setup})
       borderRadius: BorderRadius.circular(4),
     ),
     child: Text(
-      'ROAST · ${setup.threshold} of ${setup.participantCount}',
+      setup.isWaitingForInvitation
+          ? 'ROAST'
+          : 'ROAST · ${setup.threshold} of ${setup.participantCount}',
       style: const TextStyle(
         color: AppColors.greenDark,
         fontSize: 11,

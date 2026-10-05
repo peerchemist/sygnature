@@ -18,7 +18,7 @@ sealed class WalletTransactionFailure implements Exception {
 
 class InvalidDestinationAddress extends WalletTransactionFailure {
   const InvalidDestinationAddress()
-    : super('Enter a valid Taproot address for the selected network.');
+    : super('Enter a valid address for the selected network.');
 }
 
 class InvalidSendAmount extends WalletTransactionFailure {
@@ -136,7 +136,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     }
 
     final preset = PeercoinNetworks.fromWalletNetwork(network);
-    final destination = _taprootAddress(
+    final destination = _destinationAddress(
       request.destinationAddress.trim(),
       preset.network,
     );
@@ -305,7 +305,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
   }) {
     final preset = PeercoinNetworks.fromWalletNetwork(network);
     final source = _taprootAddress(preview.sourceAddress, preset.network);
-    final destination = _taprootAddress(
+    final destination = _destinationAddress(
       preview.destinationAddress,
       preset.network,
     );
@@ -343,7 +343,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
 
   static int _maximumAmount({
     required List<InputCandidate> candidates,
-    required P2TRAddress destination,
+    required Address destination,
     required P2TRAddress change,
     required BigInt feePerKb,
     required BigInt minFee,
@@ -365,6 +365,20 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     try {
       final address = Address.fromString(value, network);
       if (address is P2TRAddress) return address;
+    } on Exception {
+      // The caller receives a stable, sanitized validation failure below.
+    }
+    throw const InvalidDestinationAddress();
+  }
+
+  static Address _destinationAddress(String value, Network network) {
+    try {
+      final address = Address.fromString(value, network);
+      if (address is P2TRAddress ||
+          address is P2PKHAddress ||
+          address is P2SHAddress) {
+        return address;
+      }
     } on Exception {
       // The caller receives a stable, sanitized validation failure below.
     }

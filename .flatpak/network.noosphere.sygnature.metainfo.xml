@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.github.peerchemist.sygnature</id>
+  <id>network.noosphere.sygnature</id>
   <name>Sygnature</name>
   <summary>Peercoin wallet with ROAST threshold signing</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -13,13 +13,13 @@
       private key.
     </p>
   </description>
-  <launchable type="desktop-id">com.github.peerchemist.sygnature.desktop</launchable>
+  <launchable type="desktop-id">network.noosphere.sygnature.desktop</launchable>
   <developer id="com.github.peerchemist">
     <name>peerchemist</name>
   </developer>
   <url type="homepage">https://github.com/peerchemist/sygnature</url>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="1.0.0" date="2026-09-29" />
+    <release version="0.9.0" date="2026-09-30" />
   </releases>
 </component>

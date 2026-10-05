@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+
+output_path="build/Sygnature-macOS.dmg"
+flutter_args=()
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/build_macos [--output PATH] [FLUTTER_BUILD_OPTIONS]
+
+Builds the macOS release app and packages it in a compressed DMG for testers.
+Requires an Apple Development signing identity and provisioning profile for
+team V274DD3UKN, configured in Xcode.
+Additional options are passed to `flutter build macos`, for example:
+
+  scripts/build_macos --no-pub --build-name 0.9.1 --build-number 3
+EOF
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --output)
+      if (($# < 2)); then
+        echo "error: --output requires a path" >&2
+        exit 2
+      fi
+      output_path="$2"
+      shift
+      ;;
+    --output=*)
+      output_path="${1#*=}"
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      flutter_args+=("$1")
+      ;;
+  esac
+  shift
+done
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "error: macOS is required to build a DMG" >&2
+  exit 1
+fi
+
+if [[ -z "$output_path" || "$output_path" != *.dmg ]]; then
+  echo "error: --output must be a non-empty .dmg path" >&2
+  exit 2
+fi
+
+for tool in flutter xcodebuild codesign hdiutil ditto; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "error: required command not found: $tool" >&2
+    exit 1
+  fi
+done
+
+cd -- "$project_dir"
+if [[ "$output_path" != /* ]]; then
+  output_path="$project_dir/$output_path"
+fi
+
+# Let Xcode resolve the Keychain entitlements and sign with the configured team.
+# Bash 3.2 treats an empty array as unset under `set -u`.
+flutter build macos --release --config-only ${flutter_args[@]+"${flutter_args[@]}"}
+xcodebuild \
+  -quiet \
+  -workspace "$project_dir/macos/Runner.xcworkspace" \
+  -scheme Runner \
+  -configuration Release \
+  -derivedDataPath "$project_dir/build/macos" \
+  -destination "generic/platform=macOS" \
+  ONLY_ACTIVE_ARCH=YES \
+  ARCHS=arm64
+
+readonly app_path="$project_dir/build/macos/Build/Products/Release/sygnature.app"
+if [[ ! -d "$app_path" ]]; then
+  echo "error: Flutter did not create the expected app: $app_path" >&2
+  exit 1
+fi
+
+readonly temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/sygnature-macos.XXXXXX")"
+trap 'rm -rf -- "$temporary_dir"' EXIT
+
+readonly staging_dir="$temporary_dir/dmg"
+readonly temporary_dmg="$temporary_dir/Sygnature-macOS.dmg"
+mkdir -p -- "$staging_dir" "$(dirname -- "$output_path")"
+ditto "$app_path" "$staging_dir/Sygnature.app"
+codesign --verify --deep --strict "$staging_dir/Sygnature.app"
+ln -s /Applications "$staging_dir/Applications"
+
+hdiutil create \
+  -quiet \
+  -volname Sygnature \
+  -srcfolder "$staging_dir" \
+  -ov \
+  -format UDZO \
+  "$temporary_dmg"
+
+mv -f -- "$temporary_dmg" "$output_path"
+
+echo "macOS DMG: $output_path"
+echo "Architecture: arm64"
+echo "Note: this development-signed build is not notarized and requires a provisioning profile covering the tester's Mac."

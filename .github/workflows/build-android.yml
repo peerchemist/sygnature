@@ -1,0 +1,59 @@
+name: Build Android APK
+
+on:
+  push:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out Sygnature
+        uses: actions/checkout@v7.0.1
+        with:
+          path: sygnature_ng
+
+      - name: Check out Noosphere
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/noosphere
+          ref: f314e2491518d86967c673720d60cc272a99d90c
+          token: ${{ secrets.NOOSPHERE_REPOSITORY_TOKEN || github.token }}
+          path: noosphere
+
+      - name: Set up Java
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: sygnature_ng
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: sygnature_ng
+        run: flutter build apk --release --no-pub
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sygnature-android-apk
+          path: sygnature_ng/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

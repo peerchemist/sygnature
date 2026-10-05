@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly container_name="sygnature-windows-builder"
+readonly noosphere_ref="c8233ad9827b99c796ee63e3af2e226511da7251"
+readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly noosphere_dir="$(cd -- "$project_dir/../noosphere" 2>/dev/null && pwd || true)"
+readonly storage_dir="${SYGNATURE_WINDOWS_STORAGE:-$project_dir/.windows-builder/storage}"
+readonly image="${SYGNATURE_WINDOWS_IMAGE:-docker.io/dockurr/windows:6.05}"
+readonly windows_version="${SYGNATURE_WINDOWS_VERSION:-11}"
+readonly ram_size="${SYGNATURE_WINDOWS_RAM:-12G}"
+readonly cpu_cores="${SYGNATURE_WINDOWS_CPUS:-8}"
+readonly disk_size="${SYGNATURE_WINDOWS_DISK:-128G}"
+readonly web_port="${SYGNATURE_WINDOWS_WEB_PORT:-8006}"
+readonly rdp_port="${SYGNATURE_WINDOWS_RDP_PORT:-3389}"
+readonly username="${SYGNATURE_WINDOWS_USERNAME:-Docker}"
+readonly password="${SYGNATURE_WINDOWS_PASSWORD:-admin}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/build_windows [check|start|stop|status|logs]
+
+Runs a persistent dockur/windows VM through Podman. The Sygnature and
+Noosphere repositories are exposed read-write and read-only, respectively,
+under the Windows Z: drive.
+
+Optional environment variables:
+  SYGNATURE_WINDOWS_STORAGE    VM storage directory
+  SYGNATURE_WINDOWS_IMAGE      Container image (default: dockurr/windows:6.05)
+  SYGNATURE_WINDOWS_VERSION    Windows version (default: 11)
+  SYGNATURE_WINDOWS_RAM        Guest RAM (default: 12G)
+  SYGNATURE_WINDOWS_CPUS       Guest CPU count (default: 8)
+  SYGNATURE_WINDOWS_DISK       Guest disk size (default: 128G)
+  SYGNATURE_WINDOWS_WEB_PORT   Web console port (default: 8006)
+  SYGNATURE_WINDOWS_RDP_PORT   RDP port (default: 3389)
+  SYGNATURE_WINDOWS_USERNAME   Windows username (default: Docker)
+  SYGNATURE_WINDOWS_PASSWORD   Windows password (default: admin)
+
+The configuration variables are applied when the container is first created.
+Its virtual disk persists under .windows-builder/storage.
+EOF
+}
+
+container_exists() {
+  podman container exists "$container_name"
+}
+
+require_host_support() {
+  for tool in podman git; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "error: required command not found: $tool" >&2
+      exit 1
+    fi
+  done
+  for device in /dev/kvm /dev/net/tun; do
+    if [[ ! -c "$device" ]]; then
+      echo "error: required device is unavailable: $device" >&2
+      exit 1
+    fi
+  done
+  if [[ -z "$noosphere_dir" || ! -d "$noosphere_dir/.git" ]]; then
+    echo "error: expected the Noosphere checkout at $project_dir/../noosphere" >&2
+    exit 1
+  fi
+  if ! git -C "$noosphere_dir" cat-file -e "$noosphere_ref^{commit}"; then
+    echo "error: Noosphere does not contain required commit $noosphere_ref" >&2
+    exit 1
+  fi
+}
+
+start_vm() {
+  require_host_support
+  if container_exists; then
+    if [[ "$(podman inspect --format '{{.State.Running}}' "$container_name")" == "true" ]]; then
+      echo "Windows builder is already running."
+    else
+      podman start "$container_name" >/dev/null
+      echo "Started the existing Windows builder."
+    fi
+  else
+    mkdir -p -- "$storage_dir"
+    podman run --detach \
+      --name "$container_name" \
+      --stop-timeout 120 \
+      --security-opt label=disable \
+      --device /dev/kvm \
+      --device /dev/net/tun \
+      --cap-add NET_ADMIN \
+      --publish "127.0.0.1:$web_port:8006/tcp" \
+      --publish "127.0.0.1:$rdp_port:3389/tcp" \
+      --publish "127.0.0.1:$rdp_port:3389/udp" \
+      --env "VERSION=$windows_version" \
+      --env "RAM_SIZE=$ram_size" \
+      --env "CPU_CORES=$cpu_cores" \
+      --env "DISK_SIZE=$disk_size" \
+      --env "USERNAME=$username" \
+      --env "PASSWORD=$password" \
+      --env "LOG=Y" \
+      --volume "$storage_dir:/storage:rw" \
+      --volume "$project_dir:/shared/sygnature_ng:rw" \
+      --volume "$noosphere_dir:/shared/noosphere:ro" \
+      "$image" >/dev/null
+    echo "Created and started the Windows builder."
+  fi
+
+  cat <<EOF
+
+Web console: http://127.0.0.1:$web_port
+RDP:         127.0.0.1:$rdp_port
+Username:    $username
+
+The first Windows installation can take a while. When the Windows desktop is
+ready, open Z:\\sygnature_ng\\scripts in File Explorer and double-click:
+
+  build_windows.cmd
+
+The finished bundle will be copied to:
+  $project_dir/build/windows-local
+  $project_dir/build/sygnature-windows-x64.zip
+EOF
+
+  if [[ "$password" == "admin" ]]; then
+    echo
+    echo "warning: using dockur's default password; set SYGNATURE_WINDOWS_PASSWORD before first start" >&2
+  fi
+}
+
+stop_vm() {
+  if ! container_exists; then
+    echo "Windows builder does not exist."
+    return
+  fi
+  podman stop --time 120 "$container_name" >/dev/null
+  echo "Stopped the Windows builder; its virtual disk is preserved."
+}
+
+show_status() {
+  if ! container_exists; then
+    echo "Windows builder has not been created."
+    return
+  fi
+  podman inspect --format 'Status: {{.State.Status}}' "$container_name"
+  echo "Web console: http://127.0.0.1:$web_port"
+  echo "Storage: $storage_dir"
+}
+
+action="${1:-start}"
+case "$action" in
+  check)
+    require_host_support
+    echo "Podman, KVM, TUN, and the required Noosphere revision are available."
+    echo "Image: $image"
+    echo "Storage: $storage_dir"
+    ;;
+  start)
+    start_vm
+    ;;
+  stop)
+    stop_vm
+    ;;
+  status)
+    show_status
+    ;;
+  logs)
+    if ! container_exists; then
+      echo "error: Windows builder has not been created" >&2
+      exit 1
+    fi
+    podman logs --follow "$container_name"
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  *)
+    echo "error: unknown action: $action" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -2,9 +2,10 @@
 Type=Application
 Name=Sygnature
 Comment=Peercoin wallet with ROAST threshold signing
-Exec=sygnature
-Icon=com.github.peerchemist.sygnature
+Exec=sygnature %u
+Icon=network.noosphere.sygnature
 Terminal=false
 Categories=Finance;Network;
 Keywords=Peercoin;wallet;cryptocurrency;ROAST;
+MimeType=x-scheme-handler/sygnature-roast-v1;
 StartupNotify=true

@@ -1,12 +1,14 @@
+import 'group_transition.dart';
+import 'roast_setup.dart';
 import 'wallet_account.dart';
 import 'wallet_activity.dart';
-import 'roast_setup.dart';
 
 class WalletVault {
   const WalletVault({
     required this.accounts,
     required this.nextAccountIndex,
     this.roastSetups = const [],
+    this.groupTransitions = const [],
     this.activities = const [],
     this.mnemonic,
     this.languageId,
@@ -14,6 +16,7 @@ class WalletVault {
   });
 
   static const schemaVersion = 1;
+  static const _developmentSchemaVersion = 5;
 
   /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;
@@ -22,12 +25,14 @@ class WalletVault {
   final List<WalletAccount> accounts;
   final int nextAccountIndex;
   final List<RoastSetup> roastSetups;
+  final List<WalletGroupTransition> groupTransitions;
   final List<WalletActivity> activities;
 
   WalletVault copyWith({
     List<WalletAccount>? accounts,
     int? nextAccountIndex,
     List<RoastSetup>? roastSetups,
+    List<WalletGroupTransition>? groupTransitions,
     List<WalletActivity>? activities,
   }) => WalletVault(
     mnemonic: mnemonic,
@@ -36,6 +41,7 @@ class WalletVault {
     accounts: accounts ?? this.accounts,
     nextAccountIndex: nextAccountIndex ?? this.nextAccountIndex,
     roastSetups: roastSetups ?? this.roastSetups,
+    groupTransitions: groupTransitions ?? this.groupTransitions,
     activities: activities ?? this.activities,
   );
 
@@ -47,12 +53,15 @@ class WalletVault {
     'accounts': accounts.map((account) => account.toJson()).toList(),
     'nextAccountIndex': nextAccountIndex,
     'roastSetups': roastSetups.map((setup) => setup.toJson()).toList(),
+    'groupTransitions': groupTransitions
+        .map((transition) => transition.toJson())
+        .toList(),
     'activities': activities.map((activity) => activity.toJson()).toList(),
   };
 
   factory WalletVault.fromJson(Map<Object?, Object?> json) {
     final version = json['schemaVersion'] as int? ?? 0;
-    if (version != schemaVersion) {
+    if (version != schemaVersion && version != _developmentSchemaVersion) {
       throw StateError('Unsupported wallet vault schema: $version');
     }
     return WalletVault(
@@ -63,10 +72,13 @@ class WalletVault {
           .map((account) => WalletAccount.fromJson(account as Map))
           .toList(growable: false),
       nextAccountIndex: json['nextAccountIndex']! as int,
-      roastSetups: (json['roastSetups']! as List)
+      roastSetups: ((json['roastSetups'] as List?) ?? const [])
           .map((setup) => RoastSetup.fromJson(setup as Map))
           .toList(growable: false),
-      activities: (json['activities']! as List)
+      groupTransitions: ((json['groupTransitions'] as List?) ?? const [])
+          .map((item) => WalletGroupTransition.fromJson(item as Map))
+          .toList(growable: false),
+      activities: ((json['activities'] as List?) ?? const [])
           .map((activity) => WalletActivity.fromJson(activity as Map))
           .toList(growable: false),
     );
