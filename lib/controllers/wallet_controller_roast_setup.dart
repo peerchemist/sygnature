@@ -114,6 +114,7 @@ extension WalletRoastSetupController on WalletController {
       onlineParticipantIds: const [],
       keyName: roastKeyName(groupId),
       createdAt: DateTime.now().toUtc(),
+      irohIdentityIndex: irohIdentityIndexForSetup(setupId),
       usesRoomEnrollment: true,
     );
     final account = WalletAccount(
@@ -306,6 +307,7 @@ extension WalletRoastSetupController on WalletController {
       onlineParticipantIds: const [],
       keyName: roastKeyName(successorGroupId),
       createdAt: DateTime.now().toUtc(),
+      irohIdentityIndex: irohIdentityIndexForSetup(successorSetupId),
       usesRoomEnrollment: true,
     );
     final participants = _roastKeyService.finalizeRoster(
@@ -512,6 +514,7 @@ extension WalletRoastSetupController on WalletController {
       onlineParticipantIds: const [],
       keyName: roastKeyName(draftGroupId),
       createdAt: DateTime.now().toUtc(),
+      irohIdentityIndex: irohIdentityIndexForSetup(setupId),
       usesRoomEnrollment: true,
     );
     final account = WalletAccount(

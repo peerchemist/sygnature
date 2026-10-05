@@ -19,9 +19,14 @@ part 'roast_runtime_signing_mapper.dart';
 
 enum _ExistingDkgResolution { none, resumed, cancelled }
 
-final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
-    implements RoastRuntime, RoastCoordinatorRuntime {
+typedef WalletBip39SeedProvider = FutureOr<Uint8List> Function();
+
+final class RoastRuntimeManager(
+  RoastPersistenceFactory persistenceFactory, {
+  required WalletBip39SeedProvider getWalletBip39Seed,
+}) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
+  final WalletBip39SeedProvider _getWalletBip39Seed = getWalletBip39Seed;
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final Map<String, WorkerDkgStatus> _dkgProposals = {};
@@ -160,7 +165,7 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
         setupId: setup.id,
         server: EmbeddedServerOptions(
           serverConfig: ServerConfig(group: group),
-          identityStore: persistence.serverIdentity(setup.id),
+          getIrohSecretKey: () => _irohSecretKey(setup, persistence),
           serverPersistence: persistence.serverPersistence(setup.id),
         ),
       );
@@ -171,7 +176,14 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
     }
 
     final embeddedCoordinator = roomCoordinator ?? serverSnapshot?.coordinator;
-    final selectedCoordinator = setup.coordinatorId == null
+    final selectedCoordinator =
+        setup.role == RoastSetupRole.host && embeddedCoordinator != null
+        ? RoastCoordinatorAddress(
+            id: embeddedCoordinator.id,
+            relayUrls: embeddedCoordinator.relayUrls,
+            ipAddrs: embeddedCoordinator.ipAddrs,
+          )
+        : setup.coordinatorId == null
         ? embeddedCoordinator == null
               ? null
               : RoastCoordinatorAddress(
@@ -917,6 +929,24 @@ final class RoastRuntimeManager(RoastPersistenceFactory persistenceFactory)
             ECCompressedPublicKey.fromHex(participant.publicKeyHex),
     },
   );
+
+  Future<SecretKey> _irohSecretKey(
+    RoastSetup setup,
+    RoastPersistence persistence,
+  ) async {
+    final legacy = await persistence.legacyIrohSecretKey(setup.id);
+    if (legacy != null) return legacy;
+
+    final seed = await _getWalletBip39Seed();
+    try {
+      return deriveIrohSecretKeyFromBip39Seed(
+        seed,
+        index: setup.irohIdentityIndex,
+      );
+    } finally {
+      seed.fillRange(0, seed.length, 0);
+    }
+  }
 
   static GroupConfig _bootstrapGroup(String roomId) => GroupConfig(
     id: '$roomId:enrollment-bootstrap',

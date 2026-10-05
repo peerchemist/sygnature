@@ -15,7 +15,7 @@ projects/
 ```
 
 Noosphere must contain commit
-`f314e2491518d86967c673720d60cc272a99d90c`. Android and macOS builds require
+`c8233ad9827b99c796ee63e3af2e226511da7251`. Android and macOS builds require
 Git, Flutter 3.47.5, Rust and the native toolchain for their target platform.
 The Linux Flatpak and Windows VM scripts provision their own SDKs.
 

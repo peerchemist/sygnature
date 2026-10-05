@@ -193,7 +193,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         serverConfig: ServerConfig(
           group: RoastRuntimeManager._bootstrapGroup(setup.groupId),
         ),
-        identityStore: persistence.serverIdentity(setup.id),
+        getIrohSecretKey: () => _irohSecretKey(setup, persistence),
         serverPersistence: persistence.serverPersistence(setup.id),
         roomPersistence: persistence.roomPersistence(setup.id),
       ),

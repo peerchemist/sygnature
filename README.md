@@ -91,6 +91,12 @@ The coordinator may also run a separate local signer, but hosting does not
 count as an approval by itself. Invitations pin the coordinator's Iroh endpoint
 identity and contain direct-address or relay hints.
 
+For new setups, Sygnature derives that endpoint identity from the wallet's
+validated BIP-39 seed through Noosphere's domain-separated BIP-85 path. Each
+setup persists a non-secret derivation index; the derived Iroh secret itself is
+not stored. Existing installations continue to use a valid legacy endpoint
+secret so their pinned coordinator identity does not change during upgrade.
+
 The coordinator is required for room availability and message delivery, but it
 cannot produce a threshold signature alone. Iroh endpoint identity, participant
 authentication keys and FROST key shares are separate cryptographic roles.

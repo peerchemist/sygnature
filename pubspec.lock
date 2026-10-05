@@ -569,8 +569,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere"
-      ref: f314e2491518d86967c673720d60cc272a99d90c
-      resolved-ref: f314e2491518d86967c673720d60cc272a99d90c
+      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
       url: "../noosphere"
     source: git
     version: "0.1.0"
@@ -578,8 +578,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/noosphere_client"
-      ref: f314e2491518d86967c673720d60cc272a99d90c
-      resolved-ref: f314e2491518d86967c673720d60cc272a99d90c
+      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
       url: "../noosphere"
     source: git
     version: "4.0.0"
@@ -587,8 +587,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: f314e2491518d86967c673720d60cc272a99d90c
-      resolved-ref: f314e2491518d86967c673720d60cc272a99d90c
+      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
       url: "../noosphere"
     source: git
     version: "0.1.0"
@@ -596,8 +596,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/noosphere_server"
-      ref: f314e2491518d86967c673720d60cc272a99d90c
-      resolved-ref: f314e2491518d86967c673720d60cc272a99d90c
+      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
       url: "../noosphere"
     source: git
     version: "3.0.0"
@@ -910,14 +910,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.4"
-  yaml_edit:
-    dependency: transitive
-    description:
-      name: yaml_edit
-      sha256: "07c9e63ba42519745182b88ca12264a7ba2484d8239958778dfe4d44fe760488"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.4"
 sdks:
   dart: ">=3.13.4 <3.16.0"
   flutter: ">=3.47.0"

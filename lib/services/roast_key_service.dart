@@ -242,6 +242,7 @@ class RoastKeyService {
       onlineParticipantIds: const [],
       keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: draft.createdAt,
+      irohIdentityIndex: draft.irohIdentityIndex,
       usesRoomEnrollment: true,
       hostParticipantId: hostParticipantId,
       coordinatorId: PublicKey.fromBytes(

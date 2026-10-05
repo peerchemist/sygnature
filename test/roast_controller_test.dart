@@ -150,7 +150,10 @@ void main() {
           network: PeercoinNetworks.mainnet,
           preview: preview,
         );
-    final runtime = RoastRuntimeManager(RoastPersistenceFactory());
+    final runtime = RoastRuntimeManager(
+      RoastPersistenceFactory(),
+      getWalletBip39Seed: () => Uint8List(64),
+    );
     addTearDown(runtime.close);
 
     final proposal = runtime.createTransactionSigningProposal(

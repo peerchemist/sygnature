@@ -200,8 +200,21 @@ void main() {
 
     expect(vault.roastSetups.single.hostParticipantId, '01');
     expect(vault.roastSetups.single.keyName, '$groupId-g1');
+    expect(
+      vault.roastSetups.single.irohIdentityIndex,
+      irohIdentityIndexForSetup('setup'),
+    );
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
-    expect(WalletVault.fromJson(vault.toJson()).roastSetups.single.id, 'setup');
+    final restored = WalletVault.fromJson(vault.toJson()).roastSetups.single;
+    expect(restored.id, 'setup');
+    expect(
+      restored.irohIdentityIndex,
+      vault.roastSetups.single.irohIdentityIndex,
+    );
+    expect(
+      irohIdentityIndexForSetup('another-setup'),
+      isNot(restored.irohIdentityIndex),
+    );
   });
 
   test('rejects unsupported exchange payloads', () {

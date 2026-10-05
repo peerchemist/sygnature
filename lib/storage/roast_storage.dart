@@ -14,7 +14,6 @@ class RoastPersistence._(
   final SecureKeyStore _keyStore,
 ) {
   final Map<String, ClientStorageInterface> _clientStores = {};
-  final Map<String, ServerIdentityStore> _identityStores = {};
   final Map<String, ServerPersistence> _serverStores = {};
   final Map<String, RoomPersistence> _roomStores = {};
 }
@@ -149,7 +148,6 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
     ]);
     await _keyStore.delete('sygnature_iroh_identity_$setupId');
     persistence._clientStores.remove(setupId);
-    persistence._identityStores.remove(setupId);
     persistence._serverStores.remove(setupId);
     persistence._roomStores.remove(setupId);
   }
@@ -201,14 +199,15 @@ extension RoastPersistenceAccess on RoastPersistence {
         () => _HiveRoastClientStorage(_box, 'client:$setupId'),
       );
 
-  ServerIdentityStore serverIdentity(String setupId) =>
-      _identityStores.putIfAbsent(
-        setupId,
-        () => _SecureServerIdentityStore(
-          _keyStore,
-          'sygnature_iroh_identity_$setupId',
-        ),
-      );
+  Future<SecretKey?> legacyIrohSecretKey(String setupId) async {
+    final encoded = await _keyStore.read('sygnature_iroh_identity_$setupId');
+    if (encoded == null) return null;
+    final bytes = base64Url.decode(encoded);
+    if (bytes.length != SecretKey.lengthBytes) {
+      throw StateError('Invalid legacy Iroh identity length.');
+    }
+    return SecretKey.fromBytes(bytes);
+  }
 
   ServerPersistence serverPersistence(String setupId) =>
       _serverStores.putIfAbsent(
@@ -305,21 +304,6 @@ final class _HiveRoomPersistence(
     });
     return completer.future;
   }
-}
-
-final class _SecureServerIdentityStore(
-  final SecureKeyStore _keyStore,
-  final String _key,
-) implements ServerIdentityStore {
-  @override
-  Future<Uint8List?> read() async {
-    final encoded = await _keyStore.read(_key);
-    return encoded == null ? null : base64Url.decode(encoded);
-  }
-
-  @override
-  Future<void> write(Uint8List secret) =>
-      _keyStore.write(_key, base64UrlEncode(secret));
 }
 
 final class _HiveRoastClientStorage(

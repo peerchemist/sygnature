@@ -31,6 +31,7 @@ class RoastSetup({
   required final List<String> onlineParticipantIds,
   required final String keyName,
   required final DateTime createdAt,
+  final int irohIdentityIndex = 0,
   final bool usesRoomEnrollment = false,
   final String? hostParticipantId,
   final String? coordinatorId,
@@ -61,6 +62,7 @@ class RoastSetup({
     List<RoastParticipant>? participants,
     List<String>? onlineParticipantIds,
     String? keyName,
+    int? irohIdentityIndex,
     String? hostParticipantId,
     String? coordinatorId,
     List<String>? coordinatorRelayUrls,
@@ -93,6 +95,7 @@ class RoastSetup({
     onlineParticipantIds: onlineParticipantIds ?? this.onlineParticipantIds,
     keyName: keyName ?? this.keyName,
     createdAt: createdAt,
+    irohIdentityIndex: irohIdentityIndex ?? this.irohIdentityIndex,
     usesRoomEnrollment: usesRoomEnrollment,
     hostParticipantId: hostParticipantId ?? this.hostParticipantId,
     coordinatorId: coordinatorId ?? this.coordinatorId,
@@ -141,6 +144,7 @@ class RoastSetup({
     'onlineParticipantIds': onlineParticipantIds,
     'keyName': keyName,
     'createdAt': createdAt.toUtc().toIso8601String(),
+    'irohIdentityIndex': irohIdentityIndex,
     'usesRoomEnrollment': usesRoomEnrollment,
     'hostParticipantId': hostParticipantId,
     'coordinatorId': coordinatorId,
@@ -162,9 +166,10 @@ class RoastSetup({
     final participants = (json['participants']! as List)
         .map((item) => RoastParticipant.fromJson(item as Map))
         .toList(growable: false);
+    final id = json['id']! as String;
     final groupId = json['groupId']! as String;
     return RoastSetup(
-      id: json['id']! as String,
+      id: id,
       groupId: groupId,
       name: json['name']! as String,
       role: RoastSetupRole.values.byName(json['role']! as String),
@@ -181,6 +186,8 @@ class RoastSetup({
           ((json['onlineParticipantIds'] as List?) ?? const []).cast<String>(),
       keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: DateTime.parse(json['createdAt']! as String),
+      irohIdentityIndex:
+          json['irohIdentityIndex'] as int? ?? irohIdentityIndexForSetup(id),
       usesRoomEnrollment: json['usesRoomEnrollment'] as bool? ?? false,
       hostParticipantId:
           json['hostParticipantId'] as String? ??
@@ -206,6 +213,15 @@ class RoastSetup({
       errorMessage: json['errorMessage'] as String?,
     );
   }
+}
+
+/// Returns a stable non-secret BIP-85 child index for a ROAST setup.
+int irohIdentityIndexForSetup(String setupId) {
+  var hash = 0x811c9dc5;
+  for (final codeUnit in setupId.codeUnits) {
+    hash = ((hash ^ codeUnit) * 0x01000193) & 0x7fffffff;
+  }
+  return hash;
 }
 
 const maxRoastKeyNameLength = 40;

@@ -80,7 +80,10 @@ void main() {
 
   test('runtime rejects a DKG outside the approved key plan', () async {
     final fixture = _TransitionFixture();
-    final runtime = RoastRuntimeManager(RoastPersistenceFactory());
+    final runtime = RoastRuntimeManager(
+      RoastPersistenceFactory(),
+      getWalletBip39Seed: () => Uint8List(64),
+    );
     addTearDown(runtime.close);
     final setup = RoastSetup(
       id: 'successor-setup',
