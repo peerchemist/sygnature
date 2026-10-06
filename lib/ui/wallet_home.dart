@@ -2698,10 +2698,10 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                 children: [
                   Text(
                     switch (progress.stage) {
-                      'signing' => 'Potpisivanje',
-                      'completed' => 'Potpis dovršen',
-                      'failed' => 'Potpisivanje nije uspjelo',
-                      _ => 'Prikupljanje potvrda',
+                      'signing' => 'Signing',
+                      'completed' => 'Signature complete',
+                      'failed' => 'Signing failed',
+                      _ => 'Collecting approvals',
                     },
                     style: TextStyle(
                       color: progressColor,
@@ -2711,15 +2711,15 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                   const SizedBox(height: 4),
                   Text(
                     '${progress.contributingParticipants.length}/'
-                    '${progress.threshold} potrebna potpisnika',
+                    '${progress.threshold} required signers',
                     style: const TextStyle(color: AppColors.ink),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Lokalni status: ${switch (request.status) {
-                      'accepted' => 'prihvaćeno',
-                      'rejected' => 'odbijeno',
-                      _ => 'čeka odluku',
+                    'Local status: ${switch (request.status) {
+                      'accepted' => 'accepted',
+                      'rejected' => 'rejected',
+                      _ => 'awaiting decision',
                     }}',
                     style: const TextStyle(
                       color: AppColors.inkMuted,

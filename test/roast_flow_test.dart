@@ -994,8 +994,8 @@ void main() {
 
       final card = find.byKey(ValueKey('roast-signing-request-$requestId'));
       expect(card, findsOneWidget);
-      expect(find.text('Prikupljanje potvrda'), findsOneWidget);
-      expect(find.text('1/3 potrebna potpisnika'), findsOneWidget);
+      expect(find.text('Collecting approvals'), findsOneWidget);
+      expect(find.text('1/3 required signers'), findsOneWidget);
 
       runtime.emit(
         RoastRuntimeSigningRequestEvent(
@@ -1013,9 +1013,9 @@ void main() {
 
       expect(card, findsOneWidget);
       expect(controller.roastSigningRequests, hasLength(1));
-      expect(find.text('Potpisivanje'), findsOneWidget);
-      expect(find.text('0/3 potrebna potpisnika'), findsOneWidget);
-      expect(find.text('Lokalni status: prihvaćeno'), findsOneWidget);
+      expect(find.text('Signing'), findsOneWidget);
+      expect(find.text('0/3 required signers'), findsOneWidget);
+      expect(find.text('Local status: accepted'), findsOneWidget);
       expect(find.text('Approve and sign'), findsNothing);
 
       runtime.emit(
@@ -1032,7 +1032,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(card, findsOneWidget);
-      expect(find.text('1/2 potrebna potpisnika'), findsOneWidget);
+      expect(find.text('1/2 required signers'), findsOneWidget);
 
       runtime.emit(
         RoastRuntimeSigningRequestEvent(
@@ -1047,7 +1047,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Potpis dovršen'), findsOneWidget);
+      expect(find.text('Signature complete'), findsOneWidget);
       expect(card, findsOneWidget);
 
       runtime.emit(
@@ -1080,7 +1080,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Potpisivanje nije uspjelo'), findsOneWidget);
+      expect(find.text('Signing failed'), findsOneWidget);
       expect(
         find.byKey(ValueKey('roast-signing-request-$failedId')),
         findsOneWidget,
