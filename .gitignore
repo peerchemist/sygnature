@@ -51,3 +51,4 @@ app.*.map.json
 
 # Local project files
 roadmap.md
+.agents/
