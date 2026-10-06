@@ -577,8 +577,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere"
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
-      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       url: "../noosphere"
     source: git
     version: "0.1.0"
@@ -586,8 +586,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/noosphere_client"
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
-      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       url: "../noosphere"
     source: git
     version: "4.0.0"
@@ -595,8 +595,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
-      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       url: "../noosphere"
     source: git
     version: "0.1.0"
@@ -604,8 +604,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/noosphere_server"
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
-      resolved-ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       url: "../noosphere"
     source: git
     version: "3.0.0"

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 readonly container_name="sygnature-windows-builder"
-readonly noosphere_ref="c8233ad9827b99c796ee63e3af2e226511da7251"
+readonly noosphere_ref="fafb28dba31a2d3acc17d9c90060a3ad46d7300d"
 readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
 readonly noosphere_dir="$(cd -- "$project_dir/../noosphere" 2>/dev/null && pwd || true)"

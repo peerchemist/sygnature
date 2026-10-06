@@ -36,7 +36,7 @@ final class RoastRuntimeManager(
   final Set<String> _serverSetups = {};
   final Set<String> _signerSetups = {};
   final Map<String, RoastCoordinatorAddress> _signerCoordinators = {};
-  final Map<String, NoosphereNode> _roomServers = {};
+  final Map<String, IrohServer> _roomServers = {};
   final Map<String, StreamSubscription<RoomSnapshot>> _roomSubscriptions = {};
   final Set<String> _freezingRooms = {};
   final Map<String, Timer> _roomSignerTimers = {};
@@ -139,8 +139,8 @@ final class RoastRuntimeManager(
     WorkerCoordinatorAddress? roomCoordinator;
     if (setup.role == RoastSetupRole.host && setup.usesRoomEnrollment) {
       final server = await _ensureRoomServer(setup);
-      final room = await server.server!.getRoom(setup.groupId);
-      roomCoordinator = _coordinator(server.server!.address);
+      final room = await server.getRoom(setup.groupId);
+      roomCoordinator = _coordinator(server.address);
       if (room.lifecycle != RoomLifecycle.frozen) {
         AppLogger.info(
           '${_roastScope(setup.id)} Room is waiting for enrolled participants',
@@ -974,8 +974,8 @@ final class RoastRuntimeManager(
       await subscription.cancel();
     }
     _roomSubscriptions.clear();
-    for (final node in _roomServers.values) {
-      await node.close();
+    for (final server in _roomServers.values) {
+      await server.close();
     }
     _roomServers.clear();
     _freezingRooms.clear();

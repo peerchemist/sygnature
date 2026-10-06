@@ -46,11 +46,11 @@ dependencies:
   noosphere_flutter:
     git:
       url: ../noosphere
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
   noosphere:
     git:
       url: ../noosphere
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere
   flutter_local_notifications: ^22.3.1
   app_links: ^7.2.1
@@ -59,17 +59,17 @@ dependency_overrides:
   noosphere:
     git:
       url: ../noosphere
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere
   noosphere_client:
     git:
       url: ../noosphere
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: ../noosphere
-      ref: c8233ad9827b99c796ee63e3af2e226511da7251
+      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere_server
 
 hooks:

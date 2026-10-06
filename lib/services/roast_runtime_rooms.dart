@@ -13,8 +13,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       '${setup.participantCount} participants (threshold ${setup.threshold})',
     );
     _setups[setup.id] = setup;
-    final node = await _ensureRoomServer(setup);
-    final server = node.server!;
+    final server = await _ensureRoomServer(setup);
     await server.createRoom(
       roomId: setup.groupId,
       expectedParticipants: setup.participantCount,
@@ -181,35 +180,53 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     }
   }
 
-  Future<NoosphereNode> _ensureRoomServer(RoastSetup setup) async {
+  Future<IrohServer> _ensureRoomServer(RoastSetup setup) async {
     final existing = _roomServers[setup.id];
     if (existing != null) return existing;
     AppLogger.info(
       '${RoastRuntimeManager._irohScope(setup.id)} Starting room coordinator',
     );
+    await NoosphereFlutter.initialize();
     final persistence = await _persistenceFactory.open();
-    final node = await NoosphereNode.start(
-      server: EmbeddedServerOptions(
-        serverConfig: ServerConfig(
+    final secretKey = await _irohSecretKey(setup, persistence);
+    final rooms = await RoomManager.open(
+      coordinatorEndpointId: secretKey.publicKey.asBytes(),
+      persistence: persistence.roomPersistence(setup.id),
+    );
+    final server = await IrohServer.start(
+      IrohConfig(
+        server: ServerConfig(
           group: RoastRuntimeManager._bootstrapGroup(setup.groupId),
         ),
-        getIrohSecretKey: () => _irohSecretKey(setup, persistence),
-        serverPersistence: persistence.serverPersistence(setup.id),
-        roomPersistence: persistence.roomPersistence(setup.id),
+        maxStreamsPerConnection: defaultServerMaxStreamsPerConnection,
       ),
+      secretKey: secretKey,
+      persistence: persistence.serverPersistence(setup.id),
+      rooms: rooms,
     );
-    _roomServers[setup.id] = node;
-    _roomSubscriptions[setup.id] = node.server!.rooms!.snapshots.listen(
+    _roomServers[setup.id] = server;
+    unawaited(_serveRoomServer(setup.id, server));
+    _roomSubscriptions[setup.id] = rooms.snapshots.listen(
       (room) => _onRoomSnapshot(setup.id, room),
       onError: (Object error) => _emitRoomFailure(setup.id, error),
     );
-    for (final room in await node.server!.rooms!.getRooms()) {
+    for (final room in await rooms.getRooms()) {
       _onRoomSnapshot(setup.id, room);
     }
     AppLogger.info(
       '${RoastRuntimeManager._irohScope(setup.id)} Room coordinator started',
     );
-    return node;
+    return server;
+  }
+
+  Future<void> _serveRoomServer(String setupId, IrohServer server) async {
+    try {
+      await server.serve();
+    } catch (error, stackTrace) {
+      if (identical(_roomServers[setupId], server)) {
+        _emitRoomFailure(setupId, error, stackTrace);
+      }
+    }
   }
 
   void _onRoomSnapshot(String setupId, RoomSnapshot room) {
@@ -227,7 +244,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
   Future<void> _freezeRoomAndStartSigner(String setupId) async {
     try {
       final setup = _setups[setupId];
-      final server = _roomServers[setupId]?.server;
+      final server = _roomServers[setupId];
       if (setup == null || server == null) return;
       final frozen = await server.freezeRoom(setup.groupId);
       final expected = RoastRuntimeManager._group(setup);
