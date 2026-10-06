@@ -661,11 +661,22 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Account details'), findsOneWidget);
+    expect(find.text('RECEIVE ADDRESS'), findsOneWidget);
     expect(find.text('Derivation path'), findsNothing);
     expect(find.text('R/0/6/0/0/0/0'), findsNothing);
+    final address = find.byKey(const Key('receive-address-value'));
+    final details = find.byKey(const Key('account-details-card'));
     expect(
-      tester.getTopLeft(find.byKey(const Key('account-details-card'))).dy,
+      tester.getTopLeft(details).dy,
       tester.getTopLeft(find.byKey(const Key('wallet-dashboard-header'))).dy,
+    );
+    expect(
+      tester.getTopLeft(address).dx,
+      lessThan(tester.getTopLeft(details).dx),
+    );
+    expect(
+      tester.getTopLeft(address).dy,
+      greaterThan(tester.getTopLeft(details).dy),
     );
   });
 

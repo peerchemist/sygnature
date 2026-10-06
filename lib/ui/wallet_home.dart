@@ -474,7 +474,26 @@ class _WalletDashboard extends StatelessWidget {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: header),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              header,
+                              const SizedBox(height: 18),
+                              const Text(
+                                'RECEIVE ADDRESS',
+                                style: TextStyle(
+                                  color: AppColors.inkMuted,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              const SizedBox(height: 7),
+                              _ReceiveAddressBox(account: account),
+                            ],
+                          ),
+                        ),
                         const SizedBox(width: 18),
                         Expanded(
                           child: _AccountDetails(
@@ -496,26 +515,26 @@ class _WalletDashboard extends StatelessWidget {
                 ] else ...[
                   const SizedBox(height: 24),
                   _BalanceCard(account: account, controller: controller),
-                  const SizedBox(height: 18),
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final twoColumns = constraints.maxWidth >= 680;
                       if (twoColumns) {
-                        return _AddressCard(account: account);
+                        return const SizedBox(height: 18);
                       }
                       return Column(
                         children: [
+                          const SizedBox(height: 18),
                           _AddressCard(account: account),
                           const SizedBox(height: 18),
                           _AccountDetails(
                             account: account,
                             controller: controller,
                           ),
+                          const SizedBox(height: 18),
                         ],
                       );
                     },
                   ),
-                  const SizedBox(height: 18),
                   _ActivityCard(controller: controller, account: account),
                 ],
               ],
@@ -1031,13 +1050,10 @@ class const _BalanceAction({
   }
 }
 
-class _AddressCard extends StatelessWidget {
-  const _AddressCard({required this.account});
-  final WalletAccount account;
-
+class const _AddressCard({required final WalletAccount account})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final address = account.address;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(22),
@@ -1058,61 +1074,62 @@ class _AddressCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 18),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: AppColors.canvas,
-                border: Border.all(color: AppColors.line),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: address == null
-                  ? Text(
-                      switch (account.derivationState) {
-                        WalletDerivationState.error =>
-                          'Address unavailable because derivation failed.',
-                        WalletDerivationState.locked =>
-                          'Unlock the wallet to access its address.',
-                        _ => 'Address unavailable until derivation completes.',
-                      },
-                      style: const TextStyle(
-                        color: AppColors.inkMuted,
-                        fontSize: 13,
-                      ),
-                    )
-                  : Row(
-                      children: [
-                        Expanded(
-                          child: MiddleEllipsisText(
-                            key: const Key('receive-address-value'),
-                            value: address,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Copy address',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () async {
-                            await Clipboard.setData(
-                              ClipboardData(text: address),
-                            );
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Address copied.')),
-                            );
-                          },
-                          icon: const Icon(Icons.copy_rounded, size: 18),
-                        ),
-                      ],
-                    ),
-            ),
+            _ReceiveAddressBox(account: account),
           ],
         ),
       ),
+    );
+  }
+}
+
+class const _ReceiveAddressBox({required final WalletAccount account})
+    extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final address = account.address;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        border: Border.all(color: AppColors.line),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: address == null
+          ? Text(switch (account.derivationState) {
+              WalletDerivationState.error =>
+                'Address unavailable because derivation failed.',
+              WalletDerivationState.locked =>
+                'Unlock the wallet to access its address.',
+              _ => 'Address unavailable until derivation completes.',
+            }, style: const TextStyle(color: AppColors.inkMuted, fontSize: 13))
+          : Row(
+              children: [
+                Expanded(
+                  child: MiddleEllipsisText(
+                    key: const Key('receive-address-value'),
+                    value: address,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Copy address',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: address));
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Address copied.')),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                ),
+              ],
+            ),
     );
   }
 }
