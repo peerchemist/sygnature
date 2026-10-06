@@ -504,19 +504,11 @@ The behavior described above is defined primarily in:
 - `lib/storage/roast_storage.dart`
 - `lib/storage/hive_storage_initializer.dart`
 - `test/secure_key_store_test.dart`
-- `../noosphere_roast_client/lib/src/protocol/protos/noosphere.proto`
-- `../noosphere_roast_client/lib/src/protocol/framing.dart`
-- `../noosphere_roast_client/lib/src/iroh/client_api.dart`
-- `../noosphere_roast_client/lib/src/iroh/endpoint.dart`
-- `../noosphere_roast_client/lib/src/api/types/signed.dart`
-- `../noosphere_roast_client/lib/src/api/types/signatures_request_details.dart`
-- `../noosphere_roast_client/lib/src/api/types/signature_metadata.dart`
-- `../noosphere_roast_client/lib/src/api/events.dart`
-- `../noosphere_roast_client/lib/src/api/responses/login_complete.dart`
-- `../noosphere_roast_server/lib/src/iroh/connection_handler.dart`
-- `../noosphere_roast_server/lib/src/iroh/dispatcher.dart`
-- `../noosphere_roast_server/lib/src/iroh/messages.dart`
-- `../noosphere_roast_server/lib/src/server/api_handler.dart`
-- `../noosphere_roast_server/lib/src/server/state/client_session.dart`
-- `../noosphere_roast_server/lib/src/server/state/signatures_coordination.dart`
+- [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/fafb28dba31a2d3acc17d9c90060a3ad46d7300d):
+  `packages/noosphere/proto/noosphere.proto`,
+  `packages/noosphere/lib/src/framing.dart`,
+  `packages/noosphere/lib/api/`,
+  `packages/noosphere_client/lib/src/iroh/`,
+  `packages/noosphere_server/lib/src/iroh/`, and
+  `packages/noosphere_server/lib/src/server/`
 - `roast-workflow.md`

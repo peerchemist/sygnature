@@ -20,11 +20,6 @@ for tool in flatpak flatpak-builder; do
   fi
 done
 
-if [[ ! -d "$project_dir/../noosphere" ]]; then
-  echo "error: expected the noosphere checkout at $project_dir/../noosphere" >&2
-  exit 1
-fi
-
 if ! flatpak remotes --user --columns=name | grep -Fxq flathub; then
   flatpak remote-add --user --if-not-exists flathub \
     https://dl.flathub.org/repo/flathub.flatpakrepo

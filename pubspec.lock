@@ -579,7 +579,7 @@ packages:
       path: "packages/noosphere"
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      url: "../noosphere"
+      url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.0"
   noosphere_client:
@@ -588,7 +588,7 @@ packages:
       path: "packages/noosphere_client"
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      url: "../noosphere"
+      url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "4.0.0"
   noosphere_flutter:
@@ -597,7 +597,7 @@ packages:
       path: "."
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      url: "../noosphere"
+      url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.0"
   noosphere_server:
@@ -606,7 +606,7 @@ packages:
       path: "packages/noosphere_server"
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      url: "../noosphere"
+      url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "3.0.0"
   objective_c:

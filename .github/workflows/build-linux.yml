@@ -21,14 +21,6 @@ jobs:
         with:
           path: sygnature_ng
 
-      - name: Check out Noosphere
-        uses: actions/checkout@v7.0.1
-        with:
-          repository: ${{ github.repository_owner }}/noosphere
-          ref: f314e2491518d86967c673720d60cc272a99d90c
-          token: ${{ secrets.NOOSPHERE_REPOSITORY_TOKEN || github.token }}
-          path: noosphere
-
       - name: Install Flatpak build tools
         run: |
           sudo apt-get update

@@ -45,11 +45,11 @@ dependencies:
   web_socket_channel: ^3.0.3
   noosphere_flutter:
     git:
-      url: ../noosphere
+      url: https://github.com/peerchemist/noosphere.git
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
   noosphere:
     git:
-      url: ../noosphere
+      url: https://github.com/peerchemist/noosphere.git
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere
   flutter_local_notifications: ^22.3.1
@@ -58,17 +58,17 @@ dependencies:
 dependency_overrides:
   noosphere:
     git:
-      url: ../noosphere
+      url: https://github.com/peerchemist/noosphere.git
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere
   noosphere_client:
     git:
-      url: ../noosphere
+      url: https://github.com/peerchemist/noosphere.git
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere_client
   noosphere_server:
     git:
-      url: ../noosphere
+      url: https://github.com/peerchemist/noosphere.git
       ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
       path: packages/noosphere_server
 

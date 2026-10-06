@@ -3,10 +3,8 @@
 set -euo pipefail
 
 readonly container_name="sygnature-windows-builder"
-readonly noosphere_ref="fafb28dba31a2d3acc17d9c90060a3ad46d7300d"
 readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
-readonly noosphere_dir="$(cd -- "$project_dir/../noosphere" 2>/dev/null && pwd || true)"
 readonly storage_dir="${SYGNATURE_WINDOWS_STORAGE:-$project_dir/.windows-builder/storage}"
 readonly image="${SYGNATURE_WINDOWS_IMAGE:-docker.io/dockurr/windows:6.05}"
 readonly windows_version="${SYGNATURE_WINDOWS_VERSION:-11}"
@@ -22,9 +20,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/build_windows [check|start|stop|status|logs]
 
-Runs a persistent dockur/windows VM through Podman. The Sygnature and
-Noosphere repositories are exposed read-write and read-only, respectively,
-under the Windows Z: drive.
+Runs a persistent dockur/windows VM through Podman. The Sygnature repository is
+exposed read-write under the Windows Z: drive.
 
 Optional environment variables:
   SYGNATURE_WINDOWS_STORAGE    VM storage directory
@@ -48,7 +45,7 @@ container_exists() {
 }
 
 require_host_support() {
-  for tool in podman git; do
+  for tool in podman; do
     if ! command -v "$tool" >/dev/null 2>&1; then
       echo "error: required command not found: $tool" >&2
       exit 1
@@ -60,14 +57,6 @@ require_host_support() {
       exit 1
     fi
   done
-  if [[ -z "$noosphere_dir" || ! -d "$noosphere_dir/.git" ]]; then
-    echo "error: expected the Noosphere checkout at $project_dir/../noosphere" >&2
-    exit 1
-  fi
-  if ! git -C "$noosphere_dir" cat-file -e "$noosphere_ref^{commit}"; then
-    echo "error: Noosphere does not contain required commit $noosphere_ref" >&2
-    exit 1
-  fi
 }
 
 start_vm() {
@@ -100,7 +89,6 @@ start_vm() {
       --env "LOG=Y" \
       --volume "$storage_dir:/storage:rw" \
       --volume "$project_dir:/shared/sygnature_ng:rw" \
-      --volume "$noosphere_dir:/shared/noosphere:ro" \
       "$image" >/dev/null
     echo "Created and started the Windows builder."
   fi
@@ -150,7 +138,7 @@ action="${1:-start}"
 case "$action" in
   check)
     require_host_support
-    echo "Podman, KVM, TUN, and the required Noosphere revision are available."
+    echo "Podman, KVM, and TUN are available."
     echo "Image: $image"
     echo "Storage: $storage_dir"
     ;;

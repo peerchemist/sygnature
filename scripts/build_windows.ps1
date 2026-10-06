@@ -211,12 +211,8 @@ function Mirror-Directory(
 
 $sharedRoot = "Z:\"
 $projectSource = Join-Path $sharedRoot "sygnature_ng"
-$noosphereSource = Join-Path $sharedRoot "noosphere"
 if (-not (Test-Path $projectSource)) {
     throw "Sygnature share is unavailable at $projectSource"
-}
-if (-not (Test-Path $noosphereSource)) {
-    throw "Noosphere share is unavailable at $noosphereSource"
 }
 
 New-Item -ItemType Directory -Path $toolRoot, $downloadRoot -Force | Out-Null
@@ -230,15 +226,12 @@ foreach ($command in @("flutter", "git", "rustc", "cargo")) {
 }
 
 $projectCopy = Join-Path $WorkRoot "sygnature_ng"
-$noosphereCopy = Join-Path $WorkRoot "noosphere"
 New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 
 foreach ($generatedDirectory in @(
     (Join-Path $projectCopy ".flatpak-builder"),
     (Join-Path $projectCopy "linux\flutter\ephemeral"),
-    (Join-Path $projectCopy "windows\flutter\ephemeral"),
-    (Join-Path $noosphereCopy "linux\flutter\ephemeral"),
-    (Join-Path $noosphereCopy "example\linux\flutter\ephemeral")
+    (Join-Path $projectCopy "windows\flutter\ephemeral")
 )) {
     if (Test-Path $generatedDirectory) {
         Remove-Item -LiteralPath $generatedDirectory -Recurse -Force
@@ -253,14 +246,6 @@ Mirror-Directory $projectSource $projectCopy @(
     "ephemeral",
     "build"
 )
-Mirror-Directory $noosphereSource $noosphereCopy @(
-    ".dart_tool",
-    "ephemeral",
-    "build"
-)
-& git -C $noosphereCopy config uploadpack.hideRefs refs/codex
-Assert-NativeSuccess "hiding internal Noosphere refs" $LASTEXITCODE
-
 Push-Location $projectCopy
 try {
     flutter --version

@@ -3,21 +3,13 @@
 Sygnature targets Android, Linux, Windows and macOS. Automated equivalents of
 these builds are defined in [GitHub Actions](../.github/workflows).
 
-## Source layout
+## Source dependencies
 
-The Sygnature and Noosphere repositories must be sibling directories because
-`pubspec.yaml` references Noosphere through `../noosphere`:
-
-```text
-projects/
-|- sygnature_ng/
-`- noosphere/
-```
-
-Noosphere must contain commit
-`fafb28dba31a2d3acc17d9c90060a3ad46d7300d`. Android and macOS builds require
-Git, Flutter 3.47.5, Rust and the native toolchain for their target platform.
-The Linux Flatpak and Windows VM scripts provision their own SDKs.
+`pubspec.yaml` fetches Noosphere directly from GitHub at the pinned commit
+`fafb28dba31a2d3acc17d9c90060a3ad46d7300d`; no sibling checkout is required.
+Android and macOS builds require Git, Flutter 3.47.5, Rust and the native
+toolchain for their target platform. The Linux Flatpak and Windows VM scripts
+provision their own SDKs.
 
 ## Android APK
 
