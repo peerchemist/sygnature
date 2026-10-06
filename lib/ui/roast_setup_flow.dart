@@ -1986,58 +1986,69 @@ class const _RoastParticipantRow({
             ),
             const SizedBox(width: 14),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          participant.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.ink,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      if (local) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.lime,
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                          child: const Text(
-                            'YOU',
-                            style: TextStyle(
-                              color: AppColors.greenDark,
-                              fontSize: 8,
-                              fontWeight: FontWeight.w800,
+              child: InkWell(
+                key: ValueKey(
+                  'copy-roast-participant-public-key-${participant.cardId}',
+                ),
+                onTap: () => RoastSetupPanel._copy(
+                  context,
+                  participant.publicKeyHex,
+                  'Signer public key copied.',
+                ),
+                borderRadius: BorderRadius.circular(4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            participant.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
+                        if (local) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.lime,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'YOU',
+                              style: TextStyle(
+                                color: AppColors.greenDark,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Tooltip(
-                    message: participant.publicKeyHex,
-                    child: Text(
-                      RoastSetupPanel._short(participant.publicKeyHex),
-                      style: const TextStyle(
-                        color: AppColors.inkMuted,
-                        fontFamily: 'monospace',
-                        fontSize: 10,
+                    ),
+                    const SizedBox(height: 2),
+                    Tooltip(
+                      message: participant.publicKeyHex,
+                      child: Text(
+                        RoastSetupPanel._short(participant.publicKeyHex),
+                        style: const TextStyle(
+                          color: AppColors.inkMuted,
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 8),

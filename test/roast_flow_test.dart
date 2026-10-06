@@ -366,6 +366,35 @@ void main() {
       AppColors.success,
     );
 
+    String? copiedPublicKey;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedPublicKey =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final remoteParticipant = controller.roastSetups.single.participants.first;
+    await tester.tap(
+      find.byKey(
+        ValueKey(
+          'copy-roast-participant-public-key-${remoteParticipant.cardId}',
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(copiedPublicKey, remoteParticipant.publicKeyHex);
+    expect(find.text('Signer public key copied.'), findsOneWidget);
+
     final setup = controller.roastSetups.single;
     runtime.emit(
       RoastRuntimeDkgEvent(
