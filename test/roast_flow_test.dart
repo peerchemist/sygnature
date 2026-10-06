@@ -663,6 +663,10 @@ void main() {
     expect(find.text('Account details'), findsOneWidget);
     expect(find.text('Derivation path'), findsNothing);
     expect(find.text('R/0/6/0/0/0/0'), findsNothing);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('account-details-card'))).dy,
+      tester.getTopLeft(find.byKey(const Key('wallet-dashboard-header'))).dy,
+    );
   });
 
   testWidgets('reviews the exact text before requesting message signatures', (

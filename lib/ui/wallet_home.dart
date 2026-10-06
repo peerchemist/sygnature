@@ -372,33 +372,55 @@ class _WalletDashboard extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                 ],
-                _DashboardHeader(
-                  account: account,
-                  syncStatus: controller.syncStatusFor(account),
-                  onDelete: () =>
-                      _confirmDeleteWallet(context, controller, account),
-                  onArchive: () =>
-                      _confirmArchiveWallet(context, controller, account),
-                  onRename: () =>
-                      _showRenameWallet(context, controller, account),
-                  onChangeSignerGroup:
-                      roastSetup?.isActive == true && controller.roastAvailable
-                      ? () => showRoastGroupTransition(
-                          context,
-                          controller,
-                          roastSetup!,
-                        )
-                      : null,
-                  onSwitchCoordinator:
-                      roastSetup?.isFinalized == true &&
-                          roastSetup?.coordinatorId != null &&
-                          controller.roastCoordinatorSwitchAvailable
-                      ? () => showRoastCoordinatorSwitch(
-                          context,
-                          controller,
-                          roastSetup!,
-                        )
-                      : null,
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final showDetailsBesideHeader =
+                        constraints.maxWidth >= 680 &&
+                        (roastSetup == null || roastSetup.isActive);
+                    final header = _DashboardHeader(
+                      account: account,
+                      syncStatus: controller.syncStatusFor(account),
+                      onDelete: () =>
+                          _confirmDeleteWallet(context, controller, account),
+                      onArchive: () =>
+                          _confirmArchiveWallet(context, controller, account),
+                      onRename: () =>
+                          _showRenameWallet(context, controller, account),
+                      onChangeSignerGroup:
+                          roastSetup?.isActive == true &&
+                              controller.roastAvailable
+                          ? () => showRoastGroupTransition(
+                              context,
+                              controller,
+                              roastSetup!,
+                            )
+                          : null,
+                      onSwitchCoordinator:
+                          roastSetup?.isFinalized == true &&
+                              roastSetup?.coordinatorId != null &&
+                              controller.roastCoordinatorSwitchAvailable
+                          ? () => showRoastCoordinatorSwitch(
+                              context,
+                              controller,
+                              roastSetup!,
+                            )
+                          : null,
+                    );
+                    if (!showDetailsBesideHeader) return header;
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: header),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: _AccountDetails(
+                            account: account,
+                            controller: controller,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 if (roastSetup != null) ...[
                   const SizedBox(height: 18),
@@ -415,19 +437,7 @@ class _WalletDashboard extends StatelessWidget {
                     builder: (context, constraints) {
                       final twoColumns = constraints.maxWidth >= 680;
                       if (twoColumns) {
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: _AddressCard(account: account)),
-                            const SizedBox(width: 18),
-                            Expanded(
-                              child: _AccountDetails(
-                                account: account,
-                                controller: controller,
-                              ),
-                            ),
-                          ],
-                        );
+                        return _AddressCard(account: account);
                       }
                       return Column(
                         children: [
@@ -1051,6 +1061,7 @@ class _AccountDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      key: const Key('account-details-card'),
       child: Padding(
         padding: const EdgeInsets.all(22),
         child: Column(
