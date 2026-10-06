@@ -12,6 +12,7 @@ readonly output_dir="$project_dir/build/flatpak"
 readonly build_dir="$output_dir/build"
 readonly repo_dir="$output_dir/repo"
 readonly bundle="$output_dir/$app_id.flatpak"
+readonly state_dir="$project_dir/.flatpak-builder"
 
 for tool in flatpak flatpak-builder; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -46,6 +47,8 @@ mkdir -p "$output_dir" "$repo_dir"
 flatpak-builder \
   --user \
   --force-clean \
+  --ccache \
+  --state-dir="$state_dir" \
   --install-deps-from=flathub \
   --repo="$repo_dir" \
   "$build_dir" \

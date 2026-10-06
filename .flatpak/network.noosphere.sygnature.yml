@@ -44,6 +44,7 @@ modules:
         path: ..
         dest: app
         skip:
+          - .agents
           - .dart_tool
           - .flatpak-builder
           - .git
