@@ -237,13 +237,23 @@ extension WalletRoastEventController on WalletController {
             (item) => item.sourceId == setup.id,
           );
           final isNew = !_roastSigningRequests.containsKey(requestKey);
-          _roastSigningRequests[requestKey] = RoastSigningInboxItem(
+          final inboxItem = RoastSigningInboxItem(
             setupId: setup.id,
             walletName: account.name,
             request: event.request,
           );
+          _roastSigningRequests[requestKey] = inboxItem;
           if (isNew && event.request.status == 'waiting') {
             _announceRoastAction('signatures:$requestKey');
+            final transactionRecipients = [
+              if (event.request.kind == RoastSigningRequestKind.transaction)
+                for (final output in event.request.outputs)
+                  if (!isRoastChangeOutput(inboxItem, output))
+                    WalletActivityRecipient(
+                      address: roastOutputAddress(inboxItem, output),
+                      amountSats: output.valueSats,
+                    ),
+            ];
             await _recordActivity(
               id: 'signature-request-received:$requestKey',
               accountId: account.id,
@@ -252,6 +262,11 @@ extension WalletRoastEventController on WalletController {
               details: event.request.message.isEmpty
                   ? null
                   : event.request.message,
+              transactionRecipients: transactionRecipients,
+              transactionFeeSats:
+                  event.request.kind == RoastSigningRequestKind.transaction
+                  ? event.request.feeSats
+                  : null,
             );
           }
           _notifyListeners();

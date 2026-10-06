@@ -86,6 +86,8 @@ extension WalletActivityController on WalletController {
     String? signedMessagePublicKeyHex,
     String? signedMessageSignatureHex,
     String? signedMessageEncoded,
+    List<WalletActivityRecipient>? transactionRecipients,
+    int? transactionFeeSats,
   }) async {
     final current = _vault;
     if (current == null) return;
@@ -102,6 +104,8 @@ extension WalletActivityController on WalletController {
         signedMessagePublicKeyHex: signedMessagePublicKeyHex,
         signedMessageSignatureHex: signedMessageSignatureHex,
         signedMessageEncoded: signedMessageEncoded,
+        transactionRecipients: transactionRecipients ?? const [],
+        transactionFeeSats: transactionFeeSats,
       );
       activities = [
         activity,
@@ -114,13 +118,20 @@ extension WalletActivityController on WalletController {
         signedMessagePublicKeyHex: signedMessagePublicKeyHex,
         signedMessageSignatureHex: signedMessageSignatureHex,
         signedMessageEncoded: signedMessageEncoded,
+        transactionRecipients: transactionRecipients,
+        transactionFeeSats: transactionFeeSats,
       );
       if (updated.details == previous.details &&
           updated.signedMessagePublicKeyHex ==
               previous.signedMessagePublicKeyHex &&
           updated.signedMessageSignatureHex ==
               previous.signedMessageSignatureHex &&
-          updated.signedMessageEncoded == previous.signedMessageEncoded) {
+          updated.signedMessageEncoded == previous.signedMessageEncoded &&
+          listEquals(
+            updated.transactionRecipients,
+            previous.transactionRecipients,
+          ) &&
+          updated.transactionFeeSats == previous.transactionFeeSats) {
         return;
       }
       activities = [...current.activities];

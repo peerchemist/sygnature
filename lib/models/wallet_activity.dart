@@ -21,6 +21,31 @@ enum WalletTransactionStatus {
   failed,
 }
 
+class const WalletActivityRecipient({
+  required final String address,
+  required final int amountSats,
+}) {
+  Map<String, Object?> toJson() => {
+    'address': address,
+    'amountSats': amountSats,
+  };
+
+  factory WalletActivityRecipient.fromJson(Map<Object?, Object?> json) =>
+      WalletActivityRecipient(
+        address: json['address']! as String,
+        amountSats: json['amountSats']! as int,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is WalletActivityRecipient &&
+      other.address == address &&
+      other.amountSats == amountSats;
+
+  @override
+  int get hashCode => Object.hash(address, amountSats);
+}
+
 class WalletActivity({
   required final String id,
   required final String accountId,
@@ -33,6 +58,8 @@ class WalletActivity({
   final String? signedMessageEncoded,
   final WalletTransactionStatus? transactionStatus,
   final int? blockHeight,
+  final List<WalletActivityRecipient> transactionRecipients = const [],
+  final int? transactionFeeSats,
 }) {
   WalletActivity copyWith({
     WalletTransactionStatus? transactionStatus,
@@ -41,6 +68,8 @@ class WalletActivity({
     String? signedMessagePublicKeyHex,
     String? signedMessageSignatureHex,
     String? signedMessageEncoded,
+    List<WalletActivityRecipient>? transactionRecipients,
+    int? transactionFeeSats,
     bool clearDetails = false,
     bool clearBlockHeight = false,
   }) => WalletActivity(
@@ -57,6 +86,8 @@ class WalletActivity({
     signedMessageEncoded: signedMessageEncoded ?? this.signedMessageEncoded,
     transactionStatus: transactionStatus ?? this.transactionStatus,
     blockHeight: clearBlockHeight ? null : blockHeight ?? this.blockHeight,
+    transactionRecipients: transactionRecipients ?? this.transactionRecipients,
+    transactionFeeSats: transactionFeeSats ?? this.transactionFeeSats,
   );
 
   Map<String, Object?> toJson() => {
@@ -71,6 +102,10 @@ class WalletActivity({
     'signedMessageEncoded': signedMessageEncoded,
     'transactionStatus': transactionStatus?.name,
     'blockHeight': blockHeight,
+    'transactionRecipients': transactionRecipients
+        .map((recipient) => recipient.toJson())
+        .toList(),
+    'transactionFeeSats': transactionFeeSats,
   };
 
   factory WalletActivity.fromJson(Map<Object?, Object?> json) => WalletActivity(
@@ -88,5 +123,14 @@ class WalletActivity({
       _ => null,
     },
     blockHeight: json['blockHeight'] as int?,
+    transactionRecipients:
+        ((json['transactionRecipients'] as List?) ?? const [])
+            .map(
+              (recipient) => WalletActivityRecipient.fromJson(
+                recipient as Map<Object?, Object?>,
+              ),
+            )
+            .toList(growable: false),
+    transactionFeeSats: json['transactionFeeSats'] as int?,
   );
 }

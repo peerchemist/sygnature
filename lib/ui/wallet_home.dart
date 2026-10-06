@@ -1337,6 +1337,24 @@ Future<void> _showActivityDetails(
                 ),
               if (activity.blockHeight case final height?)
                 _ActivityDetail(label: 'Block height', value: '$height'),
+              for (
+                var index = 0;
+                index < activity.transactionRecipients.length;
+                index++
+              )
+                _ActivityDetail(
+                  label: activity.transactionRecipients.length == 1
+                      ? 'Recipient'
+                      : 'Recipient ${index + 1}',
+                  value:
+                      '${activity.transactionRecipients[index].address}\n'
+                      '${_formatPpc(activity.transactionRecipients[index].amountSats)} PPC',
+                ),
+              if (activity.transactionFeeSats case final feeSats?)
+                _ActivityDetail(
+                  label: 'Network fee',
+                  value: '${_formatPpc(feeSats)} PPC',
+                ),
               if (activity.details case final details?)
                 _ActivityDetail(
                   label:
