@@ -229,6 +229,11 @@ extension WalletRoastEventController on WalletController {
       case RoastRuntimeSigningRequestEvent():
         final requestKey = '${setup.id}:${event.request.idHex}';
         if (event.request.creator == setup.localParticipant.identifierHex) {
+          if (event.request.kind == RoastSigningRequestKind.message &&
+              _pendingRoastMessages.containsKey(requestKey)) {
+            _pendingRoastMessageProgress[requestKey] = event.request.progress;
+            _notifyListeners();
+          }
           return;
         }
         try {

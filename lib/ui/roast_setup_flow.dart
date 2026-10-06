@@ -930,16 +930,25 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       canPop: true,
       child: AlertDialog(
         title: Text(
-          result == null ? 'Sign message with ROAST' : 'Message signed',
+          result != null
+              ? 'Message signed'
+              : _submitting
+              ? 'Waiting for signatures'
+              : 'Sign message with ROAST',
         ),
         content: SizedBox(
           width: 560,
-          child: SingleChildScrollView(
-            child: result != null
-                ? _buildResult(result)
-                : _reviewing
-                ? _buildReview()
-                : _buildForm(),
+          child: AnimatedBuilder(
+            animation: widget.controller,
+            builder: (context, _) => SingleChildScrollView(
+              child: result != null
+                  ? _buildResult(result)
+                  : _submitting
+                  ? _buildSigningProgress()
+                  : _reviewing
+                  ? _buildReview()
+                  : _buildForm(),
+            ),
           ),
         ),
         actions: [
@@ -954,24 +963,21 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
               icon: const Icon(Icons.copy_rounded),
               label: const Text('Copy signed message'),
             ),
+          ] else if (_submitting) ...[
+            TextButton(
+              key: const Key('close-message-signing'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
           ] else ...[
             TextButton(
-              key: _submitting ? const Key('close-message-signing') : null,
-              onPressed: _submitting
-                  ? () => Navigator.pop(context)
-                  : _reviewing
+              onPressed: _reviewing
                   ? () => setState(() {
                       _reviewing = false;
                       _error = null;
                     })
                   : () => Navigator.pop(context),
-              child: Text(
-                _submitting
-                    ? 'Close'
-                    : _reviewing
-                    ? 'Back'
-                    : 'Cancel',
-              ),
+              child: Text(_reviewing ? 'Back' : 'Cancel'),
             ),
             FilledButton(
               key: Key(
@@ -979,17 +985,8 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
                     ? 'request-message-signatures'
                     : 'review-message-signature',
               ),
-              onPressed: _submitting
-                  ? null
-                  : _reviewing
-                  ? _sign
-                  : _review,
-              child: _submitting
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(_reviewing ? 'Request signatures' : 'Review'),
+              onPressed: _reviewing ? _sign : _review,
+              child: Text(_reviewing ? 'Request signatures' : 'Review'),
             ),
           ],
         ],
@@ -1094,6 +1091,116 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       ],
     ],
   );
+
+  Widget _buildSigningProgress() {
+    final setup = widget.controller.setupForAccount(widget.account);
+    final progress = setup == null
+        ? null
+        : widget.controller.roastMessageSigningProgress(setup.id);
+    final threshold = progress?.threshold ?? setup?.threshold ?? 1;
+    final collected = progress?.contributingParticipants.length ?? 0;
+    final sent = progress?.stage != 'sending';
+    final gaugeValue = (collected / threshold).clamp(0, 1).toDouble();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          key: const Key('message-signing-progress'),
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.greenDark.withValues(alpha: 0.07),
+            border: Border.all(
+              color: AppColors.greenDark.withValues(alpha: 0.25),
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    sent ? Icons.outgoing_mail : Icons.sync_rounded,
+                    color: AppColors.greenDark,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    sent ? 'Signature request sent' : 'Sending request…',
+                    style: const TextStyle(
+                      color: AppColors.greenDark,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                sent
+                    ? 'The request was sent to the other signers. Waiting '
+                          'for enough responses to complete the signature.'
+                    : 'Submitting the request to the signer group.',
+                style: const TextStyle(color: AppColors.inkMuted),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Text(
+                    '$collected of $threshold signatures',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  Text(
+                    progress?.stage == 'signing'
+                        ? 'SIGNING'
+                        : sent
+                        ? 'WAITING'
+                        : 'SENDING',
+                    style: const TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.7,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              LinearProgressIndicator(
+                value: gaugeValue,
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(3),
+                semanticsLabel: 'Signatures collected',
+                semanticsValue: '$collected of $threshold',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _MessageBox(label: 'EXACT TEXT TO SIGN', text: _textController.text),
+        if (_noteController.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _MessageBox(
+            label: 'NOTE TO SIGNERS · AUTHENTICATED, NOT SIGNED TEXT',
+            text: _noteController.text.trim(),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Text(
+          'The request remains active for up to '
+          '${_requestTimeout.inMinutes} minutes. You can close this window; '
+          'signing will continue in the background.',
+          style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(_error!, style: const TextStyle(color: AppColors.danger)),
+        ],
+      ],
+    );
+  }
 
   Widget _buildResult(RoastSignedMessage result) => Column(
     mainAxisSize: MainAxisSize.min,

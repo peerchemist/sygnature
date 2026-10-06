@@ -13,6 +13,11 @@ extension WalletSigningController on WalletController {
           .toList(growable: false);
   bool roastMessageSigningInProgress(String setupId) =>
       _pendingRoastMessages.keys.any((key) => key.startsWith('$setupId:'));
+  RoastSigningProgress? roastMessageSigningProgress(String setupId) =>
+      _pendingRoastMessageProgress.entries
+          .where((entry) => entry.key.startsWith('$setupId:'))
+          .firstOrNull
+          ?.value;
 
   RoastSignedMessage? completedRoastMessage(String setupId) =>
       _completedRoastMessages[setupId];
@@ -111,6 +116,11 @@ extension WalletSigningController on WalletController {
     }
     final completer = Completer<RoastSignedMessage>();
     _pendingRoastMessages[pendingKey] = completer;
+    _pendingRoastMessageProgress[pendingKey] = RoastSigningProgress(
+      threshold: setup.threshold,
+      contributingParticipants: const [],
+      stage: 'sending',
+    );
     _notifyListeners();
     try {
       await _recordActivity(
@@ -121,11 +131,21 @@ extension WalletSigningController on WalletController {
         details: text,
       );
       await runtime.requestSignatures(setup, proposal);
+      final progress = _pendingRoastMessageProgress[pendingKey];
+      if (progress?.stage == 'sending') {
+        _pendingRoastMessageProgress[pendingKey] = RoastSigningProgress(
+          threshold: progress!.threshold,
+          contributingParticipants: progress.contributingParticipants,
+          stage: 'collecting',
+        );
+        _notifyListeners();
+      }
       return await completer.future.timeout(
         proposal.expiry.difference(DateTime.now()),
       );
     } finally {
       _pendingRoastMessages.remove(pendingKey);
+      _pendingRoastMessageProgress.remove(pendingKey);
       _notifyListeners();
     }
   }
