@@ -1029,6 +1029,8 @@ void main() {
       expect(card, findsOneWidget);
       expect(find.text('Collecting approvals'), findsOneWidget);
       expect(find.text('1/3 required signers'), findsOneWidget);
+      expect(find.text('1 active'), findsOneWidget);
+      expect(find.text('1 to sign'), findsOneWidget);
 
       runtime.emit(
         RoastRuntimeSigningRequestEvent(
@@ -1050,6 +1052,8 @@ void main() {
       expect(find.text('0/3 required signers'), findsOneWidget);
       expect(find.text('Local status: accepted'), findsOneWidget);
       expect(find.text('Approve and sign'), findsNothing);
+      expect(find.text('1 active'), findsOneWidget);
+      expect(find.text('0 to sign'), findsOneWidget);
 
       runtime.emit(
         RoastRuntimeSigningRequestEvent(
@@ -1098,6 +1102,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(card, findsNothing);
+      expect(find.text('0 active'), findsOneWidget);
+      expect(find.text('0 to sign'), findsOneWidget);
 
       final failedId = 'cd' * 16;
       runtime.emit(

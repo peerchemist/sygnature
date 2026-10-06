@@ -7,6 +7,20 @@ extension WalletSigningController on WalletController {
       roastSigningRequests
           .where((item) => item.setupId == setupId)
           .toList(growable: false);
+  int activeRoastSigningRequestCount(String setupId) {
+    final prefix = '$setupId:';
+    return {
+      ..._roastSigningRequests.keys.where((key) => key.startsWith(prefix)),
+      ..._pendingRoastSends.keys.where((key) => key.startsWith(prefix)),
+      ..._pendingRoastMessages.keys.where((key) => key.startsWith(prefix)),
+    }.length;
+  }
+
+  int roastSigningRequestsAwaitingLocalApprovalCount(String setupId) =>
+      roastSigningRequestsForSetup(setupId)
+          .where((item) => item.request.status == 'waiting')
+          .length;
+
   List<RoastSigningOperation> get recoverableRoastSigningOperations =>
       _storedRoastSigningOperations.values
           .where((operation) => operation.canRetryBroadcast)

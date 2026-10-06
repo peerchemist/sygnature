@@ -124,13 +124,23 @@ class const _WalletSidebar({
                   separatorBuilder: (_, _) => const SizedBox(height: 2),
                   itemBuilder: (context, index) {
                     final account = controller.accounts[index];
+                    final setup = controller.setupForAccount(account);
                     final selected = index == controller.selectedAccountIndex;
                     return _WalletListTile(
                       account: account,
                       displayIndex: index,
-                      setup: controller.setupForAccount(account),
+                      setup: setup,
                       balanceSats: controller.balanceSatsFor(account),
                       syncStatus: controller.syncStatusFor(account),
+                      activeSigningRequestCount: setup == null
+                          ? 0
+                          : controller.activeRoastSigningRequestCount(setup.id),
+                      awaitingLocalApprovalCount: setup == null
+                          ? 0
+                          : controller
+                                .roastSigningRequestsAwaitingLocalApprovalCount(
+                                  setup.id,
+                                ),
                       selected: selected,
                       onTap: () => controller.selectAccount(index),
                     );
@@ -165,24 +175,17 @@ class const _WalletSidebar({
   }
 }
 
-class _WalletListTile extends StatelessWidget {
-  const _WalletListTile({
-    required this.account,
-    required this.displayIndex,
-    required this.setup,
-    required this.balanceSats,
-    required this.syncStatus,
-    required this.selected,
-    required this.onTap,
-  });
-  final WalletAccount account;
-  final int displayIndex;
-  final RoastSetup? setup;
-  final int balanceSats;
-  final AccountSyncStatus syncStatus;
-  final bool selected;
-  final VoidCallback onTap;
-
+class const _WalletListTile({
+  required final WalletAccount account,
+  required final int displayIndex,
+  required final RoastSetup? setup,
+  required final int balanceSats,
+  required final AccountSyncStatus syncStatus,
+  required final int activeSigningRequestCount,
+  required final int awaitingLocalApprovalCount,
+  required final bool selected,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isRoast = account.keySource == WalletKeySource.roast;
@@ -284,13 +287,74 @@ class _WalletListTile extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 3),
-                    Text(
-                      setup != null && !setup!.isActive
-                          ? setup!.isWaitingForInvitation
-                                ? 'Resume setup'
-                                : 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
-                          : accountStatus,
-                      style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            setup != null && !setup!.isActive
+                                ? setup!.isWaitingForInvitation
+                                      ? 'Resume setup'
+                                      : 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
+                                : accountStatus,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.inkMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        if (isRoast && setup?.isActive == true) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Tooltip(
+                                    message: 'Active signature requests',
+                                    child: Text(
+                                      '$activeSigningRequestCount active',
+                                      key: ValueKey(
+                                        'wallet-${account.id}-active-signing-requests',
+                                      ),
+                                      style: const TextStyle(
+                                        color: AppColors.inkMuted,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  const Text(
+                                    ' · ',
+                                    style: TextStyle(
+                                      color: AppColors.inkMuted,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                  Tooltip(
+                                    message: 'Waiting for this wallet to sign',
+                                    child: Text(
+                                      '$awaitingLocalApprovalCount to sign',
+                                      key: ValueKey(
+                                        'wallet-${account.id}-awaiting-local-approval',
+                                      ),
+                                      style: TextStyle(
+                                        color: awaitingLocalApprovalCount > 0
+                                            ? AppColors.danger
+                                            : AppColors.inkMuted,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
