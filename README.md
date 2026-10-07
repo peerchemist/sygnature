@@ -135,3 +135,12 @@ The Apple Silicon package is written to `build/Sygnature-macOS.dmg`. It is
 ad-hoc signed but not notarized, so testers may need to use **System Settings >
 Privacy & Security > Open Anyway** after the first blocked launch. No Apple
 signing certificate or provisioning profile is required.
+
+## License
+
+Copyright 2026 peerchemist.
+
+Licensed under the [BSD 3-Clause License](LICENSE). Third-party components
+remain under their respective licences; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and **About → Licenses** in the
+application.
