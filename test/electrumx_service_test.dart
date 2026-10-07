@@ -85,6 +85,43 @@ void main() {
     expect(attempts, PeercoinElectrumxNetworks.mainnet.servers);
   });
 
+  test('uses a custom WebSocket endpoint before built-in servers', () async {
+    final attempts = <Uri>[];
+    final customEndpoint = Uri.parse('wss://electrum.example.com:50004');
+    final service = PeercoinElectrumxService(
+      electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+      preferredServer: customEndpoint,
+      connector: (uri) async {
+        attempts.add(uri);
+        return _FakeConnection();
+      },
+    );
+    addTearDown(service.close);
+
+    await service.fetchUtxos(_mainnetAddress);
+
+    expect(attempts, [customEndpoint]);
+  });
+
+  test('validates custom Electrum WebSocket endpoints', () {
+    expect(
+      PeercoinElectrumxService.parseEndpoint(
+        '  wss://electrum.example.com:50004  ',
+      ),
+      Uri.parse('wss://electrum.example.com:50004'),
+    );
+    expect(
+      () => PeercoinElectrumxService.parseEndpoint(
+        'https://electrum.example.com',
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => PeercoinElectrumxService.parseEndpoint('wss:///missing-host'),
+      throwsFormatException,
+    );
+  });
+
   test('preserves the JSON-RPC rejection after all backends fail', () async {
     final service = PeercoinElectrumxService(
       electrumNetwork: PeercoinElectrumxNetworks.mainnet,

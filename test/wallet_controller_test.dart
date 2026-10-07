@@ -267,6 +267,29 @@ void main() {
     controller.dispose();
   });
 
+  test('recreates Electrum services after endpoint settings change', () async {
+    final services = <_FakeElectrumxService>[];
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (_) async {
+        final service = _FakeElectrumxService();
+        services.add(service);
+        return service;
+      },
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    final original = services.single;
+
+    await controller.reconnectElectrumx();
+
+    expect(original.closed, isTrue);
+    expect(services, hasLength(2));
+    expect(services.last.watchedAddresses.single, {'pc1paccount0'});
+    controller.dispose();
+  });
+
   test('waits for an active sync cancellation before restarting', () async {
     final cancellationStarted = Completer<void>();
     final releaseCancellation = Completer<void>();

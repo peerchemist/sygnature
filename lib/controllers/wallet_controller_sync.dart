@@ -174,6 +174,14 @@ extension WalletSyncController on WalletController {
     _notifyListeners();
   }
 
+  Future<void> reconnectElectrumx() => _guard(() async {
+    await _closeNetworkServices();
+    for (final network in accounts.map(networkForAccount).toSet()) {
+      await _ensureNetworkService(network);
+    }
+    await _restartElectrumxSync();
+  });
+
   void _queueBroadcastReservationReconciliation(
     String address,
     List<ElectrumxUtxo> utxos,

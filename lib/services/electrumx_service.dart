@@ -148,11 +148,11 @@ class PeercoinElectrumxService
     this.keepAliveInterval = const Duration(seconds: 30),
     Uri? preferredServer,
   }) : preferredServer = preferredServer ?? electrumNetwork.servers.first {
-    if (!_isConfiguredBackend(electrumNetwork, this.preferredServer)) {
+    if (!_isSupportedEndpoint(this.preferredServer)) {
       throw ArgumentError.value(
         this.preferredServer,
         'preferredServer',
-        'Backend is not configured for ${electrumNetwork.preset.label}.',
+        'ElectrumX endpoint must use ws:// or wss:// and include a host.',
       );
     }
     WidgetsBinding.instance.addObserver(this);
@@ -417,23 +417,35 @@ class PeercoinElectrumxService
     final stored = box.get(_backendKey(preset));
     if (stored is String) {
       final uri = Uri.tryParse(stored);
-      if (uri != null && _isConfiguredBackend(electrumNetwork, uri)) {
+      if (uri != null && _isSupportedEndpoint(uri)) {
         return uri;
       }
     }
     return electrumNetwork.servers.first;
   }
 
+  static Uri defaultBackend(PeercoinNetworkPreset preset) =>
+      PeercoinElectrumxNetworks.forPreset(preset).servers.first;
+
+  static Uri parseEndpoint(String value) {
+    final endpoint = Uri.tryParse(value.trim());
+    if (endpoint == null || !_isSupportedEndpoint(endpoint)) {
+      throw const FormatException(
+        'Use a WebSocket endpoint beginning with ws:// or wss://.',
+      );
+    }
+    return endpoint;
+  }
+
   static Future<void> setSelectedBackend(
     PeercoinNetworkPreset preset,
     Uri backend,
   ) async {
-    final electrumNetwork = PeercoinElectrumxNetworks.forPreset(preset);
-    if (!_isConfiguredBackend(electrumNetwork, backend)) {
+    if (!_isSupportedEndpoint(backend)) {
       throw ArgumentError.value(
         backend,
         'backend',
-        'Backend is not configured for ${preset.label}.',
+        'ElectrumX endpoint must use ws:// or wss:// and include a host.',
       );
     }
 
@@ -507,14 +519,9 @@ class PeercoinElectrumxService
     return '${preset.id}:$_backendKeySuffix';
   }
 
-  static bool _isConfiguredBackend(
-    PeercoinElectrumxNetwork electrumNetwork,
-    Uri backend,
-  ) {
-    return electrumNetwork.servers.any(
-      (server) => server.toString() == backend.toString(),
-    );
-  }
+  static bool _isSupportedEndpoint(Uri endpoint) =>
+      (endpoint.scheme == 'ws' || endpoint.scheme == 'wss') &&
+      endpoint.host.isNotEmpty;
 
   Iterable<Uri> get _orderedServers sync* {
     yield preferredServer;
