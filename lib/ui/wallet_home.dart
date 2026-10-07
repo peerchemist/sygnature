@@ -56,15 +56,15 @@ class const WalletHome({
             surfaceTintColor: Colors.transparent,
             title: const BrandMark(),
             actions: [
-              if (controller.roastSigningRequests.isNotEmpty)
-                Badge(
-                  label: Text('${controller.roastSigningRequests.length}'),
-                  child: IconButton(
-                    tooltip: 'Signing requests',
-                    onPressed: () => _showRoastRequests(context, controller),
-                    icon: const Icon(Icons.approval_outlined),
-                  ),
+              Badge(
+                isLabelVisible: controller.roastSigningRequests.isNotEmpty,
+                label: Text('${controller.roastSigningRequests.length}'),
+                child: IconButton(
+                  tooltip: 'Signing requests',
+                  onPressed: () => _showRoastRequests(context, controller),
+                  icon: const Icon(Icons.approval_outlined),
                 ),
+              ),
               IconButton(
                 tooltip: 'Settings',
                 onPressed: () =>
@@ -150,17 +150,17 @@ class const _WalletSidebar({
               ),
               const Divider(),
               const SizedBox(height: 10),
-              if (controller.roastSigningRequests.isNotEmpty)
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                  leading: Badge(
-                    label: Text('${controller.roastSigningRequests.length}'),
-                    child: const Icon(Icons.approval_outlined, size: 21),
-                  ),
-                  title: const Text('Signing requests'),
-                  trailing: const Icon(Icons.chevron_right_rounded, size: 19),
-                  onTap: () => _showRoastRequests(context, controller),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                leading: Badge(
+                  isLabelVisible: controller.roastSigningRequests.isNotEmpty,
+                  label: Text('${controller.roastSigningRequests.length}'),
+                  child: const Icon(Icons.approval_outlined, size: 21),
                 ),
+                title: const Text('Signing requests'),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 19),
+                onTap: () => _showRoastRequests(context, controller),
+              ),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                 leading: const Icon(Icons.settings_outlined, size: 21),

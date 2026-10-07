@@ -213,6 +213,12 @@ void main() {
     expect(find.text('LOCAL'), findsOneWidget);
     expect(find.text('ROAST'), findsNothing);
     expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('Signing requests'), findsOneWidget);
+
+    await tester.tap(find.text('Signing requests'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No pending requests.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
