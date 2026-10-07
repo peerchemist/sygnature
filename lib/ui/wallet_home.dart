@@ -2098,7 +2098,7 @@ Future<void> _showAddWallet(
           child: const ListTile(
             leading: Icon(Icons.key_outlined),
             title: Text('Personal wallet'),
-            subtitle: Text('Use the local BIP-39 recovery phrase.'),
+            subtitle: Text('Create a wallet you can send and receive with.'),
           ),
         ),
         SimpleDialogOption(
