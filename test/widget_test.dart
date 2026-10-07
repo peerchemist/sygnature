@@ -277,6 +277,7 @@ void main() {
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
+    expect(find.widgetWithText(AppBar, 'Settings'), findsOneWidget);
     expect(find.text('Desktop notifications'), findsOneWidget);
     expect(find.text('Electrum endpoints'), findsOneWidget);
     expect(find.text('Notification sound'), findsOneWidget);
