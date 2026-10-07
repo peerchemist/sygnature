@@ -214,11 +214,44 @@ void main() {
     expect(find.text('ROAST'), findsNothing);
     expect(find.text('Recent activity'), findsOneWidget);
     expect(find.text('Signing requests'), findsOneWidget);
+    final primaryColumn = find.byKey(const Key('desktop-primary-column'));
+    final contextColumn = find.byKey(const Key('desktop-context-column'));
+    expect(primaryColumn, findsOneWidget);
+    expect(contextColumn, findsOneWidget);
+    expect(
+      tester.getTopLeft(primaryColumn).dx,
+      lessThan(tester.getTopLeft(contextColumn).dx),
+    );
+    expect(
+      tester.getTopLeft(primaryColumn).dy,
+      tester.getTopLeft(contextColumn).dy,
+    );
 
     await tester.tap(find.text('Signing requests'));
     await tester.pumpAndSettle();
 
     expect(find.text('No pending requests.'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.byKey(const Key('desktop-modal-panel')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('uses a single content column at medium desktop widths', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = await createController();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('WALLETS'), findsOneWidget);
+    expect(find.byKey(const Key('desktop-wallet-overview')), findsNothing);
+    expect(find.text('RECEIVE ADDRESS'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

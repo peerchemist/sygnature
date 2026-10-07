@@ -833,22 +833,24 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Account details'), findsOneWidget);
-    expect(find.text('RECEIVE ADDRESS'), findsOneWidget);
+    expect(find.text('Receive address'), findsOneWidget);
     expect(find.text('Derivation path'), findsNothing);
     expect(find.text('R/0/6/0/0/0/0'), findsNothing);
     final address = find.byKey(const Key('receive-address-value'));
     final details = find.byKey(const Key('account-details-card'));
+    final primaryColumn = find.byKey(const Key('desktop-primary-column'));
+    final contextColumn = find.byKey(const Key('desktop-context-column'));
     expect(
-      tester.getTopLeft(details).dy,
-      tester.getTopLeft(find.byKey(const Key('wallet-dashboard-header'))).dy,
+      tester.getTopLeft(primaryColumn).dx,
+      lessThan(tester.getTopLeft(contextColumn).dx),
     );
     expect(
-      tester.getTopLeft(address).dx,
-      lessThan(tester.getTopLeft(details).dx),
+      tester.getTopLeft(primaryColumn).dy,
+      tester.getTopLeft(contextColumn).dy,
     );
     expect(
       tester.getTopLeft(address).dy,
-      greaterThan(tester.getTopLeft(details).dy),
+      lessThan(tester.getTopLeft(details).dy),
     );
   });
 

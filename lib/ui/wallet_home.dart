@@ -159,7 +159,8 @@ class const _WalletSidebar({
                 ),
                 title: const Text('Signing requests'),
                 trailing: const Icon(Icons.chevron_right_rounded, size: 19),
-                onTap: () => _showRoastRequests(context, controller),
+                onTap: () =>
+                    _showRoastRequests(context, controller, desktop: true),
               ),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 10),
@@ -409,6 +410,23 @@ class _WalletDashboard extends StatelessWidget {
     final hasPendingDkg =
         roastSetup?.status == RoastSetupStatus.awaitingDkgApproval &&
         roastSetup?.pendingDkgProposalHex != null;
+    final header = _DashboardHeader(
+      account: account,
+      syncStatus: controller.syncStatusFor(account),
+      onDelete: () => _confirmDeleteWallet(context, controller, account),
+      onArchive: () => _confirmArchiveWallet(context, controller, account),
+      onRename: () => _showRenameWallet(context, controller, account),
+      onChangeSignerGroup:
+          roastSetup?.isActive == true && controller.roastAvailable
+          ? () => showRoastGroupTransition(context, controller, roastSetup!)
+          : null,
+      onSwitchCoordinator:
+          roastSetup?.isFinalized == true &&
+              roastSetup?.coordinatorId != null &&
+              controller.roastCoordinatorSwitchAvailable
+          ? () => showRoastCoordinatorSwitch(context, controller, roastSetup!)
+          : null,
+    );
     return SafeArea(
       top: !mobile,
       child: SingleChildScrollView(
@@ -418,133 +436,163 @@ class _WalletDashboard extends StatelessWidget {
           mobile ? 18 : 40,
           40,
         ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1050),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (mobile) ...[
-                  _MobileWalletPicker(controller: controller),
-                  const SizedBox(height: 26),
-                ],
-                if (hasPendingDkg || signingRequests.isNotEmpty) ...[
-                  _RoastPriorityRequests(
-                    controller: controller,
-                    setup: roastSetup!,
-                    showDkg: hasPendingDkg,
-                    signingRequests: signingRequests,
-                  ),
-                  const SizedBox(height: 18),
-                ],
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final showDetailsBesideHeader =
-                        constraints.maxWidth >= 680 &&
-                        (roastSetup == null || roastSetup.isActive);
-                    final header = _DashboardHeader(
-                      account: account,
-                      syncStatus: controller.syncStatusFor(account),
-                      onDelete: () =>
-                          _confirmDeleteWallet(context, controller, account),
-                      onArchive: () =>
-                          _confirmArchiveWallet(context, controller, account),
-                      onRename: () =>
-                          _showRenameWallet(context, controller, account),
-                      onChangeSignerGroup:
-                          roastSetup?.isActive == true &&
-                              controller.roastAvailable
-                          ? () => showRoastGroupTransition(
-                              context,
-                              controller,
-                              roastSetup!,
-                            )
-                          : null,
-                      onSwitchCoordinator:
-                          roastSetup?.isFinalized == true &&
-                              roastSetup?.coordinatorId != null &&
-                              controller.roastCoordinatorSwitchAvailable
-                          ? () => showRoastCoordinatorSwitch(
-                              context,
-                              controller,
-                              roastSetup!,
-                            )
-                          : null,
-                    );
-                    if (!showDetailsBesideHeader) return header;
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              header,
-                              const SizedBox(height: 18),
-                              const Text(
-                                'RECEIVE ADDRESS',
-                                style: TextStyle(
-                                  color: AppColors.inkMuted,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 7),
-                              _ReceiveAddressBox(account: account),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 18),
-                        Expanded(
-                          child: _AccountDetails(
-                            account: account,
-                            controller: controller,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wideDesktop = !mobile && constraints.maxWidth >= 840;
+            return Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: wideDesktop ? 1320 : 1050,
                 ),
-                if (roastSetup != null) ...[
-                  const SizedBox(height: 18),
-                  RoastSetupPanel(controller: controller, account: account),
-                ],
-                if (roastSetup != null && !roastSetup.isActive) ...[
-                  const SizedBox(height: 18),
-                  const _PendingRoastNotice(),
-                ] else ...[
-                  const SizedBox(height: 24),
-                  _BalanceCard(account: account, controller: controller),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final twoColumns = constraints.maxWidth >= 680;
-                      if (twoColumns) {
-                        return const SizedBox(height: 18);
-                      }
-                      return Column(
-                        children: [
-                          const SizedBox(height: 18),
-                          _AddressCard(account: account),
-                          const SizedBox(height: 18),
-                          _AccountDetails(
-                            account: account,
-                            controller: controller,
-                          ),
-                          const SizedBox(height: 18),
-                        ],
-                      );
-                    },
-                  ),
-                  _ActivityCard(controller: controller, account: account),
-                ],
-              ],
-            ),
-          ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (mobile) ...[
+                      _MobileWalletPicker(controller: controller),
+                      const SizedBox(height: 26),
+                    ],
+                    if (hasPendingDkg || signingRequests.isNotEmpty) ...[
+                      _RoastPriorityRequests(
+                        controller: controller,
+                        setup: roastSetup!,
+                        showDkg: hasPendingDkg,
+                        signingRequests: signingRequests,
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                    if (wideDesktop)
+                      header
+                    else
+                      _CompactDashboardHeader(
+                        header: header,
+                        account: account,
+                        controller: controller,
+                        showDetails: roastSetup == null || roastSetup.isActive,
+                      ),
+                    if (roastSetup != null) ...[
+                      const SizedBox(height: 18),
+                      RoastSetupPanel(controller: controller, account: account),
+                    ],
+                    if (roastSetup != null && !roastSetup.isActive) ...[
+                      const SizedBox(height: 18),
+                      const _PendingRoastNotice(),
+                    ] else if (wideDesktop) ...[
+                      const SizedBox(height: 24),
+                      _DesktopWalletOverview(
+                        account: account,
+                        controller: controller,
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 24),
+                      _BalanceCard(account: account, controller: controller),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth >= 680) {
+                            return const SizedBox(height: 18);
+                          }
+                          return Column(
+                            children: [
+                              const SizedBox(height: 18),
+                              _AddressCard(account: account),
+                              const SizedBox(height: 18),
+                              _AccountDetails(
+                                account: account,
+                                controller: controller,
+                              ),
+                              const SizedBox(height: 18),
+                            ],
+                          );
+                        },
+                      ),
+                      _ActivityCard(controller: controller, account: account),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
+}
+
+class const _CompactDashboardHeader({
+  required final Widget header,
+  required final WalletAccount account,
+  required final WalletController controller,
+  required final bool showDetails,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth < 680 || !showDetails) return header;
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                header,
+                const SizedBox(height: 18),
+                const Text(
+                  'RECEIVE ADDRESS',
+                  style: TextStyle(
+                    color: AppColors.inkMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                _ReceiveAddressBox(account: account),
+              ],
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: _AccountDetails(account: account, controller: controller),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class const _DesktopWalletOverview({
+  required final WalletAccount account,
+  required final WalletController controller,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Row(
+    key: const Key('desktop-wallet-overview'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Column(
+          key: const Key('desktop-primary-column'),
+          children: [
+            _BalanceCard(account: account, controller: controller),
+            const SizedBox(height: 18),
+            _ActivityCard(controller: controller, account: account),
+          ],
+        ),
+      ),
+      const SizedBox(width: 20),
+      SizedBox(
+        key: const Key('desktop-context-column'),
+        width: 340,
+        child: Column(
+          children: [
+            _AddressCard(account: account),
+            const SizedBox(height: 18),
+            _AccountDetails(account: account, controller: controller),
+          ],
+        ),
+      ),
+    ],
+  );
 }
 
 class const _RoastPriorityRequests({
@@ -2726,26 +2774,68 @@ Future<void> _showElectrumEndpointSettings(
 String _capitalized(String value) =>
     '${value.substring(0, 1).toUpperCase()}${value.substring(1)}';
 
+Future<void> _showAdaptivePanel(
+  BuildContext context, {
+  bool? desktop,
+  required Widget Function(BuildContext panelContext, bool desktop) builder,
+}) async {
+  final useDesktop = desktop ?? MediaQuery.sizeOf(context).width >= 920;
+  if (!useDesktop) {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => builder(sheetContext, false),
+    );
+    return;
+  }
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => Dialog(
+      key: const Key('desktop-modal-panel'),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minWidth: 640,
+          maxWidth: 720,
+          maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.82,
+        ),
+        child: builder(dialogContext, true),
+      ),
+    ),
+  );
+}
+
 Future<void> _showArchivedWallets(
   BuildContext context,
   WalletController controller,
 ) async {
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (sheetContext) => AnimatedBuilder(
+  await _showAdaptivePanel(
+    context,
+    builder: (panelContext, desktop) => AnimatedBuilder(
       animation: controller,
       builder: (context, _) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          padding: EdgeInsets.fromLTRB(20, desktop ? 20 : 4, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Archived wallets',
-                style: Theme.of(context).textTheme.titleLarge,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Archived wallets',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  if (desktop)
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(panelContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                ],
               ),
               const SizedBox(height: 8),
               if (controller.archivedAccounts.isEmpty)
@@ -2784,8 +2874,8 @@ Future<void> _showArchivedWallets(
                               onPressed: () async {
                                 try {
                                   await controller.restoreAccount(account.id);
-                                  if (sheetContext.mounted) {
-                                    Navigator.pop(sheetContext);
+                                  if (panelContext.mounted) {
+                                    Navigator.pop(panelContext);
                                   }
                                 } on Object catch (error) {
                                   if (context.mounted) {
@@ -2826,13 +2916,13 @@ Future<void> _showArchivedWallets(
 
 Future<void> _showRoastRequests(
   BuildContext context,
-  WalletController controller,
-) async {
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (sheetContext) => AnimatedBuilder(
+  WalletController controller, {
+  bool? desktop,
+}) async {
+  await _showAdaptivePanel(
+    context,
+    desktop: desktop,
+    builder: (panelContext, desktop) => AnimatedBuilder(
       animation: controller,
       builder: (context, _) => SafeArea(
         child: ConstrainedBox(
@@ -2840,14 +2930,26 @@ Future<void> _showRoastRequests(
             maxHeight: MediaQuery.sizeOf(context).height * 0.82,
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            padding: EdgeInsets.fromLTRB(20, desktop ? 20 : 4, 20, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Signing requests',
-                  style: Theme.of(context).textTheme.titleLarge,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Signing requests',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    if (desktop)
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(panelContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 const Text(
