@@ -195,10 +195,10 @@ class const _WalletListTile({
     final isCoordinator = setup?.role == RoastSetupRole.host;
     final accountStatus = switch (account.derivationState) {
       WalletDerivationState.pending => 'Pending derivation',
-      WalletDerivationState.ready =>
-        syncStatus == AccountSyncStatus.syncing
-            ? 'Synchronizing…'
-            : '${_formatPpc(balanceSats)} PPC',
+      WalletDerivationState.ready
+          when syncStatus == AccountSyncStatus.syncing =>
+        'Synchronizing…',
+      WalletDerivationState.ready => '${_formatPpc(balanceSats)} PPC',
       WalletDerivationState.watchOnly =>
         'Watch-only · ${_formatPpc(balanceSats)} PPC',
       WalletDerivationState.locked => 'Locked · ${_formatPpc(balanceSats)} PPC',
@@ -954,15 +954,15 @@ class _BalanceCard extends StatelessWidget {
       AccountSyncStatus.unavailable =>
         'Value unavailable until synchronization',
       AccountSyncStatus.syncing => 'Synchronizing with ElectrumX…',
+      AccountSyncStatus.synced when reservedBalance > 0 =>
+        '${_formatPpc(confirmedBalance)} PPC confirmed · '
+            '${_formatPpc(reservedBalance)} PPC reserved by ROAST',
+      AccountSyncStatus.synced when pendingBalance == 0 =>
+        '${_formatPpc(confirmedBalance)} PPC confirmed · '
+            '$utxoCount ${utxoCount == 1 ? 'output' : 'outputs'}',
       AccountSyncStatus.synced =>
-        reservedBalance > 0
-            ? '${_formatPpc(confirmedBalance)} PPC confirmed · '
-                  '${_formatPpc(reservedBalance)} PPC reserved by ROAST'
-            : pendingBalance == 0
-            ? '${_formatPpc(confirmedBalance)} PPC confirmed · '
-                  '$utxoCount ${utxoCount == 1 ? 'output' : 'outputs'}'
-            : '${_formatPpc(confirmedBalance)} PPC confirmed · '
-                  '${_formatPpc(pendingBalance)} PPC pending',
+        '${_formatPpc(confirmedBalance)} PPC confirmed · '
+            '${_formatPpc(pendingBalance)} PPC pending',
       AccountSyncStatus.error => 'ElectrumX synchronization failed',
     };
     return Card(

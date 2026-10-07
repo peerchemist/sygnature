@@ -119,35 +119,36 @@ extension WalletRoastEventController on WalletController {
             clearError: recovered,
           ),
         );
-      case RoastRuntimeDkgEvent():
-        if (event.rejected) {
-          if (WalletRoastSetupController._dkgDefinitionMatchesSetup(
+      case RoastRuntimeDkgEvent()
+          when event.rejected &&
+              WalletRoastSetupController._dkgDefinitionMatchesSetup(
                 event,
                 setup,
               ) &&
               (setup.pendingDkgProposalHex == null ||
-                  setup.pendingDkgProposalHex == event.proposalHex)) {
-            await _replaceSetup(
-              setup.copyWith(
-                status: RoastSetupStatus.ready,
-                clearPendingDkgProposal: true,
-                errorMessage: event.failure ?? 'The DKG proposal was rejected.',
-              ),
-            );
-            await _recordSetupActivity(
-              setup,
-              id: 'dkg-failed:${setup.id}:${event.proposalHex}',
-              type: WalletActivityType.dkgFailed,
-              reference: event.proposalHex,
-              details: event.failure ?? 'The DKG proposal was rejected.',
-            );
-          }
-          return;
-        }
-        if (!WalletRoastSetupController._dkgMatchesSetup(event, setup)) {
-          await _roastRuntime?.rejectDkg(event.setupId, event.proposalHex);
-          return;
-        }
+                  setup.pendingDkgProposalHex == event.proposalHex):
+        await _replaceSetup(
+          setup.copyWith(
+            status: RoastSetupStatus.ready,
+            clearPendingDkgProposal: true,
+            errorMessage: event.failure ?? 'The DKG proposal was rejected.',
+          ),
+        );
+        await _recordSetupActivity(
+          setup,
+          id: 'dkg-failed:${setup.id}:${event.proposalHex}',
+          type: WalletActivityType.dkgFailed,
+          reference: event.proposalHex,
+          details: event.failure ?? 'The DKG proposal was rejected.',
+        );
+        return;
+      case RoastRuntimeDkgEvent() when event.rejected:
+        return;
+      case RoastRuntimeDkgEvent()
+          when !WalletRoastSetupController._dkgMatchesSetup(event, setup):
+        await _roastRuntime?.rejectDkg(event.setupId, event.proposalHex);
+        return;
+      case RoastRuntimeDkgEvent():
         await _replaceSetup(
           setup.copyWith(
             status: event.failure != null
@@ -196,40 +197,40 @@ extension WalletRoastEventController on WalletController {
           type: WalletActivityType.dkgCompleted,
           reference: event.keyName,
         );
-      case RoastRuntimeFailureEvent():
-        if (event.operation == 'signatures' ||
-            event.operation == 'signingPersistence') {
-          final error = WalletTransactionRejected(event.message);
-          final pendingEntries = event.requestIdHex == null
-              ? _pendingRoastSends.entries.where(
-                  (entry) => entry.key.startsWith('${event.setupId}:'),
-                )
-              : _pendingRoastSends.entries.where(
-                  (entry) =>
-                      entry.key == '${event.setupId}:${event.requestIdHex}',
-                );
-          for (final entry in pendingEntries) {
-            if (!entry.value.completer.isCompleted) {
-              entry.value.completer.complete(_RoastSendOutcome(error: error));
-            }
+      case RoastRuntimeFailureEvent()
+          when event.operation == 'signatures' ||
+              event.operation == 'signingPersistence':
+        final error = WalletTransactionRejected(event.message);
+        final pendingEntries = event.requestIdHex == null
+            ? _pendingRoastSends.entries.where(
+                (entry) => entry.key.startsWith('${event.setupId}:'),
+              )
+            : _pendingRoastSends.entries.where(
+                (entry) =>
+                    entry.key == '${event.setupId}:${event.requestIdHex}',
+              );
+        for (final entry in pendingEntries) {
+          if (!entry.value.completer.isCompleted) {
+            entry.value.completer.complete(_RoastSendOutcome(error: error));
           }
-          final pendingMessageEntries = event.requestIdHex == null
-              ? _pendingRoastMessages.entries.where(
-                  (entry) => entry.key.startsWith('${event.setupId}:'),
-                )
-              : _pendingRoastMessages.entries.where(
-                  (entry) =>
-                      entry.key == '${event.setupId}:${event.requestIdHex}',
-                );
-          for (final entry in pendingMessageEntries) {
-            if (!entry.value.isCompleted) entry.value.completeError(error);
-          }
-          if (event.requestIdHex case final requestId?) {
-            _roastSigningRequests.remove('${event.setupId}:$requestId');
-          }
-          _notifyListeners();
-          return;
         }
+        final pendingMessageEntries = event.requestIdHex == null
+            ? _pendingRoastMessages.entries.where(
+                (entry) => entry.key.startsWith('${event.setupId}:'),
+              )
+            : _pendingRoastMessages.entries.where(
+                (entry) =>
+                    entry.key == '${event.setupId}:${event.requestIdHex}',
+              );
+        for (final entry in pendingMessageEntries) {
+          if (!entry.value.isCompleted) entry.value.completeError(error);
+        }
+        if (event.requestIdHex case final requestId?) {
+          _roastSigningRequests.remove('${event.setupId}:$requestId');
+        }
+        _notifyListeners();
+        return;
+      case RoastRuntimeFailureEvent():
         if (event.operation.toLowerCase().contains('dkg') ||
             event.operation == 'keyReadiness') {
           await _recordSetupActivity(
@@ -252,16 +253,17 @@ extension WalletRoastEventController on WalletController {
             errorMessage: event.message,
           ),
         );
+      case RoastRuntimeSigningRequestEvent()
+          when event.request.creator == setup.localParticipant.identifierHex:
+        final requestKey = '${setup.id}:${event.request.idHex}';
+        if (event.request.kind == RoastSigningRequestKind.message &&
+            _pendingRoastMessages.containsKey(requestKey)) {
+          _pendingRoastMessageProgress[requestKey] = event.request.progress;
+          _notifyListeners();
+        }
+        return;
       case RoastRuntimeSigningRequestEvent():
         final requestKey = '${setup.id}:${event.request.idHex}';
-        if (event.request.creator == setup.localParticipant.identifierHex) {
-          if (event.request.kind == RoastSigningRequestKind.message &&
-              _pendingRoastMessages.containsKey(requestKey)) {
-            _pendingRoastMessageProgress[requestKey] = event.request.progress;
-            _notifyListeners();
-          }
-          return;
-        }
         try {
           _validateRoastSigningRequest(setup, event.request);
           final account = accounts.firstWhere(

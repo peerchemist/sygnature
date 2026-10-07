@@ -1877,22 +1877,23 @@ class const RoastSetupPanel({
 
   static String _statusText(RoastSetup setup, int enrolledSigners) =>
       switch (setup.status) {
+        RoastSetupStatus.draft when setup.role == RoastSetupRole.host =>
+          'Add signers and create their invitations',
         RoastSetupStatus.draft =>
-          setup.role == RoastSetupRole.host
-              ? 'Add signers and create their invitations'
-              : 'Share your signer public key, then wait for your bound invite',
+          'Share your signer public key, then wait for your bound invite',
+        RoastSetupStatus.ready
+            when setup.role == RoastSetupRole.host &&
+                enrolledSigners >= setup.participantCount =>
+          'All $enrolledSigners signers joined · coordinator online',
+        RoastSetupStatus.ready when setup.role == RoastSetupRole.host =>
+          'Room open · $enrolledSigners of '
+              '${setup.participantCount} signers joined',
         RoastSetupStatus.ready =>
-          setup.role == RoastSetupRole.host
-              ? enrolledSigners >= setup.participantCount
-                    ? 'All $enrolledSigners signers joined · coordinator online'
-                    : 'Room open · $enrolledSigners of '
-                          '${setup.participantCount} signers joined'
-              : 'Connected · waiting for the host to create the shared key',
-        RoastSetupStatus.connecting =>
-          setup.role == RoastSetupRole.host
-              ? 'Room open · $enrolledSigners of '
-                    '${setup.participantCount} signers joined'
-              : 'Joining room through Iroh…',
+          'Connected · waiting for the host to create the shared key',
+        RoastSetupStatus.connecting when setup.role == RoastSetupRole.host =>
+          'Room open · $enrolledSigners of '
+              '${setup.participantCount} signers joined',
+        RoastSetupStatus.connecting => 'Joining room through Iroh…',
         RoastSetupStatus.awaitingDkgApproval =>
           'Review and approve shared-key creation',
         RoastSetupStatus.creatingKey => _creatingKeyStatus(setup),
