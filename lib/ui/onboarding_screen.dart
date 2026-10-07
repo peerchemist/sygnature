@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../controllers/wallet_controller.dart';
 import '../models/mnemonic_seed.dart';
 import 'app_theme.dart';
-import 'watch_only_wallet_dialog.dart';
 import 'widgets/brand_mark.dart';
 
 enum _SetupStep { mnemonic, backup }
@@ -180,10 +179,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             onContinue: _source == _MnemonicSource.generate
                                 ? _generateMnemonic
                                 : _importMnemonic,
-                            onWatchOnly: () => showWatchOnlyWalletDialog(
-                              context,
-                              widget.controller,
-                            ),
                           ),
                           _SetupStep.backup => _BackupStep(
                             key: const ValueKey('backup'),
@@ -231,7 +226,6 @@ class _MnemonicStep extends StatelessWidget {
     required this.onWordCountChanged,
     required this.onImportChanged,
     required this.onContinue,
-    required this.onWatchOnly,
   });
 
   final _MnemonicSource source;
@@ -245,7 +239,6 @@ class _MnemonicStep extends StatelessWidget {
   final ValueChanged<int> onWordCountChanged;
   final ValueChanged<String> onImportChanged;
   final VoidCallback? onContinue;
-  final VoidCallback onWatchOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -381,27 +374,17 @@ class _MnemonicStep extends StatelessWidget {
           style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
         ),
         const SizedBox(height: 24),
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          spacing: 12,
-          runSpacing: 8,
-          children: [
-            TextButton.icon(
-              key: const Key('watch-only-import-button'),
-              onPressed: onWatchOnly,
-              icon: const Icon(Icons.visibility_outlined),
-              label: const Text('Import watch-only address'),
+        Align(
+          alignment: Alignment.center,
+          child: FilledButton(
+            key: const Key('mnemonic-continue-button'),
+            onPressed: onContinue,
+            child: Text(
+              source == _MnemonicSource.generate
+                  ? 'Generate recovery phrase'
+                  : 'Review import',
             ),
-            FilledButton(
-              key: const Key('mnemonic-continue-button'),
-              onPressed: onContinue,
-              child: Text(
-                source == _MnemonicSource.generate
-                    ? 'Generate recovery phrase'
-                    : 'Review import',
-              ),
-            ),
-          ],
+          ),
         ),
       ],
     );

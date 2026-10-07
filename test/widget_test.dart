@@ -119,14 +119,15 @@ void main() {
     const address =
         'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm';
     final controller = await createController();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
     );
     await tester.pumpAndSettle();
 
-    final watchOnlyButton = find.byKey(const Key('watch-only-import-button'));
-    await tester.ensureVisible(watchOnlyButton);
-    await tester.tap(watchOnlyButton);
+    await tester.tap(find.byTooltip('Add sub-wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Watch-only wallet'));
     await tester.pumpAndSettle();
     expect(find.text('Add watch-only wallet'), findsOneWidget);
 
@@ -141,7 +142,9 @@ void main() {
     await tester.tap(find.byKey(const Key('watch-only-add-button')));
     await tester.pumpAndSettle();
 
-    final account = controller.accounts.single;
+    final account = controller.accounts.firstWhere(
+      (account) => account.name == 'Observer',
+    );
     expect(account.name, 'Observer');
     expect(account.address, address);
     expect(account.keySource, WalletKeySource.watchOnly);
