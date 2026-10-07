@@ -174,8 +174,8 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
                             if (value == null || value.isEmpty) {
                               return 'Enter a vault password.';
                             }
-                            if (widget.setup && value.length < 12) {
-                              return 'Use at least 12 characters.';
+                            if (widget.setup && value.length < 8) {
+                              return 'Use at least 8 characters.';
                             }
                             return null;
                           },

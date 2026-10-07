@@ -96,17 +96,17 @@ void main() {
 
     await tester.enterText(
       find.byKey(const Key('vault-password')),
-      'a long vault password',
+      'eight123',
     );
     await tester.enterText(
       find.byKey(const Key('vault-password-confirmation')),
-      'a long vault password',
+      'eight123',
     );
     final submit = find.byKey(const Key('vault-protection-submit'));
     await tester.ensureVisible(submit);
     await tester.tap(submit);
     await tester.pump();
 
-    expect(password, 'a long vault password');
+    expect(password, 'eight123');
   });
 }
