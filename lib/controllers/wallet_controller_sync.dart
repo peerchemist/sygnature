@@ -53,14 +53,38 @@ extension WalletSyncController on WalletController {
         .fold(0, (total, utxo) => total + utxo.value);
   }
 
-  Set<String> _reservedOutpointsFor(String accountId) =>
-      _storedRoastSigningOperations.values
+  Set<String> _reservedOutpointsFor(
+    String accountId, {
+    bool includeIncomingRequests = true,
+  }) {
+    final reserved = _storedRoastSigningOperations.values
+        .where(
+          (operation) =>
+              operation.accountId == accountId && operation.reservesUtxos,
+        )
+        .expand((operation) => operation.reservedOutpoints)
+        .toSet();
+    if (!includeIncomingRequests) return reserved;
+
+    final setupIds = accounts
+        .where((account) => account.id == accountId)
+        .map((account) => account.sourceId)
+        .nonNulls
+        .toSet();
+    reserved.addAll(
+      _roastSigningRequests.values
           .where(
-            (operation) =>
-                operation.accountId == accountId && operation.reservesUtxos,
+            (item) =>
+                setupIds.contains(item.setupId) &&
+                item.request.kind == RoastSigningRequestKind.transaction &&
+                item.request.status != 'rejected' &&
+                item.request.progress.stage != 'failed' &&
+                item.request.expiry.isAfter(DateTime.now()),
           )
-          .expand((operation) => operation.reservedOutpoints)
-          .toSet();
+          .expand((item) => item.request.inputOutpoints),
+    );
+    return reserved;
+  }
 
   AccountSyncStatus syncStatusFor(WalletAccount account) {
     final address = account.address;

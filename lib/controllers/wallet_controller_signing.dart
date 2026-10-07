@@ -186,6 +186,14 @@ extension WalletSigningController on WalletController {
       if (account.derivationState != WalletDerivationState.ready) {
         throw const WalletSigningUnavailable();
       }
+      final reservedOutpoints = _reservedOutpointsFor(account.id);
+      if (preview.selectedUtxos.any(
+        (utxo) => reservedOutpoints.contains(_utxoKey(utxo)),
+      )) {
+        throw const WalletTransactionRejected(
+          'A transaction input is reserved by another signing request.',
+        );
+      }
       final SignedWalletTransaction signed;
       RoastSigningOperation? signingOperation;
       if (account.keySource == WalletKeySource.watchOnly) {
@@ -606,7 +614,10 @@ extension WalletSigningController on WalletController {
           (entry) => entry.$1 == entry.$2,
         );
     final knownOutpoints = spendableUtxosFor(account).map(_utxoKey).toSet();
-    final reservedOutpoints = _reservedOutpointsFor(account.id);
+    final reservedOutpoints = _reservedOutpointsFor(
+      account.id,
+      includeIncomingRequests: false,
+    );
     final validOutpoints =
         request.inputOutpoints.length == request.transactionInputCount &&
         request.inputOutpoints.every(knownOutpoints.contains) &&

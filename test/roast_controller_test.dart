@@ -1305,6 +1305,76 @@ void main() {
     controller.dispose();
   });
 
+  test('reserves UTXOs selected by an incoming signing request', () async {
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final electrumx = _FakeElectrumxService();
+    final controller = _controller(
+      runtime: runtime,
+      electrumx: electrumx,
+      active: true,
+    );
+    await controller.load();
+    await _flushEvents();
+    const utxo = ElectrumxUtxo(
+      address: 'pc1pshared',
+      txHash: 'funding',
+      txPos: 0,
+      height: 100,
+      value: 2000000,
+    );
+    electrumx.emit('pc1pshared', const [utxo]);
+    await _flushEvents();
+
+    final request = _signingRequest('aa' * 16);
+    runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: request));
+    await _flushEvents();
+
+    final account = controller.accounts.single;
+    expect(controller.availableUtxosFor(account), isEmpty);
+    expect(controller.availableBalanceSatsFor(account), 0);
+    expect(controller.reservedBalanceSatsFor(account), 2000000);
+    await expectLater(
+      controller.sendTransaction(
+        const WalletTransactionPreview(
+          accountId: 'shared',
+          sourceAddress: 'pc1pshared',
+          destinationAddress: 'destination',
+          amountSats: 1000000,
+          feeSats: 1000,
+          changeSats: 999000,
+          feeRateSatsPerKb: 10000,
+          selectedUtxos: [utxo],
+        ),
+      ),
+      throwsA(
+        isA<WalletTransactionRejected>().having(
+          (error) => error.message,
+          'message',
+          'A transaction input is reserved by another signing request.',
+        ),
+      ),
+    );
+
+    await controller.acceptRoastSigningRequest(
+      controller.roastSigningRequests.single,
+    );
+    expect(controller.availableUtxosFor(account), isEmpty);
+
+    runtime.emit(
+      RoastRuntimeSigningRequestRemovedEvent(
+        'setup',
+        requestIdHex: request.idHex,
+        expired: false,
+      ),
+    );
+    await _flushEvents();
+
+    expect(controller.availableUtxosFor(account), hasLength(1));
+    expect(controller.availableBalanceSatsFor(account), 2000000);
+    expect(controller.reservedBalanceSatsFor(account), 0);
+    controller.dispose();
+  });
+
   test(
     'replaces signing progress for the same request until terminal flow',
     () async {
