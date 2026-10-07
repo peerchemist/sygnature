@@ -631,8 +631,8 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Create a threshold wallet with authenticated participants over '
-              'Iroh. No device ever holds the complete private key.',
+              'Create a threshold wallet with ROAST.'
+              'No device ever holds the complete private key.',
             ),
             const SizedBox(height: 18),
             SegmentedButton<RoastSetupRole>(
