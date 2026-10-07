@@ -2,9 +2,8 @@ name: Build macOS DMG
 
 on:
   push:
-  pull_request:
-    branches:
-      - master
+    tags:
+      - "*"
   workflow_dispatch:
 
 permissions:
@@ -27,6 +26,19 @@ jobs:
           flutter-version: 3.47.5
           channel: stable
           cache: true
+          pub-cache: true
+
+      - name: Cache Rust, native builds, and CocoaPods downloads
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            ~/Library/Caches/CocoaPods
+            sygnature_ng/.dart_tool/hooks_runner/shared
+          key: ${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('sygnature_ng/pubspec.lock', 'sygnature_ng/macos/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-native-
 
       - name: Resolve dependencies
         working-directory: sygnature_ng
@@ -43,3 +55,4 @@ jobs:
           path: sygnature_ng/build/Sygnature-macOS.dmg
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
