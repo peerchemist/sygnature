@@ -73,6 +73,32 @@ extension WalletRoastEventController on WalletController {
     }
     final setup = _setupById(event.setupId);
     switch (event) {
+      case RoastRuntimeEnrollmentEvent():
+        final runtimeInvitations = {
+          for (final invitation in event.invitations)
+            invitation.participantPublicKeyHex: invitation,
+        };
+        final enrolledParticipants = {
+          for (final participant in event.participants)
+            participant.participantPublicKeyHex: participant,
+        };
+        await _replaceSetup(
+          setup.copyWith(
+            invitations: [
+              for (final invitation in setup.invitations)
+                invitation.copyWith(
+                  serverStatus:
+                      runtimeInvitations[invitation.participantPublicKeyHex]
+                          ?.status,
+                  joinedAt:
+                      enrolledParticipants[invitation.participantPublicKeyHex]
+                          ?.enrolledAt ??
+                      runtimeInvitations[invitation.participantPublicKeyHex]
+                          ?.usedAt,
+                ),
+            ],
+          ),
+        );
       case RoastRuntimeSnapshotEvent():
         final recovered =
             event.connected &&

@@ -190,9 +190,7 @@ void main() {
       '32',
     );
     await tester.enterText(participantCountField, '8');
-    final thresholdField = find.byKey(
-      const Key('roast-required-signers'),
-    );
+    final thresholdField = find.byKey(const Key('roast-required-signers'));
     await tester.enterText(thresholdField, '10');
     await tester.pump();
     expect(tester.widget<TextFormField>(thresholdField).controller!.text, '8');
@@ -200,10 +198,7 @@ void main() {
     await tester.pump();
     expect(tester.widget<TextFormField>(thresholdField).controller!.text, '4');
     await tester.enterText(participantCountField, '8');
-    await tester.enterText(
-      thresholdField,
-      '5',
-    );
+    await tester.enterText(thresholdField, '5');
     await tester.tap(find.byKey(const Key('create-roast-draft')));
     await tester.pumpAndSettle();
 
@@ -580,6 +575,104 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('tracks invitation delivery and signer enrollment', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final vault = _finalizedRoastVault();
+    final remote = vault.roastSetups.single.participants.first;
+    final repository = MemoryWalletRepository()
+      ..value = vault.copyWith(
+        roastSetups: [
+          vault.roastSetups.single.copyWith(
+            invitations: [
+              RoastIssuedInvitation(
+                participantName: remote.name,
+                participantPublicKeyHex: remote.publicKeyHex,
+                encoded: 'secret-invitation',
+                issuedAt: DateTime.now().toUtc(),
+                expiresAt: DateTime.now().toUtc().add(const Duration(days: 1)),
+                copiedAt: DateTime.now().toUtc(),
+              ),
+            ],
+          ),
+        ],
+      );
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      repository,
+      roastRuntime: runtime,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('roast-enrollment-progress')), findsOneWidget);
+    expect(find.text('1 of 2 signers have joined the room.'), findsOneWidget);
+    await tester.tap(find.text('Manage invitations'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Signer invitations'), findsOneWidget);
+    expect(find.text('0 of 1 invitees joined · 1 not shared'), findsOneWidget);
+    expect(find.text('COPIED'), findsOneWidget);
+    await tester.tap(find.text('Mark sent'));
+    await tester.pumpAndSettle();
+    expect(find.text('SENT'), findsOneWidget);
+    expect(
+      repository.value!.roastSetups.single.invitations.single.statusAt(
+        DateTime.now().toUtc(),
+      ),
+      RoastInvitationDisplayStatus.sent,
+    );
+
+    final joinedAt = DateTime.now().toUtc();
+    runtime.emit(
+      RoastRuntimeEnrollmentEvent(
+        'setup',
+        invitations: [
+          RoastRuntimeInvitationEnrollment(
+            participantPublicKeyHex: remote.publicKeyHex,
+            status: RoastInvitationServerStatus.used,
+            usedAt: joinedAt,
+          ),
+        ],
+        participants: [
+          RoastRuntimeParticipantEnrollment(
+            participantPublicKeyHex: remote.publicKeyHex,
+            enrolledAt: joinedAt,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 of 1 invitees joined · 0 not shared'), findsOneWidget);
+    expect(find.text('JOINED'), findsOneWidget);
+    expect(
+      controller.enrolledRoastParticipantCount(controller.roastSetups.single),
+      2,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('refreshes the ROAST UI after coordinator reconnection', (
     tester,
   ) async {
@@ -788,9 +881,7 @@ void main() {
       find.byKey(const Key('roast-message-note-field')),
       'Please verify this release.',
     );
-    final timeoutField = find.byKey(
-      const Key('roast-message-timeout-field'),
-    );
+    final timeoutField = find.byKey(const Key('roast-message-timeout-field'));
     expect(tester.widget<TextFormField>(timeoutField).controller!.text, '30');
     await tester.enterText(timeoutField, '1441');
     await tester.tap(find.byKey(const Key('review-message-signature')));
@@ -902,10 +993,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('request-message-signatures')));
     await tester.pump();
-    expect(
-      runtime.messageRequestTimeout,
-      defaultRoastSigningRequestTimeout,
-    );
+    expect(runtime.messageRequestTimeout, defaultRoastSigningRequestTimeout);
 
     final close = find.byKey(const Key('close-message-signing'));
     expect(close, findsOneWidget);

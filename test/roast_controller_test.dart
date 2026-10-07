@@ -329,6 +329,61 @@ void main() {
     expect(payload['participantPublicKeyHex'], participants.first.publicKeyHex);
     expect(runtime.createdRoomSetup?.hostParticipantId, '02');
     expect(controller.issuedRoastInvitations('setup'), invitations);
+    expect(repository.value!.roastSetups.single.invitations, invitations);
+
+    await controller.markRoastInvitationCopied(
+      'setup',
+      participants.first.publicKeyHex,
+    );
+    expect(
+      controller
+          .issuedRoastInvitations('setup')
+          .single
+          .statusAt(DateTime.now().toUtc()),
+      RoastInvitationDisplayStatus.copied,
+    );
+    await controller.markRoastInvitationSent(
+      'setup',
+      participants.first.publicKeyHex,
+    );
+    expect(
+      repository.value!.roastSetups.single.invitations.single.statusAt(
+        DateTime.now().toUtc(),
+      ),
+      RoastInvitationDisplayStatus.sent,
+    );
+
+    final joinedAt = DateTime.utc(2026, 2);
+    runtime.emit(
+      RoastRuntimeEnrollmentEvent(
+        'setup',
+        invitations: [
+          RoastRuntimeInvitationEnrollment(
+            participantPublicKeyHex: participants.first.publicKeyHex,
+            status: RoastInvitationServerStatus.used,
+            usedAt: joinedAt,
+          ),
+        ],
+        participants: [
+          RoastRuntimeParticipantEnrollment(
+            participantPublicKeyHex: participants.first.publicKeyHex,
+            enrolledAt: joinedAt,
+          ),
+        ],
+      ),
+    );
+    await _flushEvents();
+
+    final joinedInvitation = controller.issuedRoastInvitations('setup').single;
+    expect(joinedInvitation.joinedAt, joinedAt);
+    expect(
+      joinedInvitation.statusAt(DateTime.now().toUtc()),
+      RoastInvitationDisplayStatus.joined,
+    );
+    expect(
+      controller.enrolledRoastParticipantCount(controller.roastSetups.single),
+      2,
+    );
     controller.dispose();
   });
 

@@ -66,12 +66,6 @@ class RoastSigningInboxItem({
   required final RoastSigningRequest request,
 });
 
-class RoastIssuedInvitation({
-  required final String participantName,
-  required final String participantPublicKeyHex,
-  required final String encoded,
-});
-
 class RoastGroupTransitionCreation({
   required final String transitionId,
   required final String successorSetupId,
@@ -165,7 +159,6 @@ class WalletController extends ChangeNotifier {
       {};
   final Map<String, RoastSigningInboxItem> _roastSigningRequests = {};
   final Map<String, _PendingRoastSend> _pendingRoastSends = {};
-  final Map<String, List<RoastIssuedInvitation>> _issuedRoastInvitations = {};
   final Map<String, RoastSigningOperation> _storedRoastSigningOperations = {};
   final Map<String, Completer<RoastSignedMessage>> _pendingRoastMessages = {};
   final Map<String, RoastSigningProgress> _pendingRoastMessageProgress = {};

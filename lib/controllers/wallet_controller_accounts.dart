@@ -446,7 +446,6 @@ extension WalletAccountsController on WalletController {
           cleanupStack ??= stackTrace;
         }
         _roastPresence.remove(roastSetupId);
-        _issuedRoastInvitations.remove(roastSetupId);
         _roastOperations.remove(roastSetupId);
         _roastSigningRequests.removeWhere(
           (_, item) => item.setupId == roastSetupId,

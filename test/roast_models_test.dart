@@ -135,6 +135,39 @@ void main() {
     );
   });
 
+  test('issued invitation state round trips with its local progress', () {
+    final invitation = RoastIssuedInvitation(
+      participantName: 'Computer B',
+      participantPublicKeyHex: '02${'11' * 32}',
+      encoded: 'secret-invitation',
+      issuedAt: DateTime.utc(2026, 1),
+      expiresAt: DateTime.utc(2026, 2),
+      copiedAt: DateTime.utc(2026, 1, 2),
+      sentAt: DateTime.utc(2026, 1, 3),
+      joinedAt: DateTime.utc(2026, 1, 4),
+      serverStatus: RoastInvitationServerStatus.used,
+    );
+
+    final restored = RoastIssuedInvitation.fromJson(invitation.toJson());
+
+    expect(restored.participantName, invitation.participantName);
+    expect(
+      restored.participantPublicKeyHex,
+      invitation.participantPublicKeyHex,
+    );
+    expect(restored.encoded, invitation.encoded);
+    expect(restored.issuedAt, invitation.issuedAt);
+    expect(restored.expiresAt, invitation.expiresAt);
+    expect(restored.copiedAt, invitation.copiedAt);
+    expect(restored.sentAt, invitation.sentAt);
+    expect(restored.joinedAt, invitation.joinedAt);
+    expect(restored.serverStatus, RoastInvitationServerStatus.used);
+    expect(
+      restored.statusAt(DateTime.utc(2026, 3)),
+      RoastInvitationDisplayStatus.joined,
+    );
+  });
+
   test('builds participant cards from signer public keys, not addresses', () {
     const publicKey =
         '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';

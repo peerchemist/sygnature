@@ -28,6 +28,23 @@ final class RoastRuntimeSnapshotEvent(
   required final List<String> coordinatorIpAddrs,
 }) extends RoastRuntimeEvent;
 
+class RoastRuntimeInvitationEnrollment({
+  required final String participantPublicKeyHex,
+  required final RoastInvitationServerStatus status,
+  required final DateTime? usedAt,
+});
+
+class RoastRuntimeParticipantEnrollment({
+  required final String participantPublicKeyHex,
+  required final DateTime enrolledAt,
+});
+
+final class RoastRuntimeEnrollmentEvent(
+  super.setupId, {
+  required final List<RoastRuntimeInvitationEnrollment> invitations,
+  required final List<RoastRuntimeParticipantEnrollment> participants,
+}) extends RoastRuntimeEvent;
+
 final class RoastRuntimeDkgEvent(
   super.setupId, {
   required final String proposalHex,

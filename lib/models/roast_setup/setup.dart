@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'invitation.dart';
 import 'participant.dart';
 
 enum RoastSetupRole { host, member }
@@ -47,6 +48,7 @@ class RoastSetup({
   final String? pendingDkgCreatorId,
   final DateTime? pendingDkgExpiry,
   final String? errorMessage,
+  final List<RoastIssuedInvitation> invitations = const [],
 }) {
   RoastParticipant get localParticipant => participants.firstWhere(
     (participant) => participant.cardId == localCardId,
@@ -79,6 +81,7 @@ class RoastSetup({
     bool clearPendingDkgProposal = false,
     String? errorMessage,
     bool clearError = false,
+    List<RoastIssuedInvitation>? invitations,
   }) => RoastSetup(
     id: id,
     groupId: groupId,
@@ -126,6 +129,7 @@ class RoastSetup({
         ? null
         : pendingDkgExpiry ?? this.pendingDkgExpiry,
     errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+    invitations: invitations ?? this.invitations,
   );
 
   Map<String, Object?> toJson() => {
@@ -160,6 +164,7 @@ class RoastSetup({
     'pendingDkgCreatorId': pendingDkgCreatorId,
     'pendingDkgExpiry': pendingDkgExpiry?.toUtc().toIso8601String(),
     'errorMessage': errorMessage,
+    'invitations': invitations.map((item) => item.toJson()).toList(),
   };
 
   factory RoastSetup.fromJson(Map<Object?, Object?> json) {
@@ -211,6 +216,9 @@ class RoastSetup({
           ? null
           : DateTime.parse(json['pendingDkgExpiry']! as String),
       errorMessage: json['errorMessage'] as String?,
+      invitations: ((json['invitations'] as List?) ?? const [])
+          .map((item) => RoastIssuedInvitation.fromJson(item as Map))
+          .toList(growable: false),
     );
   }
 }

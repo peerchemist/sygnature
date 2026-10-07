@@ -69,7 +69,7 @@ Future<void> showRoastGroupTransition(
         _RoastGroupTransitionDialog(controller: controller, source: source),
   );
   if (creation == null || !context.mounted) return;
-  await _showIssuedInvitations(context, creation.invitations);
+  await _showIssuedInvitations(context, controller, creation.successorSetupId);
 }
 
 Future<void> showRoastCoordinatorSwitch(
@@ -828,12 +828,9 @@ Future<void> _finalizeHostSetup(
   );
   if (invitees == null || !context.mounted) return;
   try {
-    final invitations = await controller.createHostedRoastInvitations(
-      setup.id,
-      invitees,
-    );
+    await controller.createHostedRoastInvitations(setup.id, invitees);
     if (context.mounted) {
-      await _showIssuedInvitations(context, invitations);
+      await _showIssuedInvitations(context, controller, setup.id);
     }
   } catch (error) {
     if (context.mounted) {
@@ -845,54 +842,201 @@ Future<void> _finalizeHostSetup(
 
 Future<void> _showIssuedInvitations(
   BuildContext context,
-  List<RoastIssuedInvitation> invitations,
+  WalletController controller,
+  String setupId,
 ) => showDialog<void>(
   context: context,
   barrierDismissible: false,
-  builder: (dialogContext) => AlertDialog(
-    title: const Text('Participant invitations'),
-    content: SizedBox(
-      width: 560,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Send each invitation only to the named participant. Each '
-              'invite works exclusively with the public key shown below.',
-            ),
-            const SizedBox(height: 16),
-            for (final invitation in invitations)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(invitation.participantName),
-                subtitle: Text(
-                  RoastSetupPanel._short(invitation.participantPublicKeyHex),
-                  style: const TextStyle(fontFamily: 'monospace'),
-                ),
-                trailing: IconButton(
-                  tooltip: 'Copy bound invitation',
-                  onPressed: () => RoastSetupPanel._copy(
-                    dialogContext,
-                    invitation.encoded,
-                    'Invitation copied for ${invitation.participantName}.',
-                  ),
-                  icon: const Icon(Icons.copy_rounded),
-                ),
-              ),
-          ],
-        ),
-      ),
-    ),
-    actions: [
-      FilledButton(
-        onPressed: () => Navigator.pop(dialogContext),
-        child: const Text('Back to wallet'),
-      ),
-    ],
-  ),
+  builder: (_) =>
+      _RoastInvitationsDialog(controller: controller, setupId: setupId),
 );
+
+class const _RoastInvitationsDialog({
+  required final WalletController controller,
+  required final String setupId,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) {
+      final invitations = controller.issuedRoastInvitations(setupId);
+      final now = DateTime.now().toUtc();
+      final joined = invitations
+          .where(
+            (invitation) =>
+                invitation.statusAt(now) == RoastInvitationDisplayStatus.joined,
+          )
+          .length;
+      final unshared = invitations.where((invitation) {
+        final status = invitation.statusAt(now);
+        return status == RoastInvitationDisplayStatus.ready ||
+            status == RoastInvitationDisplayStatus.copied;
+      }).length;
+      final next = invitations
+          .where(
+            (invitation) =>
+                invitation.statusAt(now) == RoastInvitationDisplayStatus.ready,
+          )
+          .firstOrNull;
+      return AlertDialog(
+        title: const Text('Signer invitations'),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$joined of ${invitations.length} invitees joined · '
+                  '$unshared not shared',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Copied means the invitation was placed on this device\'s '
+                  'clipboard. Mark it as sent after sharing it through your '
+                  'trusted channel. Joined is verified by the coordinator.',
+                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                ),
+                if (next != null) ...[
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    key: const Key('copy-next-roast-invitation'),
+                    onPressed: () => _copy(context, next),
+                    icon: const Icon(Icons.copy_rounded),
+                    label: Text('Copy next: ${next.participantName}'),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                for (final invitation in invitations)
+                  _RoastInvitationRow(
+                    invitation: invitation,
+                    status: invitation.statusAt(now),
+                    onCopy: () => _copy(context, invitation),
+                    onMarkSent: () => controller.markRoastInvitationSent(
+                      setupId,
+                      invitation.participantPublicKeyHex,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back to wallet'),
+          ),
+        ],
+      );
+    },
+  );
+
+  Future<void> _copy(
+    BuildContext context,
+    RoastIssuedInvitation invitation,
+  ) async {
+    await Clipboard.setData(ClipboardData(text: invitation.encoded));
+    await controller.markRoastInvitationCopied(
+      setupId,
+      invitation.participantPublicKeyHex,
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Invitation copied for ${invitation.participantName}.'),
+        ),
+      );
+    }
+  }
+}
+
+class const _RoastInvitationRow({
+  required final RoastIssuedInvitation invitation,
+  required final RoastInvitationDisplayStatus status,
+  required final VoidCallback onCopy,
+  required final Future<void> Function() onMarkSent,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon, color) = switch (status) {
+      RoastInvitationDisplayStatus.ready => (
+        'INVITE READY',
+        Icons.mail_outline_rounded,
+        AppColors.inkMuted,
+      ),
+      RoastInvitationDisplayStatus.copied => (
+        'COPIED',
+        Icons.copy_rounded,
+        AppColors.warningDark,
+      ),
+      RoastInvitationDisplayStatus.sent => (
+        'SENT',
+        Icons.outgoing_mail,
+        AppColors.warningDark,
+      ),
+      RoastInvitationDisplayStatus.joined => (
+        'JOINED',
+        Icons.check_circle_outline_rounded,
+        AppColors.success,
+      ),
+      RoastInvitationDisplayStatus.expired => (
+        'EXPIRED',
+        Icons.schedule_rounded,
+        AppColors.danger,
+      ),
+      RoastInvitationDisplayStatus.revoked => (
+        'REVOKED',
+        Icons.block_rounded,
+        AppColors.danger,
+      ),
+    };
+    final canCopy =
+        status != RoastInvitationDisplayStatus.joined &&
+        status != RoastInvitationDisplayStatus.expired &&
+        status != RoastInvitationDisplayStatus.revoked;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: color),
+      title: Text(invitation.participantName),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            RoastSetupPanel._short(invitation.participantPublicKeyHex),
+            style: const TextStyle(fontFamily: 'monospace'),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
+      ),
+      trailing: Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (status == RoastInvitationDisplayStatus.copied)
+            TextButton(onPressed: onMarkSent, child: const Text('Mark sent')),
+          if (canCopy)
+            IconButton(
+              tooltip: status == RoastInvitationDisplayStatus.ready
+                  ? 'Copy invitation'
+                  : 'Copy again',
+              onPressed: onCopy,
+              icon: const Icon(Icons.copy_rounded),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 Future<void> showRoastSignMessageDialog(
   BuildContext context,
@@ -1346,6 +1490,7 @@ class const RoastSetupPanel({
     final busy =
         controller.roastOperationInProgress(setup.id) || messageSigning;
     final onlineSigners = controller.onlineSignerCount(setup);
+    final enrolledSigners = controller.enrolledRoastParticipantCount(setup);
     final coordinatorState = controller.roastCoordinatorState(setup.id);
     final actions = _actions(context, setup, busy);
     final errorMessage = _displayError(setup);
@@ -1385,7 +1530,7 @@ class const RoastSetupPanel({
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        _statusText(setup),
+                        _statusText(setup, enrolledSigners),
                         style: const TextStyle(
                           color: AppColors.inkMuted,
                           fontSize: 12,
@@ -1405,6 +1550,14 @@ class const RoastSetupPanel({
                 state: coordinatorState,
                 endpointId: setup.coordinatorId,
               ),
+              if (setup.role == RoastSetupRole.host &&
+                  setup.invitations.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                _RoastEnrollmentProgress(
+                  joined: enrolledSigners,
+                  total: setup.participantCount,
+                ),
+              ],
               const SizedBox(height: 18),
               _SwarmHealth(
                 online: onlineSigners,
@@ -1644,14 +1797,17 @@ class const RoastSetupPanel({
       return [
         if (invitations.isNotEmpty)
           OutlinedButton.icon(
-            onPressed: () => _showIssuedInvitations(context, invitations),
+            onPressed: () =>
+                _showIssuedInvitations(context, controller, setup.id),
             icon: const Icon(Icons.copy_rounded),
-            label: const Text('Show participant invites'),
+            label: const Text('Manage invitations'),
           ),
         if (setup.status == RoastSetupStatus.ready)
           FilledButton(
             onPressed:
                 busy ||
+                    controller.enrolledRoastParticipantCount(setup) <
+                        setup.participantCount ||
                     controller.onlineSignerCount(setup) < setup.participantCount
                 ? null
                 : () => _perform(
@@ -1719,26 +1875,31 @@ class const RoastSetupPanel({
     }
   }
 
-  static String _statusText(RoastSetup setup) => switch (setup.status) {
-    RoastSetupStatus.draft =>
-      setup.role == RoastSetupRole.host
-          ? 'Add signers and create their invitations'
-          : 'Share your signer public key, then wait for your bound invite',
-    RoastSetupStatus.ready =>
-      setup.role == RoastSetupRole.host
-          ? 'Room roster frozen · coordinator online'
-          : 'Connected · waiting for the host to create the shared key',
-    RoastSetupStatus.connecting =>
-      setup.role == RoastSetupRole.host
-          ? 'Room open · waiting for invited participants'
-          : 'Joining room through Iroh…',
-    RoastSetupStatus.awaitingDkgApproval =>
-      'Review and approve shared-key creation',
-    RoastSetupStatus.creatingKey => _creatingKeyStatus(setup),
-    RoastSetupStatus.active => 'Shared key secured on this device',
-    RoastSetupStatus.interrupted => 'ROAST operation was interrupted',
-    RoastSetupStatus.error => 'ROAST setup needs attention',
-  };
+  static String _statusText(RoastSetup setup, int enrolledSigners) =>
+      switch (setup.status) {
+        RoastSetupStatus.draft =>
+          setup.role == RoastSetupRole.host
+              ? 'Add signers and create their invitations'
+              : 'Share your signer public key, then wait for your bound invite',
+        RoastSetupStatus.ready =>
+          setup.role == RoastSetupRole.host
+              ? enrolledSigners >= setup.participantCount
+                    ? 'All $enrolledSigners signers joined · coordinator online'
+                    : 'Room open · $enrolledSigners of '
+                          '${setup.participantCount} signers joined'
+              : 'Connected · waiting for the host to create the shared key',
+        RoastSetupStatus.connecting =>
+          setup.role == RoastSetupRole.host
+              ? 'Room open · $enrolledSigners of '
+                    '${setup.participantCount} signers joined'
+              : 'Joining room through Iroh…',
+        RoastSetupStatus.awaitingDkgApproval =>
+          'Review and approve shared-key creation',
+        RoastSetupStatus.creatingKey => _creatingKeyStatus(setup),
+        RoastSetupStatus.active => 'Shared key secured on this device',
+        RoastSetupStatus.interrupted => 'ROAST operation was interrupted',
+        RoastSetupStatus.error => 'ROAST setup needs attention',
+      };
 
   static String _creatingKeyStatus(RoastSetup setup) {
     if (setup.pendingDkgProposalHex == null) {
@@ -1957,6 +2118,79 @@ class const RoastDkgRequestCard({
               const SizedBox(height: 14),
               const LinearProgressIndicator(minHeight: 3),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class const _RoastEnrollmentProgress({
+  required final int joined,
+  required final int total,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final complete = joined >= total;
+    final color = complete ? AppColors.success : AppColors.forest;
+    final progress = total == 0
+        ? 0.0
+        : (joined / total).clamp(0.0, 1.0).toDouble();
+
+    return Semantics(
+      label: 'Signer enrollment: $joined of $total joined.',
+      child: Container(
+        key: const Key('roast-enrollment-progress'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: complete ? AppColors.successSurface : AppColors.surface,
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  complete ? Icons.how_to_reg : Icons.group_add_outlined,
+                  size: 18,
+                  color: color,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'SIGNER ENROLLMENT',
+                    style: TextStyle(
+                      color: AppColors.inkMuted,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$joined/$total',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(3),
+              color: color,
+              backgroundColor: color.withValues(alpha: 0.14),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              complete
+                  ? 'All signers have joined the room.'
+                  : '$joined of $total signers have joined the room.',
+              style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+            ),
           ],
         ),
       ),

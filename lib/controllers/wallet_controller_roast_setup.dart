@@ -43,7 +43,38 @@ extension WalletRoastSetupController on WalletController {
     ipAddrs: ipAddrs,
   );
   List<RoastIssuedInvitation> issuedRoastInvitations(String setupId) =>
-      _issuedRoastInvitations[setupId] ?? const [];
+      _setupById(setupId).invitations;
+  int enrolledRoastParticipantCount(RoastSetup setup) {
+    if (setup.invitations.isEmpty &&
+        setup.role == RoastSetupRole.host &&
+        setup.status != RoastSetupStatus.draft &&
+        setup.status != RoastSetupStatus.connecting) {
+      return setup.participantCount;
+    }
+    return 1 +
+        setup.invitations.where((invitation) {
+          return invitation.statusAt(DateTime.now().toUtc()) ==
+              RoastInvitationDisplayStatus.joined;
+        }).length;
+  }
+
+  Future<void> markRoastInvitationCopied(
+    String setupId,
+    String participantPublicKeyHex,
+  ) => _updateRoastInvitation(
+    setupId,
+    participantPublicKeyHex,
+    (invitation) => invitation.copyWith(copiedAt: DateTime.now().toUtc()),
+  );
+
+  Future<void> markRoastInvitationSent(
+    String setupId,
+    String participantPublicKeyHex,
+  ) => _updateRoastInvitation(
+    setupId,
+    participantPublicKeyHex,
+    (invitation) => invitation.copyWith(sentAt: DateTime.now().toUtc()),
+  );
   int onlineSignerCount(RoastSetup setup) {
     return setup.participants
         .where((participant) => isRoastParticipantOnline(setup, participant))
@@ -444,6 +475,8 @@ extension WalletRoastSetupController on WalletController {
                 )
                 .name,
             participantPublicKeyHex: invite.participantPublicKeyHex,
+            issuedAt: DateTime.now().toUtc(),
+            expiresAt: invite.expiresAt,
             encoded: RoastExchangeCodec.encodeInvitation(
               savedSetup,
               roomInvite: invite.encoded,
@@ -453,8 +486,7 @@ extension WalletRoastSetupController on WalletController {
             ),
           ),
       ];
-      _issuedRoastInvitations[savedSetup.id] = invitations;
-      _notifyListeners();
+      await _replaceSetup(savedSetup.copyWith(invitations: invitations));
       return RoastGroupTransitionCreation(
         transitionId: savedTransition.transitionId,
         successorSetupId: savedSetup.id,
@@ -604,6 +636,8 @@ extension WalletRoastSetupController on WalletController {
                 )
                 .name,
             participantPublicKeyHex: invite.participantPublicKeyHex,
+            issuedAt: DateTime.now().toUtc(),
+            expiresAt: invite.expiresAt,
             encoded: RoastExchangeCodec.encodeInvitation(
               setup,
               roomInvite: invite.encoded,
@@ -612,8 +646,8 @@ extension WalletRoastSetupController on WalletController {
             ),
           ),
       ];
-      _issuedRoastInvitations[setup.id] = invitations;
-      _notifyListeners();
+      setup = setup.copyWith(invitations: invitations);
+      await _replaceSetup(setup);
       return invitations;
     } catch (error) {
       await _replaceSetup(
@@ -695,6 +729,28 @@ extension WalletRoastSetupController on WalletController {
       );
       rethrow;
     }
+  }
+
+  Future<void> _updateRoastInvitation(
+    String setupId,
+    String participantPublicKeyHex,
+    RoastIssuedInvitation Function(RoastIssuedInvitation invitation) update,
+  ) async {
+    final setup = _setupById(setupId);
+    final invitations = [
+      for (final invitation in setup.invitations)
+        if (invitation.participantPublicKeyHex == participantPublicKeyHex)
+          update(invitation)
+        else
+          invitation,
+    ];
+    if (!setup.invitations.any(
+      (invitation) =>
+          invitation.participantPublicKeyHex == participantPublicKeyHex,
+    )) {
+      throw StateError('The participant invitation is not available.');
+    }
+    await _replaceSetup(setup.copyWith(invitations: invitations));
   }
 
   Future<void> switchRoastCoordinator(

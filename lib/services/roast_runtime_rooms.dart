@@ -230,6 +230,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
   }
 
   void _onRoomSnapshot(String setupId, RoomSnapshot room) {
+    _emitRoomEnrollmentValues(setupId, room);
     if (room.lifecycle != RoomLifecycle.enrolling ||
         !room.isFull ||
         !_freezingRooms.add(setupId)) {
@@ -239,6 +240,35 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       '${RoastRuntimeManager._roastScope(setupId)} Room is full; freezing roster',
     );
     unawaited(_freezeRoomAndStartSigner(setupId));
+  }
+
+  void _emitRoomEnrollmentValues(String setupId, RoomSnapshot room) {
+    if (_events.isClosed) return;
+    _events.add(
+      RoastRuntimeEnrollmentEvent(
+        setupId,
+        invitations: [
+          for (final invite in room.invites)
+            RoastRuntimeInvitationEnrollment(
+              participantPublicKeyHex: invite.expectedParticipantPublicKey.hex,
+              status: switch (invite.status) {
+                RoomInviteStatus.pending => RoastInvitationServerStatus.pending,
+                RoomInviteStatus.used => RoastInvitationServerStatus.used,
+                RoomInviteStatus.revoked => RoastInvitationServerStatus.revoked,
+                RoomInviteStatus.expired => RoastInvitationServerStatus.expired,
+              },
+              usedAt: invite.usedAt,
+            ),
+        ],
+        participants: [
+          for (final participant in room.participants)
+            RoastRuntimeParticipantEnrollment(
+              participantPublicKeyHex: participant.publicKey.hex,
+              enrolledAt: participant.enrolledAt,
+            ),
+        ],
+      ),
+    );
   }
 
   Future<void> _freezeRoomAndStartSigner(String setupId) async {
