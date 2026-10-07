@@ -25,6 +25,8 @@ extension WalletSigningController on WalletController {
       _storedRoastSigningOperations.values
           .where((operation) => operation.canRetryBroadcast)
           .toList(growable: false);
+  bool roastTransactionSigningInProgress(String setupId) =>
+      _pendingRoastSends.keys.any((key) => key.startsWith('$setupId:'));
   bool roastMessageSigningInProgress(String setupId) =>
       _pendingRoastMessages.keys.any((key) => key.startsWith('$setupId:'));
   RoastSigningProgress? roastMessageSigningProgress(String setupId) =>

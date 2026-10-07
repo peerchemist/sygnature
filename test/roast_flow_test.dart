@@ -1401,6 +1401,7 @@ void main() {
       2000000,
     );
 
+    await tester.ensureVisible(find.text('Send'));
     await tester.tap(find.text('Send'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -1430,6 +1431,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Review transaction'), findsNothing);
     expect(find.text('Transaction signature requested'), findsOneWidget);
+    expect(
+      find.byKey(const Key('transaction-signature-request-warning')),
+      findsOneWidget,
+    );
+    final sendButton = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Send'),
+    );
+    expect(sendButton.onPressed, isNull);
 
     runtime.signatureRequestError = StateError('end test request');
     runtime.signatureRequestGate!.complete();

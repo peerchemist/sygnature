@@ -884,6 +884,9 @@ class _BalanceCard extends StatelessWidget {
     final canSign =
         hasAddress && account.derivationState == WalletDerivationState.ready;
     final roastSetup = controller.setupForAccount(account);
+    final transactionSigning =
+        roastSetup != null &&
+        controller.roastTransactionSigningInProgress(roastSetup.id);
     final messageSigning =
         roastSetup != null &&
         controller.roastMessageSigningInProgress(roastSetup.id);
@@ -981,11 +984,13 @@ class _BalanceCard extends StatelessWidget {
                     enabled:
                         canSign &&
                         syncStatus == AccountSyncStatus.synced &&
-                        availableBalance > 0,
+                        availableBalance > 0 &&
+                        !transactionSigning,
                     onPressed:
                         canSign &&
                             syncStatus == AccountSyncStatus.synced &&
-                            availableBalance > 0
+                            availableBalance > 0 &&
+                            !transactionSigning
                         ? () => _showSendDialog(context, controller, account)
                         : null,
                   ),
@@ -1013,6 +1018,15 @@ class _BalanceCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (transactionSigning) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'A transaction signature request is already in progress. '
+                  'Wait for it to finish before creating another one.',
+                  key: Key('transaction-signature-request-warning'),
+                  style: TextStyle(color: AppColors.warningDark, fontSize: 12),
+                ),
+              ],
             ],
           ),
         ),
