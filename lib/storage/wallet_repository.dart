@@ -33,20 +33,23 @@ class const UnavailableSecureKeyStore() implements SecureKeyStore {
 }
 
 class PlatformSecureKeyStore implements SecureKeyStore {
-  PlatformSecureKeyStore({FlutterSecureStorage? storage})
-    : _storage =
-          storage ??
-          const FlutterSecureStorage(
-            mOptions: MacOsOptions(usesDataProtectionKeychain: true),
-          );
+  PlatformSecureKeyStore({
+    FlutterSecureStorage? storage,
+    this.allowUnavailablePlatform = false,
+  }) : _storage =
+           storage ??
+           const FlutterSecureStorage(
+             mOptions: MacOsOptions(usesDataProtectionKeychain: true),
+           );
 
+  final bool allowUnavailablePlatform;
   final FlutterSecureStorage _storage;
 
   static bool get isAvailable =>
       kIsWeb || defaultTargetPlatform != TargetPlatform.macOS;
 
   void _requireAvailable() {
-    if (!isAvailable) {
+    if (!allowUnavailablePlatform && !isAvailable) {
       throw UnsupportedError('System secure storage is disabled on macOS.');
     }
   }
@@ -162,6 +165,21 @@ class HiveWalletRepository implements WalletRepository {
       encodedKey = base64UrlEncode(Hive.generateSecureKey());
       await keyStore.write(_cipherKeyName, encodedKey);
     }
+    return openWithCipherKey(base64Url.decode(encodedKey));
+  }
+
+  static Future<bool> boxExists() async {
+    await HiveStorageInitializer.initialize(boxName: _boxName);
+    return Hive.boxExists(_boxName);
+  }
+
+  static Future<HiveWalletRepository?> openExisting({
+    required SecureKeyStore secureKeyStore,
+  }) async {
+    await HiveStorageInitializer.initialize(boxName: _boxName);
+    if (!await Hive.boxExists(_boxName)) return null;
+    final encodedKey = await secureKeyStore.read(_cipherKeyName);
+    if (encodedKey == null) return null;
     return openWithCipherKey(base64Url.decode(encodedKey));
   }
 

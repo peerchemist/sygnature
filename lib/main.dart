@@ -70,7 +70,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
     super.initState();
     final controllerFactory = widget.controllerFactory;
     if (controllerFactory == null) {
-      _protectionStore = VaultProtectionStore.open();
+      _protectionStore = _initializeVault();
     } else {
       _protectionStore = null;
       _controller = controllerFactory();
@@ -85,9 +85,57 @@ class _SygnatureAppState extends State<SygnatureApp> {
     );
   }
 
+  Future<VaultProtectionStore> _initializeVault() async {
+    final store = await VaultProtectionStore.open();
+    if (!await HiveWalletRepository.boxExists()) return store;
+
+    late final (HiveWalletRepository, SecureKeyStore)? existingVault;
+    try {
+      existingVault = await _openExistingSystemVault();
+    } catch (_) {
+      if (store.config == null) rethrow;
+      return store;
+    }
+    if (existingVault == null) {
+      if (store.config == null) {
+        throw StateError('The existing vault encryption key is unavailable.');
+      }
+      return store;
+    }
+
+    final (repository, secureKeyStore) = existingVault;
+    await _notificationsReady;
+    final roastPersistence = _roastSupported
+        ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
+        : null;
+    final controller = await _loadController(repository, roastPersistence);
+    await store.configureSystem();
+    _controller = Future.value(controller);
+    return store;
+  }
+
+  SecureKeyStore _systemKeyStore({bool allowMacOS = false}) {
+    final platformStore = PlatformSecureKeyStore(
+      allowUnavailablePlatform: allowMacOS,
+    );
+    return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+        ? KeyringSecureKeyStore(platformStore)
+        : platformStore;
+  }
+
+  Future<(HiveWalletRepository, SecureKeyStore)?>
+  _openExistingSystemVault() async {
+    final secureKeyStore = _systemKeyStore(allowMacOS: true);
+    final repository = await HiveWalletRepository.openExisting(
+      secureKeyStore: secureKeyStore,
+    );
+    if (repository == null) return null;
+    return (repository, secureKeyStore);
+  }
+
   Future<WalletController> _createSystemController() async {
     await _notificationsReady;
-    final secureKeyStore = PlatformSecureKeyStore();
+    final secureKeyStore = _systemKeyStore();
     final repository = await HiveWalletRepository.open(
       secureKeyStore: secureKeyStore,
     );
@@ -453,6 +501,10 @@ class _SygnatureAppState extends State<SygnatureApp> {
         if (snapshot.hasError) return _StartupError(error: snapshot.error);
         final store = snapshot.data;
         if (store == null) return const _StartupLoading();
+        final existingController = _controller;
+        if (existingController != null) {
+          return _buildController(existingController);
+        }
         final config = store.config;
         if (config == null) {
           return VaultProtectionScreen(
