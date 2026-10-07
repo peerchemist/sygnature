@@ -17,7 +17,6 @@ class WalletVault {
   });
 
   static const schemaVersion = 1;
-  static const _developmentSchemaVersion = 5;
 
   /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;
@@ -69,7 +68,7 @@ class WalletVault {
 
   factory WalletVault.fromJson(Map<Object?, Object?> json) {
     final version = json['schemaVersion'] as int? ?? 0;
-    if (version != schemaVersion && version != _developmentSchemaVersion) {
+    if (version != schemaVersion) {
       throw StateError('Unsupported wallet vault schema: $version');
     }
     return WalletVault(

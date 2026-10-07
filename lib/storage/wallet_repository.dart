@@ -202,11 +202,7 @@ class HiveWalletRepository implements WalletRepository {
     if (raw is! Map) {
       throw StateError('Wallet vault has an invalid format.');
     }
-    final vault = WalletVault.fromJson(raw);
-    if (raw['schemaVersion'] != WalletVault.schemaVersion) {
-      await save(vault);
-    }
-    return vault;
+    return WalletVault.fromJson(raw);
   }
 
   @override
