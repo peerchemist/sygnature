@@ -2180,6 +2180,9 @@ final class _FakeRoastKeyService extends RoastKeyService {
 
   @override
   String scriptHexForAddress(network, String address) => 'expected-script';
+
+  @override
+  String addressForScript(network, String scriptHex) => 'pc1pdestination';
 }
 
 final class _RoomRoastKeyService(final List<RoastParticipant> roster)

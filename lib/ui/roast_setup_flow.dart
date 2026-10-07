@@ -1376,8 +1376,8 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
                 value: gaugeValue,
                 minHeight: 6,
                 borderRadius: BorderRadius.circular(3),
-                semanticsLabel: 'Signatures collected',
-                semanticsValue: '$collected of $threshold',
+                semanticsLabel:
+                    'Signatures collected: $collected of $threshold',
               ),
             ],
           ),
