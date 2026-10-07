@@ -326,7 +326,6 @@ class _RoastGroupTransitionDialogState
   }
 
   void _addSigner() {
-    if (_participantCount >= 5) return;
     final name = _newParticipantAliases(
       1,
       excluding: widget.source.participants.map((item) => item.name),
@@ -504,7 +503,7 @@ class _RoastGroupTransitionDialogState
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 key: const Key('transition-add-signer'),
-                onPressed: _busy || _participantCount >= 5 ? null : _addSigner,
+                onPressed: _busy ? null : _addSigner,
                 icon: const Icon(Icons.person_add_alt_1_outlined),
                 label: const Text('Add signer'),
               ),
@@ -583,20 +582,63 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   late final String _participantAlias = _newParticipantAliases(1).single;
   late WalletNetwork _network = widget.controller.supportedNetworks.first;
   RoastSetupRole _role = RoastSetupRole.host;
-  int _participantCount = 2;
-  int _threshold = 2;
+  final TextEditingController _participantCount = TextEditingController(
+    text: '2',
+  );
+  final TextEditingController _threshold = TextEditingController(text: '2');
   bool _busy = false;
   String? _error;
+
+  int? get _parsedParticipantCount =>
+      int.tryParse(_participantCount.text.trim());
+
+  void _thresholdValuesChanged(String _) {
+    final participantCount = _parsedParticipantCount;
+    final threshold = int.tryParse(_threshold.text.trim());
+    if (participantCount != null &&
+        participantCount >= 2 &&
+        threshold != null &&
+        threshold > participantCount) {
+      _setThreshold(participantCount);
+    }
+    setState(() => _error = null);
+  }
+
+  void _setThreshold(int value) {
+    final text = '$value';
+    _threshold.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
 
   @override
   void dispose() {
     _walletName.dispose();
+    _participantCount.dispose();
+    _threshold.dispose();
     super.dispose();
   }
 
   Future<void> _create() async {
+    if (_busy) return;
     if (_walletName.text.trim().isEmpty) {
       setState(() => _error = 'Enter a wallet name before continuing.');
+      return;
+    }
+    final participantCount = _parsedParticipantCount;
+    if (participantCount == null ||
+        participantCount < 2 ||
+        participantCount > 0xffff) {
+      setState(() => _error = 'Participants must be between 2 and 65535.');
+      return;
+    }
+    final threshold = int.tryParse(_threshold.text.trim());
+    if (threshold == null || threshold < 2 || threshold > participantCount) {
+      setState(
+        () => _error =
+            'Required signers must be between 2 and the participant count.',
+      );
       return;
     }
     setState(() {
@@ -608,8 +650,8 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
         role: _role,
         walletName: _walletName.text,
         participantName: _participantAlias,
-        threshold: _threshold,
-        participantCount: _participantCount,
+        threshold: threshold,
+        participantCount: participantCount,
         network: _network,
       );
       if (mounted) Navigator.pop(context, setupId);
@@ -684,40 +726,38 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
               Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _participantCount,
+                    child: TextFormField(
+                      key: const Key('roast-participant-count'),
+                      controller: _participantCount,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(5),
+                      ],
                       decoration: const InputDecoration(
                         labelText: 'Participants',
                       ),
-                      items: [2, 3, 4, 5]
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text('$value'),
-                            ),
-                          )
-                          .toList(growable: false),
-                      onChanged: (value) => setState(() {
-                        _participantCount = value!;
-                        if (_threshold > value) _threshold = value;
-                      }),
+                      onChanged: _thresholdValuesChanged,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _threshold,
-                      decoration: const InputDecoration(
-                        labelText: 'Required signers',
-                      ),
-                      items: [
-                        for (var value = 2; value <= _participantCount; value++)
-                          DropdownMenuItem(
-                            value: value,
-                            child: Text('$value of $_participantCount'),
-                          ),
+                    child: TextFormField(
+                      key: const Key('roast-required-signers'),
+                      controller: _threshold,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(5),
                       ],
-                      onChanged: (value) => setState(() => _threshold = value!),
+                      decoration: InputDecoration(
+                        labelText: 'Required signers',
+                        suffixText: 'of ${_parsedParticipantCount ?? 'n'}',
+                      ),
+                      onChanged: _thresholdValuesChanged,
+                      onFieldSubmitted: (_) => _create(),
                     ),
                   ),
                 ],

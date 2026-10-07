@@ -136,6 +136,85 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('allows an m-of-n setup with more than five participants', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = MemoryWalletRepository()
+      ..value = WalletVault(
+        mnemonic: 'local recovery phrase',
+        languageId: 'english',
+        mnemonicWordCount: 12,
+        accounts: [
+          WalletAccount(
+            id: 'wallet-0',
+            name: 'Main wallet',
+            accountIndex: 0,
+            blockchainId: 'peercoin',
+            networkId: 'mainnet',
+            derivationState: WalletDerivationState.ready,
+            derivationPath: "m/86'/6'/0'/0/0",
+            address: 'pc1ppersonal',
+            privateKeyHex: 'personal-private-key',
+            createdAt: DateTime.utc(2026),
+          ),
+        ],
+        nextAccountIndex: 1,
+      );
+    final controller = WalletController(
+      repository,
+      roastRuntime: _FakeRoastRuntime(),
+      roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Add sub-wallet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ROAST shared wallet'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('roast-participant-count')),
+      '8',
+    );
+    final thresholdField = find.byKey(
+      const Key('roast-required-signers'),
+    );
+    await tester.enterText(thresholdField, '10');
+    await tester.pump();
+    expect(tester.widget<TextFormField>(thresholdField).controller!.text, '8');
+    await tester.enterText(
+      find.byKey(const Key('roast-participant-count')),
+      '4',
+    );
+    await tester.pump();
+    expect(tester.widget<TextFormField>(thresholdField).controller!.text, '4');
+    await tester.enterText(
+      find.byKey(const Key('roast-participant-count')),
+      '8',
+    );
+    await tester.enterText(
+      thresholdField,
+      '5',
+    );
+    await tester.tap(find.byKey(const Key('create-roast-draft')));
+    await tester.pumpAndSettle();
+
+    expect(controller.roastSetups.single.participantCount, 8);
+    expect(controller.roastSetups.single.threshold, 5);
+    expect(find.text('ROAST · 5 of 8'), findsWidgets);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('pastes and validates a member invitation immediately', (
     tester,
   ) async {

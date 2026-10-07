@@ -78,6 +78,9 @@ extension WalletRoastSetupController on WalletController {
     if (cleanParticipantName.isEmpty) {
       throw ArgumentError('Participant name cannot be empty.');
     }
+    if (participantCount < 2 || participantCount > 0xffff) {
+      throw ArgumentError('Participant count must be between 2 and 65535.');
+    }
     if (threshold < 2 || threshold > participantCount) {
       throw ArgumentError('Threshold must be between 2 and participant count.');
     }
@@ -484,6 +487,9 @@ extension WalletRoastSetupController on WalletController {
     final source = _setupById(sourceSetupId);
     if (!source.isActive || source.groupKeyHex == null) {
       throw StateError('The source ROAST wallet is not active.');
+    }
+    if (participantCount < 2 || participantCount > 0xffff) {
+      throw ArgumentError('Invalid successor participant count.');
     }
     if (threshold < 2 || threshold > participantCount) {
       throw ArgumentError('Invalid successor signing threshold.');
