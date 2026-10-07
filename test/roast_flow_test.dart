@@ -180,26 +180,26 @@ void main() {
     await tester.tap(find.text('ROAST shared wallet'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const Key('roast-participant-count')),
-      '8',
+    final participantCountField = find.byKey(
+      const Key('roast-participant-count'),
     );
+    await tester.enterText(participantCountField, '40');
+    await tester.pump();
+    expect(
+      tester.widget<TextFormField>(participantCountField).controller!.text,
+      '32',
+    );
+    await tester.enterText(participantCountField, '8');
     final thresholdField = find.byKey(
       const Key('roast-required-signers'),
     );
     await tester.enterText(thresholdField, '10');
     await tester.pump();
     expect(tester.widget<TextFormField>(thresholdField).controller!.text, '8');
-    await tester.enterText(
-      find.byKey(const Key('roast-participant-count')),
-      '4',
-    );
+    await tester.enterText(participantCountField, '4');
     await tester.pump();
     expect(tester.widget<TextFormField>(thresholdField).controller!.text, '4');
-    await tester.enterText(
-      find.byKey(const Key('roast-participant-count')),
-      '8',
-    );
+    await tester.enterText(participantCountField, '8');
     await tester.enterText(
       thresholdField,
       '5',

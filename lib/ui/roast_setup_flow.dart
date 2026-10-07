@@ -11,6 +11,8 @@ import '../models/wallet_network.dart';
 import '../services/roast_runtime_manager.dart';
 import 'app_theme.dart';
 
+const _maxRoastParticipants = 32;
+
 final _participantAliasGenerator = UniqueNamesGenerator(
   config: Config(
     length: 2,
@@ -326,6 +328,7 @@ class _RoastGroupTransitionDialogState
   }
 
   void _addSigner() {
+    if (_participantCount >= _maxRoastParticipants) return;
     final name = _newParticipantAliases(
       1,
       excluding: widget.source.participants.map((item) => item.name),
@@ -503,7 +506,9 @@ class _RoastGroupTransitionDialogState
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 key: const Key('transition-add-signer'),
-                onPressed: _busy ? null : _addSigner,
+                onPressed: _busy || _participantCount >= _maxRoastParticipants
+                    ? null
+                    : _addSigner,
                 icon: const Icon(Icons.person_add_alt_1_outlined),
                 label: const Text('Add signer'),
               ),
@@ -593,7 +598,11 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
       int.tryParse(_participantCount.text.trim());
 
   void _thresholdValuesChanged(String _) {
-    final participantCount = _parsedParticipantCount;
+    var participantCount = _parsedParticipantCount;
+    if (participantCount != null && participantCount > _maxRoastParticipants) {
+      participantCount = _maxRoastParticipants;
+      _setParticipantCount(participantCount);
+    }
     final threshold = int.tryParse(_threshold.text.trim());
     if (participantCount != null &&
         participantCount >= 2 &&
@@ -602,6 +611,14 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
       _setThreshold(participantCount);
     }
     setState(() => _error = null);
+  }
+
+  void _setParticipantCount(int value) {
+    final text = '$value';
+    _participantCount.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
   }
 
   void _setThreshold(int value) {
@@ -629,8 +646,11 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
     final participantCount = _parsedParticipantCount;
     if (participantCount == null ||
         participantCount < 2 ||
-        participantCount > 0xffff) {
-      setState(() => _error = 'Participants must be between 2 and 65535.');
+        participantCount > _maxRoastParticipants) {
+      setState(
+        () => _error =
+            'Participants must be between 2 and $_maxRoastParticipants.',
+      );
       return;
     }
     final threshold = int.tryParse(_threshold.text.trim());
