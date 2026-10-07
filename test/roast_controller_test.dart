@@ -1466,6 +1466,47 @@ void main() {
     },
   );
 
+  test('records expiration of a locally requested message', () async {
+    final requestId = 'cc' * 16;
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final controller = _controller(
+      runtime: runtime,
+      active: true,
+      activities: [
+        WalletActivity(
+          id: 'message-signature-requested:setup:$requestId',
+          accountId: 'shared',
+          type: WalletActivityType.messageSignatureRequested,
+          occurredAt: DateTime.utc(2026),
+          reference: requestId,
+          details: 'Expired message',
+        ),
+      ],
+    );
+    await controller.load();
+    await _flushEvents();
+
+    runtime.emit(
+      RoastRuntimeSigningRequestRemovedEvent(
+        'setup',
+        requestIdHex: requestId,
+        expired: true,
+      ),
+    );
+    await _flushEvents();
+
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .map((activity) => activity.type),
+      [
+        WalletActivityType.signatureRequestExpired,
+        WalletActivityType.messageSignatureRequested,
+      ],
+    );
+    controller.dispose();
+  });
+
   test('stores replayed signed messages for every participant', () async {
     final requestId = 'ab' * 16;
     final occurredAt = DateTime.utc(2026, 1, 1);

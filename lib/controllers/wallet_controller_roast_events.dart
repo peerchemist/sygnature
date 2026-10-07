@@ -279,10 +279,15 @@ extension WalletRoastEventController on WalletController {
           // Unsupported or foreign proposals are deliberately not rendered.
         }
       case RoastRuntimeSigningRequestRemovedEvent():
-        final removed = _roastSigningRequests.remove(
-          '${event.setupId}:${event.requestIdHex}',
-        );
-        if (event.expired && removed != null) {
+        final requestKey = '${event.setupId}:${event.requestIdHex}';
+        final removed = _roastSigningRequests.remove(requestKey);
+        final wasLocallyRequestedMessage =
+            _vault?.activities.any(
+              (activity) =>
+                  activity.id == 'message-signature-requested:$requestKey',
+            ) ??
+            false;
+        if (event.expired && (removed != null || wasLocallyRequestedMessage)) {
           await _recordSetupActivity(
             setup,
             id:
