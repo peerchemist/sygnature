@@ -1,17 +1,15 @@
 # Sygnature ROAST messaging architecture
 
-Status: design documentation based on the local Sygnature,
-`noosphere_flutter`, `noosphere_roast_client` and `noosphere_roast_server`
-sources inspected on 2026-09-25. Sygnature now integrates the transport,
-runtime, durable client storage, DKG and Taproot transaction approval/signing
-through the preconfigured-roster flow. It also persists creator-side proposals,
-aggregate signatures, signed transaction bytes and broadcast outcomes, allowing
-an unknown broadcast to retry the exact same bytes after restart. Coordinator
-round state, cross-peer UTXO reservations and the Sygnature request-context
-extension described below are not implemented yet. A locally constructed DKG
-key is exposed to the wallet only after every configured participant has
-acknowledged it. Broadcast inputs remain locally reserved until a later
-ElectrumX snapshot no longer reports those outpoints.
+Status: implementation documentation checked against Sygnature and the pinned
+Noosphere revision on 2026-10-07. Sygnature supports participant-bound room
+enrollment and the preconfigured-roster flow, durable client, room and
+coordinator state, DKG, successor-group transitions, transaction and message
+signing, and retry-safe transaction broadcast persistence. Cross-peer UTXO
+reservations are not implemented; reservations are local to each wallet
+instance. A locally constructed DKG key is exposed to the wallet only after
+every configured participant has acknowledged it. Broadcast inputs remain
+locally reserved until a later ElectrumX snapshot no longer reports those
+outpoints.
 
 ## 1. Topology and responsibilities
 
@@ -74,6 +72,23 @@ Participant authentication is a challenge/response exchange. The client first
 sends the group fingerprint, participant ID and domain protocol version. It
 then signs the returned challenge with its participant authentication key. Only
 after successful authentication may the connection start a group session.
+
+Before that finalized group session exists, a new setup can use the separate
+`noosphere/roast-enrollment/1` protocol. The host persists room state and issues
+participant-bound, expiring invitations. A joining participant proves control
+of the expected authentication key while redeeming its invitation. When every
+expected participant has enrolled, the host freezes the roster and starts the
+ordinary coordinator and signer session for that immutable group. Room state
+survives a restart; an interrupted invitation redemption is reconciled instead
+of being replayed blindly.
+
+The coordinator address may be replaced without changing the participant group
+or FROST key, but only after pending signing operations and nonce records have
+been reconciled. Membership or threshold changes instead create a successor
+group. A canonical transition proposal binds the source group, successor room
+and roster, target key plan, approved DKG details and migration policy. The
+successor DKG is accepted only when it matches that approved plan, and
+Sygnature persists transition approvals and progress.
 
 ## 3. Streams on one connection
 
@@ -158,20 +173,13 @@ The default `maxMessageLength` is 1 MiB (1,048,576 bytes) on both client and
 server. It bounds a FIN-delimited protobuf body and each persistent record. The
 effective limit is the smaller of the client and server configurations.
 
-The planned Sygnature request-context block is separately limited to 1 KiB
-(1024 bytes). This is not a 1 KiB limit on the complete Noosphere envelope. A
-complete signature request additionally contains the transaction, prevouts,
-group-key information, commitments, expiry and signatures and may legitimately
-exceed 1 KiB.
-
-The 1 KiB context limit must be checked:
-
-1. after deterministic serialization and before signing/sending;
-2. immediately after decoding and before rendering or persistence.
-
-Both sides must also retain the 1 MiB message limit. The smaller domain limit
-prevents an otherwise-valid transport frame from becoming an oversized UI or
-storage payload.
+The signed request explanation in `SignaturesRequestDetails.message` is
+separately limited to 1 KiB (1024 UTF-8 bytes). Constructors enforce the limit
+before signing, and decoders enforce it before exposing the proposal. This is
+not a 1 KiB limit on the complete request: transaction data, prevouts,
+group-key information, commitments, expiry and signatures may legitimately
+make the request larger. Both peers still enforce the independent 1 MiB
+transport limit.
 
 ## 5. Protobuf transport messages
 
@@ -236,13 +244,15 @@ uint16                    required-signature count
 SingleSignatureDetails[] required signatures
 SignatureMetadata         type byte followed by type-specific data
 Expiry                    uint64 timestamp
+Message length            canonical CompactSize integer
+Message                    UTF-8 bytes
 ```
 
 Its tagged hash covers this entire encoding. The proposal/request ID is the
 first 16 bytes of that hash. `Signed<SignaturesRequestDetails>` appends the
 creator's 64-byte Schnorr signature. Consequently, the required signatures,
-transaction metadata, Sygnature context and expiry are all bound to both the
-creator signature and proposal ID.
+metadata, expiry and explanation are all bound to both the creator signature
+and proposal ID.
 
 Parsing is intentionally layered:
 
@@ -260,42 +270,28 @@ Protobuf forward compatibility does not automatically extend to domain bytes.
 Each new domain format needs explicit framing, versioning and a registered
 decoder.
 
-## 7. Sygnature request context
+## 7. Signed request explanation and metadata
 
-Sygnature will add a versioned request-context metadata type inside the signed
-`SignaturesRequestDetails`. It carries human review information such as:
+`SignaturesRequestDetails` has two application-facing review channels:
 
-```text
-Sygnature request context, version 1
-  reason              UTF-8 text
-  references[]
-    label             UTF-8 text
-    URL               UTF-8 text
-    content SHA-256   optional 32-byte digest
-```
+- a closed registry of typed `SignatureMetadata`; and
+- a free-form UTF-8 explanation in `message`, limited to 1024 bytes.
 
-The complete serialized context—including its version, length fields, reason,
-labels, URLs, reference count and optional hashes—must not exceed 1024 bytes.
-The exact URL bytes are signed. A URL alone does not bind the mutable resource
-served at that location; when document contents influence approval, the context
-must also carry their SHA-256 digest.
+The supported metadata types are empty metadata, Taproot transaction metadata
+and versioned signed-message metadata. Embedded unknown metadata is rejected;
+Sygnature also marks any unsupported decoded type as unapprovable. Transaction
+metadata binds the transaction and per-input signing details. Message metadata
+binds a versioned text payload to one untweaked BIP-340 signature request.
 
-The context must be part of a recognized, versioned metadata decoder and must
-be length-delimited. It cannot be implemented safely as an application-only
-unknown metadata subclass. The current Noosphere unknown-metadata fallback
-consumes all remaining reader bytes, although `Expiry` follows metadata in
-`SignaturesRequestDetails`. A new type therefore requires a coordinated client
-library change. Unsupported context or metadata versions must make the proposal
-unapprovable rather than silently dropping fields.
+The explanation is included in the deterministic proposal bytes, proposal ID
+and creator signature. Changing it creates a different request and requires new
+approvals. It is review information only: the final aggregate signature still
+signs the transaction sighash or signed-message digest, so the explanation is
+not committed on-chain and is not part of the portable signed-message result.
 
-The UI treats URLs as untrusted input: it displays the host, does not fetch an
-automatic preview and requires explicit user action before opening a link.
-Changing the reason, any reference, document hash, transaction or expiry creates
-a different proposal ID and requires fresh approvals.
-
-The creator's identity signature binds the context to the signing proposal.
-The final aggregate Taproot signature still signs only the transaction sighash;
-it does not place the reason or URL on-chain.
+There is no structured URL/reference request-context format in the current
+protocol. Such a format would require a new registered, versioned and bounded
+metadata codec rather than application-defined unknown metadata.
 
 ## 8. Signature-request distribution
 
@@ -318,7 +314,7 @@ Creator                  Coordinator                 Other participants
    │                          │── SignaturesRequestEvent ─────►│
    │◄── RPC success ──────────│                                │
    │                          │                    verify creator signature
-   │                          │                    parse/display same context
+   │                          │                    parse/display metadata and message
 ```
 
 The coordinator sends the initial request event to every currently active
@@ -339,9 +335,9 @@ Each receiving client:
 Rejecting or accepting a request sends a new RPC to the coordinator. Signing
 round events normally refer to the established proposal by its 16-byte request
 ID and carry only the commitments or shares required for that round; the full
-context is not repeated in every round. The coordinator sends round-start events
-only to participants selected for that ROAST round. On completion, it stores the
-aggregate signatures and notifies the participants.
+proposal is not repeated in every round. The coordinator sends round-start
+events only to participants selected for that ROAST round. On completion, it
+stores the aggregate signatures and notifies the participants.
 
 ## 9. Offline clients, buffering and reconnect
 
@@ -360,15 +356,18 @@ event replay. After it authenticates again, `SessionStarted.snapshot` contains:
 - completed signatures not yet acknowledged;
 - pending encrypted secret-share events.
 
-The client validates the snapshot with the same signature and structural checks
-used for live events, installs it, sends `Ready`, and then processes live events.
+The client validates and installs the snapshot before consuming later records
+from the same stream. There is no separate wire-level `Ready` message. The
+server establishes its internal ready phase before it writes `SessionStarted`
+and the queued/live events that follow it.
 
-Current server session, DKG and signing state is held in memory. Restarting the
-coordinator loses active requests and rounds even if its Iroh endpoint identity
-is restored. Production Sygnature requires durable coordinator proposal and
-registry state or must surface interrupted operations and require a safe fresh
-attempt. An ambiguous mutating RPC must not be automatically replayed because
-the previous attempt may already have consumed signing nonces.
+Live connections and their event buffers are transient. DKG requests, signing
+requests and rounds, completed signatures and encrypted secret-share state are
+stored as one versioned `ServerStateSnapshot` after each protocol mutation.
+Sygnature stores that snapshot durably for each setup, so coordinator restart
+restores protocol state but requires clients to reconnect and reconcile through
+a new login snapshot. Ambiguous mutating RPCs are not replayed automatically
+because a previous attempt may already have consumed signing nonces.
 
 ## 10. Security properties and limits
 
@@ -379,131 +378,53 @@ The design provides:
 - creator authentication and proposal integrity through a Schnorr signature;
 - deterministic proposal IDs derived from the exact proposal bytes;
 - independent verification by every signing client;
-- bounded outer envelopes and bounded Sygnature context metadata.
+- durable coordinator protocol state and durable participant nonce state;
+- bounded transport messages and bounded signed request explanations.
 
 It does not provide:
 
-- confidentiality of proposal context from the coordinator or other group
-  participants;
+- confidentiality of proposal metadata or explanations from the coordinator
+  or other group participants;
 - proof that the coordinator delivered a proposal to every participant;
 - availability when the coordinator is offline;
-- durable in-progress signing state in the current server implementation;
-- on-chain commitment to the human-readable reason or referenced URL;
-- immutability of URL content without an included content digest.
+- cross-peer coordination of UTXO reservations;
+- structured binding of external documents or URLs;
+- on-chain commitment to the human-readable request explanation.
 
 The coordinator must never be the sole validator. Each participant validates
 prevouts, wallet/key/path ownership, outputs, change, fee, network, sighash
-policy, Taproot tweaks and request context before authorizing its signature
-share.
+policy, Taproot tweaks, metadata and request explanation before authorizing its
+signature share.
 
-### Local secrets and encrypted Hive storage
+### Durable state boundaries
 
-The storage behavior in this section was checked against Sygnature and its
-resolved secure-storage dependencies on 2026-09-28.
+Sygnature stores all security-critical ROAST state in encrypted durable
+storage. Participant state includes FROST keys, nonces, prepared operations and
+rejected requests. Host state includes room enrollment and the versioned
+Noosphere server snapshot. Creator-side transaction operations are keyed by
+`setupId:requestId` and include the exact proposal, unsigned transaction data,
+reserved outpoints, expiry, aggregate signatures, signed bytes and broadcast
+outcome.
 
-Sygnature separates encrypted application data from the keys needed to open
-it. `PlatformSecureKeyStore` uses `flutter_secure_storage` to access the
-platform's secret storage. Each Hive box has its own randomly generated
-32-byte encryption key, stored there as a base64url string:
-
-| Encrypted Hive box | Logical secret-storage key |
-| --- | --- |
-| `sygnature_private_v1` (wallet vault) | `sygnature_hive_key_v1` |
-| `sygnature_roast_private_v1` (ROAST persistence) | `sygnature_roast_hive_key_v1` |
-
-On opening a box, the repository retrieves and decodes its key, checks that it
-is 32 bytes long, and passes it to `HiveAesCipher`. When the secret is absent,
-the current implementation generates and stores a new key. A replacement key
-cannot decrypt an existing box whose original key has been lost. Base64url is
-only an encoding; protection of the stored key comes from the secret-storage
-backend. These keys are not derived from the user's OS password or recovery
-phrase.
-
-```text
-Platform secret storage
-  -> release the appropriate Hive encryption key to Sygnature
-  -> HiveAesCipher opens the encrypted box
-  -> wallet or ROAST code reads the decrypted application data
-```
-
-Wallet secret material and FROST shares are held in encrypted Hive data.
-Legacy coordinator Iroh identity secrets may remain under logical
-secure-storage keys named `sygnature_iroh_identity_<setupId>`. New identities
-are derived transiently from the BIP-39 seed and persisted index, and remain
-separate from Hive encryption keys and FROST shares.
-
-#### macOS
-
-At application startup, `main.dart` creates one `KeyringSecureKeyStore` shared
-by the wallet repository and ROAST persistence. It stores their logical
-secrets, including any legacy Iroh identities, in the single macOS Keychain item
-`sygnature_secure_keyring_v1`. This is one container holding distinct secrets,
-not one encryption key reused for every purpose.
-
-The first access reads this item and caches its decoded contents in the
-process. Subsequent reads of contained keys use that cache, avoiding separate
-Keychain reads for the wallet and ROAST encryption keys. Writes still update
-Keychain. Legacy individual items are migrated when read: persist their value
-in the shared item before deleting the old item. This migration can require
-additional access prompts on the first run.
-
-`PlatformSecureKeyStore` enables the Data Protection Keychain outside debug
-mode and disables it for debug builds. Actual access prompts depend on macOS
-Keychain policy and the app's identity; consolidating reads does not guarantee
-exactly one prompt in every situation. The current code does not implement a
-separate passkey or require Touch ID for every Hive access.
-
-#### Linux
-
-Linux uses `PlatformSecureKeyStore` directly. The resolved
-`flutter_secure_storage_linux` 3.0.3 backend calls `libsecret`, normally reaching
-a desktop Secret Service over the session D-Bus, such as GNOME Keyring or a
-compatible KDE service. See the [libsecret documentation](https://gnome.pages.gitlab.gnome.org/libsecret/).
-
-Although Sygnature does not apply its macOS keyring wrapper on Linux, this
-plugin version already serializes logical key/value pairs into a JSON secret
-record selected by its schema/account attributes. Reading a logical key
-retrieves that record through libsecret. Sygnature does not cache the whole
-record with `KeyringSecureKeyStore` on Linux.
-
-The desktop service controls unlocking. With correctly configured GNOME PAM
-integration, signing into the desktop can also unlock the login keyring, so
-starting Sygnature may require no additional password. If the collection is
-locked, the plugin requests unlocking through the service; a denied or failed
-unlock surfaces as a storage error. Session configuration determines whether
-and when the user sees a prompt. See [GNOME Keyring PAM integration](https://wiki.gnome.org/Projects/GnomeKeyring/Pam).
-
-Sandboxed deployments can instead use libsecret's portal-backed encrypted
-file storage, depending on backend selection and service availability. A
-working secret-storage backend is required; Sygnature has no plaintext-key
-fallback. The portal-backed file is encrypted using a secret supplied by the
-portal, as described in [libsecret's service documentation](https://gnome.pages.gitlab.gnome.org/libsecret/class.Service.html).
-
-The encrypted Hive files themselves are stored in the Linux application
-support directory resolved by `path_provider`. `HiveStorageInitializer`
-migrates legacy boxes from the Documents directory when applicable. The files
-are separate from the desktop's secret storage.
-
-#### Lifetime and protection boundary
-
-On both platforms, retrieved keys and decrypted data are available in the
-application process while in use. Hive does not ask the OS secret store to
-authorize each read, and local signing uses the loaded secret material.
-Locking the OS keychain/keyring does not revoke keys already retrieved by the
-process. Sygnature currently has no explicit session-lock mechanism that
-closes the boxes and clears all loaded secrets. Protection of files at rest
-must therefore be distinguished from protection of an already running,
-unlocked application.
+This persistence makes a completed signature or uncertain broadcast
+recoverable without creating a new proposal or signing different bytes. It does
+not make live connections durable. It also does not distribute local UTXO
+reservations to other participants, so every signer must independently reject
+unknown, unavailable or locally reserved inputs during approval.
 
 ## 11. Implementation source map
 
 The behavior described above is defined primarily in:
 
-- `lib/main.dart`
-- `lib/storage/wallet_repository.dart`
+- `lib/controllers/wallet_controller_roast_setup.dart`
+- `lib/controllers/wallet_controller_signing.dart`
+- `lib/controllers/wallet_controller_sync.dart`
+- `lib/models/group_transition.dart`
+- `lib/models/roast_signing_operation.dart`
+- `lib/services/roast_runtime_manager.dart`
+- `lib/services/roast_runtime_rooms.dart`
+- `lib/services/roast_runtime_signing_mapper.dart`
 - `lib/storage/roast_storage.dart`
-- `lib/storage/hive_storage_initializer.dart`
-- `test/secure_key_store_test.dart`
 - [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/fafb28dba31a2d3acc17d9c90060a3ad46d7300d):
   `packages/noosphere/proto/noosphere.proto`,
   `packages/noosphere/lib/src/framing.dart`,
@@ -511,4 +432,3 @@ The behavior described above is defined primarily in:
   `packages/noosphere_client/lib/src/iroh/`,
   `packages/noosphere_server/lib/src/iroh/`, and
   `packages/noosphere_server/lib/src/server/`
-- `roast-workflow.md`
