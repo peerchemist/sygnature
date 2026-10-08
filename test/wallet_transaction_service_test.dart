@@ -354,7 +354,14 @@ void main() {
           txHash: List.filled(64, 'c').join(),
           txPos: 0,
           height: 100,
-          value: 100000,
+          value: 40000,
+        ),
+        ElectrumxUtxo(
+          address: sourceAddress,
+          txHash: List.filled(64, 'c').join(),
+          txPos: 1,
+          height: 100,
+          value: 60000,
         ),
       ],
       request: WalletSendRequest(
@@ -367,6 +374,17 @@ void main() {
 
     expect(preview.changeSats, 0);
     expect(preview.amountSats + preview.feeSats, 100000);
+    expect(preview.selectedUtxos.map((utxo) => utxo.txPos), [0, 1]);
+    final signed = service.sign(
+      network: PeercoinNetworks.mainnet,
+      preview: preview,
+      privateKeyHex: sourceKeyHex,
+    );
+    expect(
+      Transaction.fromHex(signed.rawTransactionHex).inputs
+          .map((input) => input.prevOut.n),
+      [0, 1],
+    );
   });
 
   test('rejects amounts that do not leave enough value for the fee', () {

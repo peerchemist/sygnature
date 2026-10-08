@@ -145,10 +145,14 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
       throw const InvalidFeeRate();
     }
 
-    final candidates = availableUtxos
-        .where((utxo) => utxo.address == sourceAddress && utxo.value > 0)
-        .map(_candidate)
-        .toList(growable: false);
+    final candidates = <InputCandidate>[];
+    final utxosByOutpoint = <OutPoint, ElectrumxUtxo>{};
+    for (final utxo in availableUtxos) {
+      if (utxo.address != sourceAddress || utxo.value <= 0) continue;
+      final candidate = _candidate(utxo);
+      candidates.add(candidate);
+      utxosByOutpoint.putIfAbsent(candidate.input.prevOut, () => utxo);
+    }
     final feePerKb = BigInt.from(request.feeRateSatsPerKb);
     final amountSats = request.maximum
         ? _maximumAmount(
@@ -181,15 +185,10 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
           );
     if (!selection.ready) throw const WalletInsufficientFunds();
 
-    final selectedUtxos = selection.selected
-        .map(
-          (candidate) => availableUtxos.firstWhere(
-            (utxo) =>
-                OutPoint.fromHex(utxo.txHash, utxo.txPos) ==
-                candidate.input.prevOut,
-          ),
-        )
-        .toList(growable: false);
+    final selectedUtxos = [
+      for (final candidate in selection.selected)
+        utxosByOutpoint[candidate.input.prevOut]!,
+    ];
 
     return WalletTransactionPreview(
       accountId: accountId,
@@ -211,6 +210,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     required String privateKeyHex,
   }) {
     final built = _buildTransaction(network: network, preview: preview);
+    final key = ECPrivateKey.fromHex(privateKeyHex);
     var transaction = built.transaction;
     for (
       var inputIndex = 0;
@@ -219,7 +219,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     ) {
       transaction = transaction.signTaproot(
         inputN: inputIndex,
-        key: ECPrivateKey.fromHex(privateKeyHex),
+        key: key,
         prevOuts: built.previousOutputs,
       );
     }
