@@ -1590,17 +1590,54 @@ void main() {
       height: 100,
       value: 2000000,
     );
-    electrumx.emit('pc1pshared', const [utxo]);
+    const available = ElectrumxUtxo(
+      address: 'pc1pshared',
+      txHash: 'available',
+      txPos: 0,
+      height: 100,
+      value: 1000000,
+    );
+    electrumx.emit('pc1pshared', const [
+      utxo,
+      available,
+      ElectrumxUtxo(
+        address: 'pc1pshared',
+        txHash: 'pending',
+        txPos: 0,
+        height: 0,
+        value: 500000,
+      ),
+      ElectrumxUtxo(
+        address: 'pc1pshared',
+        txHash: 'unconfirmed',
+        txPos: 0,
+        height: -1,
+        value: 250000,
+      ),
+    ]);
     await _flushEvents();
 
     final request = _signingRequest('aa' * 16);
+    final overlapping = _signingRequest('bb' * 16);
     runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: request));
+    runtime.emit(
+      RoastRuntimeSigningRequestEvent('setup', request: overlapping),
+    );
     await _flushEvents();
 
     final account = controller.accounts.single;
-    expect(controller.availableUtxosFor(account), isEmpty);
-    expect(controller.availableBalanceSatsFor(account), 0);
+    expect(controller.roastSigningRequests, hasLength(2));
+    expect(controller.availableUtxosFor(account), [available]);
+    expect(controller.availableBalanceSatsFor(account), 1000000);
     expect(controller.reservedBalanceSatsFor(account), 2000000);
+    expect(controller.balanceFor(account), (
+      totalSats: 3750000,
+      confirmedSats: 3000000,
+      pendingSats: 750000,
+      availableSats: 1000000,
+      reservedSats: 2000000,
+      utxoCount: 4,
+    ));
     await expectLater(
       controller.sendTransaction(
         const WalletTransactionPreview(
@@ -1624,9 +1661,9 @@ void main() {
     );
 
     await controller.acceptRoastSigningRequest(
-      controller.roastSigningRequests.single,
+      controller.roastSigningRequests.first,
     );
-    expect(controller.availableUtxosFor(account), isEmpty);
+    expect(controller.availableUtxosFor(account), [available]);
 
     runtime.emit(
       RoastRuntimeSigningRequestRemovedEvent(
@@ -1636,10 +1673,60 @@ void main() {
       ),
     );
     await _flushEvents();
+    expect(controller.balanceFor(account).reservedSats, 2000000);
+    expect(controller.availableUtxosFor(account), [available]);
 
-    expect(controller.availableUtxosFor(account), hasLength(1));
-    expect(controller.availableBalanceSatsFor(account), 2000000);
+    runtime.emit(
+      RoastRuntimeSigningRequestRemovedEvent(
+        'setup',
+        requestIdHex: overlapping.idHex,
+        expired: false,
+      ),
+    );
+    await _flushEvents();
+
+    expect(controller.availableUtxosFor(account), [utxo, available]);
+    expect(controller.availableBalanceSatsFor(account), 3000000);
     expect(controller.reservedBalanceSatsFor(account), 0);
+    expect(controller.balanceFor(account).availableSats, 3000000);
+    controller.dispose();
+  });
+
+  test('excludes inactive requests from balance reservations', () async {
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final electrumx = _FakeElectrumxService();
+    final controller = _controller(
+      runtime: runtime,
+      electrumx: electrumx,
+      active: true,
+    );
+    await controller.load();
+    await _flushEvents();
+    electrumx.emit('pc1pshared', const [
+      ElectrumxUtxo(
+        address: 'pc1pshared',
+        txHash: 'funding',
+        txPos: 0,
+        height: 100,
+        value: 2000000,
+      ),
+    ]);
+    for (final request in [
+      _signingRequest('aa' * 16, status: 'rejected'),
+      _signingRequest('bb' * 16, stage: 'failed'),
+      _signingRequest(
+        'cc' * 16,
+        expiry: DateTime.now().subtract(const Duration(minutes: 1)),
+      ),
+    ]) {
+      runtime.emit(RoastRuntimeSigningRequestEvent('setup', request: request));
+    }
+    await _flushEvents();
+    final account = controller.accounts.single;
+    expect(controller.roastSigningRequests, hasLength(2));
+    expect(controller.balanceFor(account).reservedSats, 0);
+    expect(controller.balanceFor(account).availableSats, 2000000);
+    expect(controller.availableUtxosFor(account), hasLength(1));
     controller.dispose();
   });
 
@@ -2308,6 +2395,14 @@ void main() {
         2000000,
       );
       expect(controller.availableBalanceSatsFor(controller.accounts.single), 0);
+      expect(controller.balanceFor(controller.accounts.single), (
+        totalSats: 2000000,
+        confirmedSats: 2000000,
+        pendingSats: 0,
+        availableSats: 0,
+        reservedSats: 2000000,
+        utxoCount: 1,
+      ));
       expect(
         (await operations.getSigningOperation(operation.storageId))
             ?.reservationsReleased,
@@ -2485,11 +2580,12 @@ RoastSigningRequest _signingRequest(
   String stage = 'collecting',
   int threshold = 2,
   List<String> contributingParticipants = const ['01'],
+  DateTime? expiry,
 }) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'dd',
   creator: '01',
-  expiry: DateTime.now().add(const Duration(minutes: 5)),
+  expiry: expiry ?? DateTime.now().add(const Duration(minutes: 5)),
   kind: RoastSigningRequestKind.transaction,
   hasTransactionMetadata: true,
   usesSupportedSighash: true,

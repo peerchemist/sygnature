@@ -1042,12 +1042,7 @@ class _BalanceCard extends StatelessWidget {
   Widget build(BuildContext context) => SelectorBuilder(
     listenable: controller,
     select: () => [
-      controller.balanceSatsFor(account),
-      controller.confirmedBalanceSatsFor(account),
-      controller.availableBalanceSatsFor(account),
-      controller.reservedBalanceSatsFor(account),
-      controller.pendingBalanceSatsFor(account),
-      controller.utxosFor(account).length,
+      controller.balanceFor(account),
       controller.syncStatusFor(account),
       controller.setupForAccount(account)?.isActive,
       if (account.sourceId case final setupId?) ...[
@@ -1076,25 +1071,20 @@ class _BalanceCard extends StatelessWidget {
         !controller.roastOperationInProgress(roastSetup!.id) &&
         !messageSigning;
     final syncStatus = controller.syncStatusFor(account);
-    final balance = controller.balanceSatsFor(account);
-    final confirmedBalance = controller.confirmedBalanceSatsFor(account);
-    final availableBalance = controller.availableBalanceSatsFor(account);
-    final reservedBalance = controller.reservedBalanceSatsFor(account);
-    final pendingBalance = controller.pendingBalanceSatsFor(account);
-    final utxoCount = controller.utxosFor(account).length;
+    final balance = controller.balanceFor(account);
     final balanceDescription = switch (syncStatus) {
       AccountSyncStatus.unavailable =>
         'Value unavailable until synchronization',
       AccountSyncStatus.syncing => 'Synchronizing with ElectrumX…',
-      AccountSyncStatus.synced when reservedBalance > 0 =>
-        '${_formatPpc(confirmedBalance)} PPC confirmed · '
-            '${_formatPpc(reservedBalance)} PPC reserved by ROAST',
-      AccountSyncStatus.synced when pendingBalance == 0 =>
-        '${_formatPpc(confirmedBalance)} PPC confirmed · '
-            '$utxoCount ${utxoCount == 1 ? 'output' : 'outputs'}',
+      AccountSyncStatus.synced when balance.reservedSats > 0 =>
+        '${_formatPpc(balance.confirmedSats)} PPC confirmed · '
+            '${_formatPpc(balance.reservedSats)} PPC reserved by ROAST',
+      AccountSyncStatus.synced when balance.pendingSats == 0 =>
+        '${_formatPpc(balance.confirmedSats)} PPC confirmed · '
+            '${balance.utxoCount} ${balance.utxoCount == 1 ? 'output' : 'outputs'}',
       AccountSyncStatus.synced =>
-        '${_formatPpc(confirmedBalance)} PPC confirmed · '
-            '${_formatPpc(pendingBalance)} PPC pending',
+        '${_formatPpc(balance.confirmedSats)} PPC confirmed · '
+            '${_formatPpc(balance.pendingSats)} PPC pending',
       AccountSyncStatus.error => 'ElectrumX synchronization failed',
     };
     return Card(
@@ -1116,7 +1106,7 @@ class _BalanceCard extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                '${_formatPpc(balance)} PPC',
+                '${_formatPpc(balance.totalSats)} PPC',
                 style: const TextStyle(
                   color: AppColors.ink,
                   fontSize: 34,
@@ -1164,12 +1154,12 @@ class _BalanceCard extends StatelessWidget {
                     enabled:
                         canSign &&
                         syncStatus == AccountSyncStatus.synced &&
-                        availableBalance > 0 &&
+                        balance.availableSats > 0 &&
                         !transactionSigning,
                     onPressed:
                         canSign &&
                             syncStatus == AccountSyncStatus.synced &&
-                            availableBalance > 0 &&
+                            balance.availableSats > 0 &&
                             !transactionSigning
                         ? () => _showSendDialog(context, controller, account)
                         : null,

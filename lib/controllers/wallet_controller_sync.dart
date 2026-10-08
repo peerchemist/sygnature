@@ -1,5 +1,14 @@
 part of 'wallet_controller.dart';
 
+typedef WalletBalance = ({
+  int totalSats,
+  int confirmedSats,
+  int pendingSats,
+  int availableSats,
+  int reservedSats,
+  int utxoCount,
+});
+
 extension WalletSyncController on WalletController {
   WalletNetwork networkForAccount(WalletAccount account) =>
       _networkById(account.blockchainId, account.networkId);
@@ -9,19 +18,39 @@ extension WalletSyncController on WalletController {
     return address == null ? const [] : _utxosByAddress[address] ?? const [];
   }
 
-  int balanceSatsFor(WalletAccount account) {
-    return utxosFor(account).fold(0, (total, utxo) => total + utxo.value);
+  WalletBalance balanceFor(WalletAccount account) {
+    final utxos = utxosFor(account);
+    final reservedOutpoints = _reservedOutpointsFor(account.id);
+    var confirmed = 0;
+    var pending = 0;
+    var reserved = 0;
+    for (final utxo in utxos) {
+      if (!utxo.isConfirmed) {
+        pending += utxo.value;
+        continue;
+      }
+      confirmed += utxo.value;
+      if (reservedOutpoints.contains(WalletSigningController._utxoKey(utxo))) {
+        reserved += utxo.value;
+      }
+    }
+    return (
+      totalSats: confirmed + pending,
+      confirmedSats: confirmed,
+      pendingSats: pending,
+      availableSats: confirmed - reserved,
+      reservedSats: reserved,
+      utxoCount: utxos.length,
+    );
   }
 
+  int balanceSatsFor(WalletAccount account) => _balanceOf(utxosFor(account));
+
   int confirmedBalanceSatsFor(WalletAccount account) =>
-      utxosFor(account)
-          .where((utxo) => utxo.isConfirmed)
-          .fold(0, (total, utxo) => total + utxo.value);
+      balanceFor(account).confirmedSats;
 
   int pendingBalanceSatsFor(WalletAccount account) =>
-      utxosFor(account)
-          .where((utxo) => !utxo.isConfirmed)
-          .fold(0, (total, utxo) => total + utxo.value);
+      balanceFor(account).pendingSats;
 
   List<ElectrumxUtxo> spendableUtxosFor(WalletAccount account) =>
       utxosFor(account)
@@ -30,28 +59,22 @@ extension WalletSyncController on WalletController {
 
   List<ElectrumxUtxo> availableUtxosFor(WalletAccount account) {
     final reservedOutpoints = _reservedOutpointsFor(account.id);
-    return spendableUtxosFor(account)
+    return utxosFor(account)
         .where(
-          (utxo) => !reservedOutpoints.contains(
-            WalletSigningController._utxoKey(utxo),
-          ),
+          (utxo) =>
+              utxo.isConfirmed &&
+              !reservedOutpoints.contains(
+                WalletSigningController._utxoKey(utxo),
+              ),
         )
         .toList(growable: false);
   }
 
   int availableBalanceSatsFor(WalletAccount account) =>
-      availableUtxosFor(account).fold(0, (total, utxo) => total + utxo.value);
+      balanceFor(account).availableSats;
 
-  int reservedBalanceSatsFor(WalletAccount account) {
-    final reservedOutpoints = _reservedOutpointsFor(account.id);
-    return spendableUtxosFor(account)
-        .where(
-          (utxo) => reservedOutpoints.contains(
-            WalletSigningController._utxoKey(utxo),
-          ),
-        )
-        .fold(0, (total, utxo) => total + utxo.value);
-  }
+  int reservedBalanceSatsFor(WalletAccount account) =>
+      balanceFor(account).reservedSats;
 
   Set<String> _reservedOutpointsFor(
     String accountId, {
@@ -66,20 +89,21 @@ extension WalletSyncController on WalletController {
         .toSet();
     if (!includeIncomingRequests) return reserved;
 
-    final setupIds = accounts
+    final setupId = accounts
         .where((account) => account.id == accountId)
-        .map((account) => account.sourceId)
-        .nonNulls
-        .toSet();
+        .firstOrNull
+        ?.sourceId;
+    if (setupId == null) return reserved;
+    final now = DateTime.now();
     reserved.addAll(
       _roastSigningRequests.values
           .where(
             (item) =>
-                setupIds.contains(item.setupId) &&
+                item.setupId == setupId &&
                 item.request.kind == RoastSigningRequestKind.transaction &&
                 item.request.status != 'rejected' &&
                 item.request.progress.stage != 'failed' &&
-                item.request.expiry.isAfter(DateTime.now()),
+                item.request.expiry.isAfter(now),
           )
           .expand((item) => item.request.inputOutpoints),
     );

@@ -269,6 +269,14 @@ void main() {
     final account = controller.accounts.single;
     expect(controller.syncStatusFor(account), AccountSyncStatus.syncing);
     expect(electrumx.watchedAddresses.single, {'pc1paccount0'});
+    expect(controller.balanceFor(account), (
+      totalSats: 0,
+      confirmedSats: 0,
+      pendingSats: 0,
+      availableSats: 0,
+      reservedSats: 0,
+      utxoCount: 0,
+    ));
 
     electrumx.snapshots.add(
       const PeercoinElectrumxUtxoSnapshot(
@@ -296,6 +304,14 @@ void main() {
     expect(controller.balanceSatsFor(account), 1750000);
     expect(controller.confirmedBalanceSatsFor(account), 1250000);
     expect(controller.pendingBalanceSatsFor(account), 500000);
+    expect(controller.balanceFor(account), (
+      totalSats: 1750000,
+      confirmedSats: 1250000,
+      pendingSats: 500000,
+      availableSats: 1250000,
+      reservedSats: 0,
+      utxoCount: 2,
+    ));
     expect(controller.spendableUtxosFor(account), hasLength(1));
     expect(controller.utxosFor(account), hasLength(2));
     expect(controller.syncStatusFor(account), AccountSyncStatus.synced);
@@ -318,6 +334,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.balanceSatsFor(account), 2000000);
+    expect(controller.balanceFor(account).pendingSats, 750000);
     expect(receivedSoundCount, 1);
 
     electrumx.snapshots.add(receivedSnapshot);
