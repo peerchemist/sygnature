@@ -559,7 +559,16 @@ final class RoastRuntimeManager(
             event.setupId,
             message: event.message,
             interrupted: event.interrupted,
-            operation: event.operation,
+            operation: switch (event.operation) {
+              'signatures' => RoastRuntimeOperation.signatures,
+              'dkg' => RoastRuntimeOperation.dkg,
+              'reconnect' ||
+              'session' ||
+              'serverAddress' ||
+              'serve' => RoastRuntimeOperation.connection,
+              'worker' => RoastRuntimeOperation.worker,
+              _ => RoastRuntimeOperation.unknown,
+            },
           ),
         );
         unawaited(_refresh(event.setupId));
@@ -654,7 +663,7 @@ final class RoastRuntimeManager(
             event.setupId,
             message: 'Unable to process completed ROAST signatures: $error',
             interrupted: false,
-            operation: 'signingPersistence',
+            operation: RoastRuntimeOperation.signingPersistence,
             requestIdHex: requestIdHex,
           ),
         );
@@ -695,9 +704,26 @@ final class RoastRuntimeManager(
       _rememberDkgs(snapshot);
       _rememberSigningRequests(snapshot);
       _emitSnapshot(snapshot);
-      await _rememberExpectedKey(snapshot);
-    } on Object {
-      // A concurrent stop legitimately makes this refresh stale.
+      await _rememberExpectedKeySafely(snapshot);
+    } on Object catch (error, stackTrace) {
+      if (_events.isClosed ||
+          !identical(worker, _worker) ||
+          !identical(setup, _setups[setupId])) {
+        return;
+      }
+      AppLogger.error(
+        '${_roastScope(setupId)} Unable to refresh worker state',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _events.add(
+        RoastRuntimeFailureEvent(
+          setupId,
+          message: 'Unable to refresh ROAST state.',
+          interrupted: true,
+          operation: RoastRuntimeOperation.refresh,
+        ),
+      );
     }
   }
 
@@ -718,7 +744,7 @@ final class RoastRuntimeManager(
             snapshot.setupId,
             message: 'Unable to verify ROAST key readiness: $error',
             interrupted: true,
-            operation: 'keyReadiness',
+            operation: RoastRuntimeOperation.keyReadiness,
           ),
         );
       }
@@ -742,7 +768,7 @@ final class RoastRuntimeManager(
           snapshot.setupId,
           message: 'Multiple local ROAST keys use the expected key name.',
           interrupted: true,
-          operation: 'keyReadiness',
+          operation: RoastRuntimeOperation.keyReadiness,
         ),
       );
       return;

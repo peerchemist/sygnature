@@ -30,12 +30,12 @@ class RoastSigningOperation({
   final String? errorMessage,
   final bool reservationsReleased = false,
 }) {
+  static const schemaVersion = 1;
+
   String get storageId => '$setupId:$requestIdHex';
 
   bool get reservesUtxos {
     if (reservationsReleased ||
-        (state == RoastSigningOperationState.interrupted &&
-            errorMessage == 'Signing request failed.') ||
         (rawTransactionHex == null && expiry.isBefore(DateTime.now()))) {
       return false;
     }
@@ -83,6 +83,7 @@ class RoastSigningOperation({
   );
 
   Map<String, Object?> toJson() => {
+    'schemaVersion': schemaVersion,
     'setupId': setupId,
     'accountId': accountId,
     'requestIdHex': requestIdHex,
@@ -102,29 +103,37 @@ class RoastSigningOperation({
     'reservationsReleased': reservationsReleased,
   };
 
-  factory RoastSigningOperation.fromJson(Map<Object?, Object?> json) =>
-      RoastSigningOperation(
-        setupId: json['setupId']! as String,
-        accountId: json['accountId']! as String,
-        requestIdHex: json['requestIdHex']! as String,
-        proposalHex: json['proposalHex']! as String,
-        expectedInternalKeyHex: json['expectedInternalKeyHex']! as String,
-        derivationPath: (json['derivationPath']! as List).cast<int>(),
-        thresholdTransaction: Map<String, Object?>.from(
-          json['thresholdTransaction']! as Map,
-        ),
-        reservedOutpoints: (json['reservedOutpoints']! as List).cast<String>(),
-        expiry: DateTime.parse(json['expiry']! as String),
-        state: RoastSigningOperationState.values.byName(
-          json['state']! as String,
-        ),
-        updatedAt: DateTime.parse(json['updatedAt']! as String),
-        signaturesHex: ((json['signaturesHex'] as List?) ?? const [])
-            .cast<String>(),
-        rawTransactionHex: json['rawTransactionHex'] as String?,
-        transactionId: json['transactionId'] as String?,
-        serverTransactionId: json['serverTransactionId'] as String?,
-        errorMessage: json['errorMessage'] as String?,
-        reservationsReleased: json['reservationsReleased'] as bool? ?? false,
-      );
+  factory RoastSigningOperation.fromJson(Map<Object?, Object?> json) {
+    var state = RoastSigningOperationState.values.byName(
+      json['state']! as String,
+    );
+    // Older versions recorded a rejected request as an interruption.
+    if (json['schemaVersion'] == null &&
+        state == RoastSigningOperationState.interrupted &&
+        json['errorMessage'] == 'Signing request failed.') {
+      state = RoastSigningOperationState.rejected;
+    }
+    return RoastSigningOperation(
+      setupId: json['setupId']! as String,
+      accountId: json['accountId']! as String,
+      requestIdHex: json['requestIdHex']! as String,
+      proposalHex: json['proposalHex']! as String,
+      expectedInternalKeyHex: json['expectedInternalKeyHex']! as String,
+      derivationPath: (json['derivationPath']! as List).cast<int>(),
+      thresholdTransaction: Map<String, Object?>.from(
+        json['thresholdTransaction']! as Map,
+      ),
+      reservedOutpoints: (json['reservedOutpoints']! as List).cast<String>(),
+      expiry: DateTime.parse(json['expiry']! as String),
+      state: state,
+      updatedAt: DateTime.parse(json['updatedAt']! as String),
+      signaturesHex: ((json['signaturesHex'] as List?) ?? const [])
+          .cast<String>(),
+      rawTransactionHex: json['rawTransactionHex'] as String?,
+      transactionId: json['transactionId'] as String?,
+      serverTransactionId: json['serverTransactionId'] as String?,
+      errorMessage: json['errorMessage'] as String?,
+      reservationsReleased: json['reservationsReleased'] as bool? ?? false,
+    );
+  }
 }

@@ -310,7 +310,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         setupId,
         message: 'ROAST room failed: $error',
         interrupted: true,
-        operation: 'room',
+        operation: RoastRuntimeOperation.room,
       ),
     );
   }

@@ -707,7 +707,7 @@ void main() {
         'setup',
         message: 'Coordinator connection lost.',
         interrupted: true,
-        operation: 'reconnect',
+        operation: RoastRuntimeOperation.connection,
       ),
     );
     await tester.pumpAndSettle();
@@ -1310,7 +1310,7 @@ void main() {
           'setup',
           message: 'Signing request failed.',
           interrupted: false,
-          operation: 'signatures',
+          operation: RoastRuntimeOperation.signatures,
           requestIdHex: failedId,
         ),
       );

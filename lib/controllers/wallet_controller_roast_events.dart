@@ -17,6 +17,12 @@ extension WalletRoastEventController on WalletController {
     try {
       await _handleRoastEvent(event);
     } catch (error, stackTrace) {
+      AppLogger.error(
+        '${WalletRoastSetupController._roastLogScope(event.setupId)} '
+        'Unable to process ${event.runtimeType}',
+        error: error,
+        stackTrace: stackTrace,
+      );
       if (event case RoastRuntimeSigningResultEvent()) {
         final pending =
             _pendingRoastSends['${event.setupId}:${event.requestIdHex}'];
@@ -227,9 +233,15 @@ extension WalletRoastEventController on WalletController {
           reference: event.keyName,
         );
       case RoastRuntimeFailureEvent()
-          when event.operation == 'signatures' ||
-              event.operation == 'signingPersistence':
-        final error = WalletTransactionRejected(event.message);
+          when event.operation == RoastRuntimeOperation.signatures ||
+              event.operation == RoastRuntimeOperation.signingPersistence:
+        final error = WalletSigningFailure(
+          event.operation == RoastRuntimeOperation.signatures &&
+                  !event.interrupted
+              ? WalletSigningFailureKind.rejected
+              : WalletSigningFailureKind.interrupted,
+          event.message,
+        );
         final pendingEntries = event.requestIdHex == null
             ? _pendingRoastSends.entries.where(
                 (entry) => entry.key.startsWith('${event.setupId}:'),
@@ -260,14 +272,14 @@ extension WalletRoastEventController on WalletController {
         _notifyListeners();
         return;
       case RoastRuntimeFailureEvent():
-        if (event.operation.toLowerCase().contains('dkg') ||
-            event.operation == 'keyReadiness') {
+        if (event.operation == RoastRuntimeOperation.dkg ||
+            event.operation == RoastRuntimeOperation.keyReadiness) {
           await _recordSetupActivity(
             setup,
             id:
                 'dkg-failed:${setup.id}:'
                 '${setup.pendingDkgProposalHex ?? setup.keyName}:'
-                '${event.operation}',
+                '${event.operation.name}',
             type: WalletActivityType.dkgFailed,
             reference: setup.pendingDkgProposalHex ?? setup.keyName,
             details: event.message,
@@ -333,7 +345,7 @@ extension WalletRoastEventController on WalletController {
             );
           }
           _notifyListeners();
-        } on Object {
+        } on WalletTransactionFailure {
           // Unsupported or foreign proposals are deliberately not rendered.
         }
       case RoastRuntimeSigningRequestRemovedEvent():

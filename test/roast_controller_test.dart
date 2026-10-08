@@ -137,6 +137,34 @@ void main() {
     controller.dispose();
   });
 
+  test('surfaces unexpected signing request validation errors', () async {
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final keyService = _FakeRoastKeyService();
+    final controller = _controller(
+      runtime: runtime,
+      keyService: keyService,
+      active: true,
+    );
+    await controller.load();
+    await _flushEvents();
+    keyService.failNextDerivation = true;
+    runtime.emit(
+      RoastRuntimeSigningRequestEvent(
+        'setup',
+        request: _signingRequest('ab' * 16),
+      ),
+    );
+    await _flushEvents();
+
+    expect(controller.roastSigningRequests, isEmpty);
+    expect(controller.roastSetups.single.status, RoastSetupStatus.error);
+    expect(
+      controller.roastSetups.single.errorMessage,
+      contains('injected derivation failure'),
+    );
+    controller.dispose();
+  });
+
   test('uses the threshold BIP-86 hierarchy for new ROAST accounts', () {
     final service = const RoastKeyService();
     final mainnet = service.deriveAddress(
@@ -1579,7 +1607,7 @@ void main() {
           'setup',
           message: 'Signing request failed.',
           interrupted: false,
-          operation: 'signatures',
+          operation: RoastRuntimeOperation.signatures,
           requestIdHex: failedId,
         ),
       );
@@ -1963,74 +1991,133 @@ void main() {
     controller.dispose();
   });
 
-  test('signing failure completes the send without disabling setup', () async {
-    final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
-    final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
-    final sourceAddress = P2TRAddress.fromTaproot(
-      Taproot(internalKey: signingKey.pubkey),
-      hrp: Network.mainnet.bech32Hrp,
-    ).toString();
-    final destinationAddress = P2TRAddress.fromTweakedKey(
-      destinationKey.pubkey,
-      hrp: Network.mainnet.bech32Hrp,
-    ).toString();
-    final operations = MemoryRoastSigningOperationRepository();
-    final runtime = _FakeRoastRuntime()
-      ..snapshotGroupKey = 'expected-key'
-      ..failSigningRequests = true;
-    final electrumx = _FakeElectrumxService();
-    final controller = _activeController(
-      runtime: runtime,
-      operations: operations,
-      electrumx: electrumx,
-      sourceAddress: sourceAddress,
-      derived: RoastDerivedAddress(
-        path: const [0, 6, 0, 0, 0, 0],
-        pathLabel: 'R/0/6/0/0/0/0',
-        address: sourceAddress,
-        internalKeyHex: signingKey.pubkey.hex,
-      ),
-    );
-    await controller.load();
-    await _flushEvents();
-    final preview = const CoinlibWalletTransactionService().prepare(
-      accountId: 'shared',
-      network: PeercoinNetworks.mainnet,
-      sourceAddress: sourceAddress,
-      availableUtxos: [
-        ElectrumxUtxo(
-          address: sourceAddress,
-          txHash: 'd' * 64,
-          txPos: 0,
-          height: 100,
-          value: 2000000,
-        ),
-      ],
-      request: WalletSendRequest(
-        destinationAddress: destinationAddress,
-        amountSats: 1000000,
-        feeRateSatsPerKb: 10000,
-      ),
-    );
+  for (final scenario in [
+    (
+      kind: WalletSigningFailureKind.rejected,
+      operation: RoastRuntimeOperation.signatures,
+      interrupted: false,
+      message: 'The previous connection expired; this request was declined.',
+      state: RoastSigningOperationState.rejected,
+    ),
+    (
+      kind: WalletSigningFailureKind.interrupted,
+      operation: RoastRuntimeOperation.signatures,
+      interrupted: true,
+      message: 'Signing request failed.',
+      state: RoastSigningOperationState.interrupted,
+    ),
+    (
+      kind: WalletSigningFailureKind.interrupted,
+      operation: RoastRuntimeOperation.signingPersistence,
+      interrupted: false,
+      message: 'Signing request failed.',
+      state: RoastSigningOperationState.interrupted,
+    ),
+    (
+      kind: WalletSigningFailureKind.expired,
+      operation: RoastRuntimeOperation.signatures,
+      interrupted: false,
+      message: 'No signatures arrived.',
+      state: RoastSigningOperationState.expired,
+    ),
+  ]) {
+    test(
+      'classifies ${scenario.operation.name} as ${scenario.state.name} independently of message text',
+      () async {
+        final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
+        final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
+        final sourceAddress = P2TRAddress.fromTaproot(
+          Taproot(internalKey: signingKey.pubkey),
+          hrp: Network.mainnet.bech32Hrp,
+        ).toString();
+        final destinationAddress = P2TRAddress.fromTweakedKey(
+          destinationKey.pubkey,
+          hrp: Network.mainnet.bech32Hrp,
+        ).toString();
+        final operations = MemoryRoastSigningOperationRepository();
+        final runtime = _FakeRoastRuntime()
+          ..snapshotGroupKey = 'expected-key'
+          ..failSigningRequests =
+              scenario.kind != WalletSigningFailureKind.expired
+          ..signingFailureOperation = scenario.operation
+          ..signingFailureInterrupted = scenario.interrupted
+          ..signingFailureMessage = scenario.message;
+        final electrumx = _FakeElectrumxService();
+        final controller = _activeController(
+          runtime: runtime,
+          operations: operations,
+          electrumx: electrumx,
+          sourceAddress: sourceAddress,
+          derived: RoastDerivedAddress(
+            path: const [0, 6, 0, 0, 0, 0],
+            pathLabel: 'R/0/6/0/0/0/0',
+            address: sourceAddress,
+            internalKeyHex: signingKey.pubkey.hex,
+          ),
+        );
+        await controller.load();
+        await _flushEvents();
+        final preview = const CoinlibWalletTransactionService().prepare(
+          accountId: 'shared',
+          network: PeercoinNetworks.mainnet,
+          sourceAddress: sourceAddress,
+          availableUtxos: [
+            ElectrumxUtxo(
+              address: sourceAddress,
+              txHash: 'd' * 64,
+              txPos: 0,
+              height: 100,
+              value: 2000000,
+            ),
+          ],
+          request: WalletSendRequest(
+            destinationAddress: destinationAddress,
+            amountSats: 1000000,
+            feeRateSatsPerKb: 10000,
+          ),
+        );
 
-    await expectLater(
-      controller.sendTransaction(preview),
-      throwsA(isA<WalletTransactionRejected>()),
-    );
+        await expectLater(
+          controller.sendTransaction(
+            preview,
+            signatureRequestTimeout:
+                scenario.kind == WalletSigningFailureKind.expired
+                ? const Duration(milliseconds: 50)
+                : defaultRoastSigningRequestTimeout,
+          ),
+          throwsA(
+            isA<WalletSigningFailure>().having(
+              (error) => error.kind,
+              'kind',
+              scenario.kind,
+            ),
+          ),
+        );
 
-    expect(controller.roastSetups.single.status, RoastSetupStatus.active);
-    final failedOperation = (await operations.loadSigningOperations()).single;
-    expect(failedOperation.state, RoastSigningOperationState.rejected);
-    expect(failedOperation.reservesUtxos, isFalse);
-    expect(
-      failedOperation
-          .copyWith(state: RoastSigningOperationState.interrupted)
-          .reservesUtxos,
-      isFalse,
-      reason: 'legacy rejected attempts must release their UTXOs too',
+        expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+        final failedOperation =
+            (await operations.loadSigningOperations()).single;
+        expect(failedOperation.state, scenario.state);
+        expect(
+          failedOperation.reservesUtxos,
+          scenario.state == RoastSigningOperationState.interrupted,
+        );
+        final restored = RoastSigningOperation.fromJson(
+          failedOperation.toJson(),
+        );
+        expect(restored.state, scenario.state);
+        expect(restored.reservesUtxos, failedOperation.reservesUtxos);
+        final legacyJson = failedOperation.toJson()
+          ..remove('schemaVersion')
+          ..['state'] = 'interrupted'
+          ..['errorMessage'] = 'Signing request failed.';
+        final legacy = RoastSigningOperation.fromJson(legacyJson);
+        expect(legacy.state, RoastSigningOperationState.rejected);
+        expect(legacy.reservesUtxos, isFalse);
+        controller.dispose();
+      },
     );
-    controller.dispose();
-  });
+  }
 
   test(
     'keeps broadcast UTXOs reserved until sync observes the spend',
@@ -2411,6 +2498,10 @@ class _FakeRoastRuntime implements RoastRuntime {
   final List<String> deletedSetupIds = [];
   String? snapshotGroupKey;
   bool failSigningRequests = false;
+  RoastRuntimeOperation signingFailureOperation =
+      RoastRuntimeOperation.signatures;
+  bool signingFailureInterrupted = false;
+  String signingFailureMessage = 'Signing request failed.';
   RoastRoomCreation? roomCreation;
   RoastSetup? createdRoomSetup;
   NewDkgDetails? lastApprovedDkgDetails;
@@ -2530,9 +2621,9 @@ class _FakeRoastRuntime implements RoastRuntime {
       _events.add(
         RoastRuntimeFailureEvent(
           setup.id,
-          message: 'Signing request failed.',
-          interrupted: false,
-          operation: 'signatures',
+          message: signingFailureMessage,
+          interrupted: signingFailureInterrupted,
+          operation: signingFailureOperation,
         ),
       );
     }

@@ -223,7 +223,10 @@ class WalletController extends ChangeNotifier {
       if (!pending.completer.isCompleted) {
         pending.completer.complete(
           _RoastSendOutcome(
-            error: const WalletTransactionRejected('ROAST signer stopped.'),
+            error: const WalletSigningFailure(
+              WalletSigningFailureKind.interrupted,
+              'ROAST signer stopped.',
+            ),
           ),
         );
       }
@@ -232,7 +235,10 @@ class WalletController extends ChangeNotifier {
     for (final pending in _pendingRoastMessages.values) {
       if (!pending.isCompleted) {
         pending.completeError(
-          const WalletTransactionRejected('ROAST signer stopped.'),
+          const WalletSigningFailure(
+            WalletSigningFailureKind.interrupted,
+            'ROAST signer stopped.',
+          ),
         );
       }
     }

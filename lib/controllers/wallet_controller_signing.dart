@@ -161,6 +161,10 @@ extension WalletSigningController on WalletController {
       }
       return await completer.future.timeout(
         proposal.expiry.difference(DateTime.now()),
+        onTimeout: () => throw const WalletSigningFailure(
+          WalletSigningFailureKind.expired,
+          'The signing request expired before enough signatures arrived.',
+        ),
       );
     } finally {
       _pendingRoastMessages.remove(pendingKey);
@@ -285,6 +289,10 @@ extension WalletSigningController on WalletController {
           await runtime.requestSignatures(setup, proposal);
           final outcome = await completer.future.timeout(
             proposal.expiry.difference(DateTime.now()),
+            onTimeout: () => throw const WalletSigningFailure(
+              WalletSigningFailureKind.expired,
+              'The signing request expired before enough signatures arrived.',
+            ),
           );
           if (outcome.error case final error?) {
             Error.throwWithStackTrace(
@@ -294,15 +302,16 @@ extension WalletSigningController on WalletController {
           }
           signed = outcome.signed!;
           signingOperation = _storedRoastSigningOperations[pendingKey];
-        } on Object catch (error) {
+        } on Object catch (error, stackTrace) {
           final current = _storedRoastSigningOperations[pendingKey];
           if (current != null && current.rawTransactionHex == null) {
             final expired =
                 current.expiry.isBefore(DateTime.now()) ||
-                error.toString().toLowerCase().contains('expired');
+                error is WalletSigningFailure &&
+                    error.kind == WalletSigningFailureKind.expired;
             final rejected =
-                error is WalletTransactionRejected &&
-                error.message == 'Signing request failed.';
+                error is WalletSigningFailure &&
+                error.kind == WalletSigningFailureKind.rejected;
             await _saveRoastSigningOperation(
               current.copyWith(
                 state: expired
@@ -319,6 +328,14 @@ extension WalletSigningController on WalletController {
                 accountId: current.accountId,
                 type: WalletActivityType.signatureRequestExpired,
                 reference: current.requestIdHex,
+              );
+              Error.throwWithStackTrace(
+                WalletSigningFailure(
+                  WalletSigningFailureKind.expired,
+                  'The signing request expired before enough signatures arrived.',
+                  cause: error,
+                ),
+                stackTrace,
               );
             }
           }
@@ -577,7 +594,10 @@ extension WalletSigningController on WalletController {
     RoastSigningRequest request,
   ) {
     if (request.expiry.isBefore(DateTime.now())) {
-      throw const WalletTransactionRejected('The signing request is expired.');
+      throw const WalletSigningFailure(
+        WalletSigningFailureKind.expired,
+        'The signing request is expired.',
+      );
     }
     if (request.kind == RoastSigningRequestKind.message) {
       final validMessage =

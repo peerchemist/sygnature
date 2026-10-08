@@ -66,11 +66,23 @@ final class RoastRuntimeKeyEvent(
   required final String description,
 }) extends RoastRuntimeEvent;
 
+enum RoastRuntimeOperation {
+  signatures,
+  signingPersistence,
+  keyReadiness,
+  dkg,
+  room,
+  connection,
+  worker,
+  refresh,
+  unknown,
+}
+
 final class RoastRuntimeFailureEvent(
   super.setupId, {
   required final String message,
   required final bool interrupted,
-  required final String operation,
+  required final RoastRuntimeOperation operation,
   final String? requestIdHex,
 }) extends RoastRuntimeEvent;
 
