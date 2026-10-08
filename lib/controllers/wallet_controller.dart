@@ -137,6 +137,8 @@ class WalletController extends ChangeNotifier {
   final List<WalletNetwork> supportedNetworks;
   final Map<String, ElectrumxService> _networkServices = {};
   WalletVault? _vault;
+  Future<void> _vaultMutations = Future.value();
+  bool _vaultNeedsReload = false;
   String? _selectedAccountId;
   bool _busy = false;
   bool _disposed = false;
@@ -166,7 +168,49 @@ class WalletController extends ChangeNotifier {
   final Map<String, _RoastPresence> _roastPresence = {};
   final Set<String> _announcedRoastActions = {};
 
-  void _notifyListeners() => notifyListeners();
+  void _notifyListeners() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<T> _queueVaultMutation<T>(Future<T> Function() operation) {
+    final result = _vaultMutations.then((_) => operation());
+    // Report failure to the caller while allowing later mutations to proceed.
+    _vaultMutations = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  Future<void> _updateVault(
+    WalletVault? Function(WalletVault? current) update, {
+    bool updateSelection = false,
+  }) => _queueVaultMutation(() async {
+    if (_vaultNeedsReload) {
+      _vault = await _repository.load();
+      _selectedAccountId =
+          _vault?.selectedAccountId ?? accounts.firstOrNull?.id;
+      _vaultNeedsReload = false;
+      _notifyListeners();
+    }
+    final current = _vault;
+    final next = update(current);
+    if (identical(current, next)) return;
+    try {
+      if (next == null) {
+        await _repository.delete();
+      } else {
+        await _repository.save(next);
+      }
+    } catch (_) {
+      // A failed write may have committed. Reconcile before another mutation.
+      _vaultNeedsReload = true;
+      rethrow;
+    }
+    _vault = next;
+    if (updateSelection) _selectedAccountId = next?.selectedAccountId;
+    _notifyListeners();
+  });
 
   @override
   void dispose() {

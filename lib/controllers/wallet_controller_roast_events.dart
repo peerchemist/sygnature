@@ -31,8 +31,9 @@ extension WalletRoastEventController on WalletController {
       }
       try {
         final setup = _setupById(event.setupId);
-        await _replaceSetup(
-          setup.copyWith(
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
             status: RoastSetupStatus.error,
             errorMessage: WalletRoastSetupController._cleanRoastError(error),
           ),
@@ -55,8 +56,9 @@ extension WalletRoastEventController on WalletController {
     ]) {
       _roastPresence.remove(setup.id);
       try {
-        await _replaceSetup(
-          _setupById(setup.id).copyWith(
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
             status: RoastSetupStatus.interrupted,
             errorMessage: WalletRoastSetupController._cleanRoastError(error),
           ),
@@ -82,8 +84,9 @@ extension WalletRoastEventController on WalletController {
           for (final participant in event.participants)
             participant.participantPublicKeyHex: participant,
         };
-        await _replaceSetup(
-          setup.copyWith(
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
             invitations: [
               for (final invitation in setup.invitations)
                 invitation.copyWith(
@@ -100,25 +103,46 @@ extension WalletRoastEventController on WalletController {
           ),
         );
       case RoastRuntimeSnapshotEvent():
-        final recovered =
-            event.connected &&
-            event.signerRunning &&
-            (setup.status == RoastSetupStatus.connecting ||
-                setup.status == RoastSetupStatus.interrupted);
+        final previousPresence = _roastPresence[event.setupId];
+        final presenceChanged =
+            previousPresence?.connected != event.connected ||
+            previousPresence?.signerRunning != event.signerRunning;
         _roastPresence[event.setupId] = _RoastPresence(
           connected: event.connected,
           signerRunning: event.signerRunning,
         );
-        await _replaceSetup(
-          setup.copyWith(
+        var setupChanged = false;
+        await _updateSetup(setup.id, (setup) {
+          final recovered =
+              event.connected &&
+              event.signerRunning &&
+              (setup.status == RoastSetupStatus.connecting ||
+                  setup.status == RoastSetupStatus.interrupted);
+          if (!recovered &&
+              listEquals(
+                setup.onlineParticipantIds,
+                event.onlineParticipantIds,
+              ) &&
+              (event.coordinatorId == null ||
+                  setup.coordinatorId == event.coordinatorId) &&
+              listEquals(
+                setup.coordinatorRelayUrls,
+                event.coordinatorRelayUrls,
+              ) &&
+              listEquals(setup.coordinatorIpAddrs, event.coordinatorIpAddrs)) {
+            return setup;
+          }
+          setupChanged = true;
+          return setup.copyWith(
             onlineParticipantIds: event.onlineParticipantIds,
             coordinatorId: event.coordinatorId,
             coordinatorRelayUrls: event.coordinatorRelayUrls,
             coordinatorIpAddrs: event.coordinatorIpAddrs,
             status: recovered ? _restoredRoastStatus(setup) : setup.status,
             clearError: recovered,
-          ),
-        );
+          );
+        });
+        if (presenceChanged && !setupChanged) _notifyListeners();
       case RoastRuntimeDkgEvent()
           when event.rejected &&
               WalletRoastSetupController._dkgDefinitionMatchesSetup(
@@ -127,8 +151,9 @@ extension WalletRoastEventController on WalletController {
               ) &&
               (setup.pendingDkgProposalHex == null ||
                   setup.pendingDkgProposalHex == event.proposalHex):
-        await _replaceSetup(
-          setup.copyWith(
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
             status: RoastSetupStatus.ready,
             clearPendingDkgProposal: true,
             errorMessage: event.failure ?? 'The DKG proposal was rejected.',
@@ -149,8 +174,9 @@ extension WalletRoastEventController on WalletController {
         await _roastRuntime?.rejectDkg(event.setupId, event.proposalHex);
         return;
       case RoastRuntimeDkgEvent():
-        await _replaceSetup(
-          setup.copyWith(
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
             status: event.failure != null
                 ? RoastSetupStatus.error
                 : event.stage != 'waiting'
@@ -182,13 +208,16 @@ extension WalletRoastEventController on WalletController {
         );
       case RoastRuntimeKeyEvent():
         if (event.keyName != setup.keyName) return;
-        final active = setup.copyWith(
-          status: RoastSetupStatus.active,
-          groupKeyHex: event.groupKeyHex,
-          clearPendingDkgProposal: true,
-          clearError: true,
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
+            status: RoastSetupStatus.active,
+            groupKeyHex: event.groupKeyHex,
+            clearPendingDkgProposal: true,
+            clearError: true,
+          ),
         );
-        await _replaceSetup(active);
+        final active = _setupById(setup.id);
         await _activateRoastAccount(active, event.groupKeyHex);
         await _markTransitionReadyForSetup(setup.id);
         await _recordSetupActivity(
@@ -245,8 +274,9 @@ extension WalletRoastEventController on WalletController {
           );
         }
         if (event.interrupted) _roastPresence.remove(event.setupId);
-        await _replaceSetup(
-          setup.copyWith(
+        await _updateSetup(
+          setup.id,
+          (setup) => setup.copyWith(
             status: event.interrupted
                 ? RoastSetupStatus.interrupted
                 : RoastSetupStatus.error,

@@ -36,6 +36,107 @@ void main() {
     await NoosphereFlutter.initializeNative();
   });
 
+  test(
+    'preserves overlapping invitation delivery and enrollment updates',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime();
+      final controller = _coordinatorController(repository, runtime);
+      final setup = repository.value!.roastSetups.single;
+      final publicKey = setup.participants.last.publicKeyHex;
+      repository.value = repository.value!.copyWith(
+        roastSetups: [
+          setup.copyWith(
+            invitations: [
+              RoastIssuedInvitation(
+                participantName: 'Member',
+                participantPublicKeyHex: publicKey,
+                encoded: 'invite',
+                issuedAt: DateTime.now(),
+                expiresAt: DateTime.now().add(const Duration(days: 1)),
+              ),
+            ],
+          ),
+        ],
+      );
+      await controller.load();
+      await _flushEvents();
+      repository.saveStarted = Completer<void>();
+      repository.saveGate = Completer<void>();
+      final copied = controller.markRoastInvitationCopied(setup.id, publicKey);
+      await repository.saveStarted!.future;
+      final sent = controller.markRoastInvitationSent(setup.id, publicKey);
+      final enrolledAt = DateTime.now();
+      runtime.emit(
+        RoastRuntimeEnrollmentEvent(
+          setup.id,
+          invitations: [],
+          participants: [
+            RoastRuntimeParticipantEnrollment(
+              participantPublicKeyHex: publicKey,
+              enrolledAt: enrolledAt,
+            ),
+          ],
+        ),
+      );
+      await _flushEvents();
+      repository.saveGate!.complete();
+      await Future.wait([copied, sent]);
+      await _flushEvents();
+
+      final invitation =
+          repository.value!.roastSetups.single.invitations.single;
+      expect(invitation.copiedAt, isNotNull);
+      expect(invitation.sentAt, isNotNull);
+      expect(invitation.joinedAt, enrolledAt);
+      controller.dispose();
+    },
+  );
+
+  test('skips unchanged snapshots while publishing presence changes', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+    final setup = controller.roastSetups.single;
+    RoastRuntimeSnapshotEvent snapshot({
+      bool connected = true,
+      List<String>? online,
+    }) => RoastRuntimeSnapshotEvent(
+      setup.id,
+      connected: connected,
+      signerRunning: connected,
+      onlineParticipantIds: online ?? List.of(setup.onlineParticipantIds),
+      coordinatorId: setup.coordinatorId,
+      coordinatorRelayUrls: List.of(setup.coordinatorRelayUrls),
+      coordinatorIpAddrs: List.of(setup.coordinatorIpAddrs),
+    );
+    final saves = repository.saveCount;
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    runtime.emit(snapshot());
+    runtime.emit(snapshot());
+    await _flushEvents();
+    expect(repository.saveCount, saves);
+    expect(notifications, 0);
+
+    runtime.emit(snapshot(connected: false));
+    await _flushEvents();
+    expect(repository.saveCount, saves);
+    expect(notifications, 1);
+    expect(
+      controller.roastCoordinatorState(setup.id),
+      RoastCoordinatorLocalState.stopped,
+    );
+
+    runtime.emit(snapshot(online: const ['01']));
+    await _flushEvents();
+    expect(repository.saveCount, saves + 1);
+    expect(controller.roastSetups.single.onlineParticipantIds, ['01']);
+    controller.dispose();
+  });
+
   test('uses the threshold BIP-86 hierarchy for new ROAST accounts', () {
     final service = const RoastKeyService();
     final mainnet = service.deriveAddress(
@@ -2554,9 +2655,18 @@ enum _CoordinatorSaveFailure { none, beforeCommit, afterCommit }
 final class _CoordinatorRepository extends MemoryWalletRepository {
   _CoordinatorSaveFailure failure = _CoordinatorSaveFailure.none;
   Completer<void>? coordinatorWriteGate;
+  Completer<void>? saveStarted;
+  Completer<void>? saveGate;
+  int saveCount = 0;
 
   @override
   Future<void> save(WalletVault vault) async {
+    saveCount++;
+    final started = saveStarted;
+    if (started != null && !started.isCompleted) {
+      started.complete();
+      await saveGate!.future;
+    }
     final previousId = value?.roastSetups.singleOrNull?.coordinatorId;
     final nextId = vault.roastSetups.singleOrNull?.coordinatorId;
     final coordinatorChanged = previousId != nextId;

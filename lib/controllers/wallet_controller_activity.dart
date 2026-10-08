@@ -89,59 +89,57 @@ extension WalletActivityController on WalletController {
     List<WalletActivityRecipient>? transactionRecipients,
     int? transactionFeeSats,
   }) async {
-    final current = _vault;
-    if (current == null) return;
-    final index = current.activities.indexWhere((item) => item.id == id);
-    late final List<WalletActivity> activities;
-    if (index == -1) {
-      final activity = WalletActivity(
-        id: id,
-        accountId: accountId,
-        type: type,
-        occurredAt: DateTime.now().toUtc(),
-        reference: reference,
-        details: details,
-        signedMessagePublicKeyHex: signedMessagePublicKeyHex,
-        signedMessageSignatureHex: signedMessageSignatureHex,
-        signedMessageEncoded: signedMessageEncoded,
-        transactionRecipients: transactionRecipients ?? const [],
-        transactionFeeSats: transactionFeeSats,
-      );
-      activities = [
-        activity,
-        ...current.activities,
-      ].take(WalletController._maxActivityEntries).toList(growable: false);
-    } else {
-      final previous = current.activities[index];
-      final updated = previous.copyWith(
-        details: details,
-        signedMessagePublicKeyHex: signedMessagePublicKeyHex,
-        signedMessageSignatureHex: signedMessageSignatureHex,
-        signedMessageEncoded: signedMessageEncoded,
-        transactionRecipients: transactionRecipients,
-        transactionFeeSats: transactionFeeSats,
-      );
-      if (updated.details == previous.details &&
-          updated.signedMessagePublicKeyHex ==
-              previous.signedMessagePublicKeyHex &&
-          updated.signedMessageSignatureHex ==
-              previous.signedMessageSignatureHex &&
-          updated.signedMessageEncoded == previous.signedMessageEncoded &&
-          listEquals(
-            updated.transactionRecipients,
-            previous.transactionRecipients,
-          ) &&
-          updated.transactionFeeSats == previous.transactionFeeSats) {
-        return;
-      }
-      activities = [...current.activities];
-      activities[index] = updated;
-    }
-    final next = current.copyWith(activities: activities);
     try {
-      await _repository.save(next);
-      _vault = next;
-      _notifyListeners();
+      await _updateVault((current) {
+        if (current == null) return current;
+        final index = current.activities.indexWhere((item) => item.id == id);
+        late final List<WalletActivity> activities;
+        if (index == -1) {
+          final activity = WalletActivity(
+            id: id,
+            accountId: accountId,
+            type: type,
+            occurredAt: DateTime.now().toUtc(),
+            reference: reference,
+            details: details,
+            signedMessagePublicKeyHex: signedMessagePublicKeyHex,
+            signedMessageSignatureHex: signedMessageSignatureHex,
+            signedMessageEncoded: signedMessageEncoded,
+            transactionRecipients: transactionRecipients ?? const [],
+            transactionFeeSats: transactionFeeSats,
+          );
+          activities = [
+            activity,
+            ...current.activities,
+          ].take(WalletController._maxActivityEntries).toList(growable: false);
+        } else {
+          final previous = current.activities[index];
+          final updated = previous.copyWith(
+            details: details,
+            signedMessagePublicKeyHex: signedMessagePublicKeyHex,
+            signedMessageSignatureHex: signedMessageSignatureHex,
+            signedMessageEncoded: signedMessageEncoded,
+            transactionRecipients: transactionRecipients,
+            transactionFeeSats: transactionFeeSats,
+          );
+          if (updated.details == previous.details &&
+              updated.signedMessagePublicKeyHex ==
+                  previous.signedMessagePublicKeyHex &&
+              updated.signedMessageSignatureHex ==
+                  previous.signedMessageSignatureHex &&
+              updated.signedMessageEncoded == previous.signedMessageEncoded &&
+              listEquals(
+                updated.transactionRecipients,
+                previous.transactionRecipients,
+              ) &&
+              updated.transactionFeeSats == previous.transactionFeeSats) {
+            return current;
+          }
+          activities = [...current.activities];
+          activities[index] = updated;
+        }
+        return current.copyWith(activities: activities);
+      });
     } on Object catch (error, stackTrace) {
       AppLogger.error(
         'Unable to persist wallet activity',
@@ -158,57 +156,56 @@ extension WalletActivityController on WalletController {
     int? blockHeight,
     String? details,
   }) async {
-    final current = _vault;
-    if (current == null) return;
-    final id = 'transaction-broadcast:$accountId:$transactionId';
-    final index = current.activities.indexWhere(
-      (activity) => activity.id == id,
-    );
-    final activities = [...current.activities];
-    if (index == -1) {
-      activities.insert(
-        0,
-        WalletActivity(
-          id: id,
-          accountId: accountId,
-          type: WalletActivityType.transactionBroadcast,
-          occurredAt: DateTime.now().toUtc(),
-          reference: transactionId,
-          details: details,
-          transactionStatus: status,
-          blockHeight: blockHeight,
-        ),
-      );
-      if (activities.length > WalletController._maxActivityEntries) {
-        activities.removeRange(
-          WalletController._maxActivityEntries,
-          activities.length,
-        );
-      }
-    } else {
-      final activity = activities[index];
-      final chainAlreadySawTransaction =
-          activity.transactionStatus == WalletTransactionStatus.mempool ||
-          activity.transactionStatus == WalletTransactionStatus.confirmed;
-      final networkOnlyStatus =
-          status == WalletTransactionStatus.broadcasting ||
-          status == WalletTransactionStatus.broadcast ||
-          status == WalletTransactionStatus.failed;
-      final keepChainStatus = chainAlreadySawTransaction && networkOnlyStatus;
-      activities[index] = activity.copyWith(
-        transactionStatus: keepChainStatus
-            ? activity.transactionStatus
-            : status,
-        blockHeight: blockHeight,
-        details: keepChainStatus ? null : details,
-        clearDetails: keepChainStatus || details == null,
-      );
-    }
-    final next = current.copyWith(activities: activities);
     try {
-      await _repository.save(next);
-      _vault = next;
-      _notifyListeners();
+      await _updateVault((current) {
+        if (current == null) return current;
+        final id = 'transaction-broadcast:$accountId:$transactionId';
+        final index = current.activities.indexWhere(
+          (activity) => activity.id == id,
+        );
+        final activities = [...current.activities];
+        if (index == -1) {
+          activities.insert(
+            0,
+            WalletActivity(
+              id: id,
+              accountId: accountId,
+              type: WalletActivityType.transactionBroadcast,
+              occurredAt: DateTime.now().toUtc(),
+              reference: transactionId,
+              details: details,
+              transactionStatus: status,
+              blockHeight: blockHeight,
+            ),
+          );
+          if (activities.length > WalletController._maxActivityEntries) {
+            activities.removeRange(
+              WalletController._maxActivityEntries,
+              activities.length,
+            );
+          }
+        } else {
+          final activity = activities[index];
+          final chainAlreadySawTransaction =
+              activity.transactionStatus == WalletTransactionStatus.mempool ||
+              activity.transactionStatus == WalletTransactionStatus.confirmed;
+          final networkOnlyStatus =
+              status == WalletTransactionStatus.broadcasting ||
+              status == WalletTransactionStatus.broadcast ||
+              status == WalletTransactionStatus.failed;
+          final keepChainStatus =
+              chainAlreadySawTransaction && networkOnlyStatus;
+          activities[index] = activity.copyWith(
+            transactionStatus: keepChainStatus
+                ? activity.transactionStatus
+                : status,
+            blockHeight: blockHeight,
+            details: keepChainStatus ? null : details,
+            clearDetails: keepChainStatus || details == null,
+          );
+        }
+        return current.copyWith(activities: activities);
+      });
     } on Object catch (error, stackTrace) {
       AppLogger.error(
         'Unable to persist transaction status',
@@ -222,56 +219,56 @@ extension WalletActivityController on WalletController {
     String address,
     List<ElectrumxTransactionHistoryEntry> history,
   ) async {
-    final current = _vault;
-    if (current == null) return;
-    final accountIds = accounts
-        .where((account) => account.address == address)
-        .map((account) => account.id)
-        .toSet();
-    final transactions = {
-      for (final entry in history) entry.transactionId: entry,
-    };
-    var changed = false;
-    final activities = <WalletActivity>[];
-    for (final activity in current.activities) {
-      final entry = transactions[activity.reference];
-      if (activity.type != WalletActivityType.transactionBroadcast ||
-          !accountIds.contains(activity.accountId)) {
-        activities.add(activity);
-        continue;
-      }
-      final status = entry == null
-          ? switch (activity.transactionStatus) {
-              WalletTransactionStatus.confirmed ||
-              WalletTransactionStatus.mempool =>
-                WalletTransactionStatus.broadcast,
-              _ => activity.transactionStatus,
-            }
-          : entry.isConfirmed
-          ? WalletTransactionStatus.confirmed
-          : WalletTransactionStatus.mempool;
-      final blockHeight = entry?.isConfirmed ?? false ? entry!.height : null;
-      if (activity.transactionStatus == status &&
-          activity.blockHeight == blockHeight) {
-        activities.add(activity);
-        continue;
-      }
-      changed = true;
-      activities.add(
-        activity.copyWith(
-          transactionStatus: status,
-          blockHeight: blockHeight,
-          clearBlockHeight: blockHeight == null,
-          clearDetails: true,
-        ),
-      );
-    }
-    if (!changed) return;
-    final next = current.copyWith(activities: activities);
     try {
-      await _repository.save(next);
-      _vault = next;
-      _notifyListeners();
+      await _updateVault((current) {
+        if (current == null) return current;
+        final accountIds = current.accounts
+            .where((account) => account.address == address)
+            .map((account) => account.id)
+            .toSet();
+        final transactions = {
+          for (final entry in history) entry.transactionId: entry,
+        };
+        var changed = false;
+        final activities = <WalletActivity>[];
+        for (final activity in current.activities) {
+          final entry = transactions[activity.reference];
+          if (activity.type != WalletActivityType.transactionBroadcast ||
+              !accountIds.contains(activity.accountId)) {
+            activities.add(activity);
+            continue;
+          }
+          final status = entry == null
+              ? switch (activity.transactionStatus) {
+                  WalletTransactionStatus.confirmed ||
+                  WalletTransactionStatus.mempool =>
+                    WalletTransactionStatus.broadcast,
+                  _ => activity.transactionStatus,
+                }
+              : entry.isConfirmed
+              ? WalletTransactionStatus.confirmed
+              : WalletTransactionStatus.mempool;
+          final blockHeight = entry?.isConfirmed ?? false
+              ? entry!.height
+              : null;
+          if (activity.transactionStatus == status &&
+              activity.blockHeight == blockHeight) {
+            activities.add(activity);
+            continue;
+          }
+          changed = true;
+          activities.add(
+            activity.copyWith(
+              transactionStatus: status,
+              blockHeight: blockHeight,
+              clearBlockHeight: blockHeight == null,
+              clearDetails: true,
+            ),
+          );
+        }
+        if (!changed) return current;
+        return current.copyWith(activities: activities);
+      });
     } on Object catch (error, stackTrace) {
       AppLogger.error(
         'Unable to persist synchronized transaction statuses',

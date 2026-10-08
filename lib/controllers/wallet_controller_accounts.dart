@@ -87,27 +87,25 @@ extension WalletAccountsController on WalletController {
 
   Future<void> createVault(MnemonicSession mnemonic) async {
     await _guard(() async {
-      final current = _vault;
-      final selectedAccountId =
-          _selectedAccountId ??
-          current?.accounts
-              .where((account) => !account.isArchived)
-              .lastOrNull
-              ?.id;
-      final vault = WalletVault(
-        mnemonic: mnemonic.phrase,
-        languageId: mnemonic.language.id,
-        mnemonicWordCount: mnemonic.words.length,
-        accounts: current?.accounts ?? const [],
-        nextAccountIndex: current?.nextAccountIndex ?? 0,
-        roastSetups: current?.roastSetups ?? const [],
-        groupTransitions: current?.groupTransitions ?? const [],
-        activities: current?.activities ?? const [],
-        selectedAccountId: selectedAccountId,
-      );
-      await _repository.save(vault);
-      _vault = vault;
-      _selectedAccountId = selectedAccountId;
+      await _updateVault((current) {
+        final selectedAccountId =
+            _selectedAccountId ??
+            current?.accounts
+                .where((account) => !account.isArchived)
+                .lastOrNull
+                ?.id;
+        return WalletVault(
+          mnemonic: mnemonic.phrase,
+          languageId: mnemonic.language.id,
+          mnemonicWordCount: mnemonic.words.length,
+          accounts: current?.accounts ?? const [],
+          nextAccountIndex: current?.nextAccountIndex ?? 0,
+          roastSetups: current?.roastSetups ?? const [],
+          groupTransitions: current?.groupTransitions ?? const [],
+          activities: current?.activities ?? const [],
+          selectedAccountId: selectedAccountId,
+        );
+      }, updateSelection: true);
     });
   }
 
@@ -135,28 +133,25 @@ extension WalletAccountsController on WalletController {
         selectedNetwork,
         material,
       );
-      final current = _vault;
-      final vault = WalletVault(
-        mnemonic: mnemonic.phrase,
-        languageId: mnemonic.language.id,
-        mnemonicWordCount: mnemonic.words.length,
-        accounts: [...?current?.accounts, first],
-        nextAccountIndex: 1,
-        roastSetups: current?.roastSetups ?? const [],
-        groupTransitions: current?.groupTransitions ?? const [],
-        activities: current?.activities ?? const [],
-        selectedAccountId: first.id,
+      await _updateVault(
+        (current) => WalletVault(
+          mnemonic: mnemonic.phrase,
+          languageId: mnemonic.language.id,
+          mnemonicWordCount: mnemonic.words.length,
+          accounts: [...?current?.accounts, first],
+          nextAccountIndex: 1,
+          roastSetups: current?.roastSetups ?? const [],
+          groupTransitions: current?.groupTransitions ?? const [],
+          activities: current?.activities ?? const [],
+          selectedAccountId: first.id,
+        ),
+        updateSelection: true,
       );
-      await _repository.save(vault);
-      _vault = vault;
-      _selectedAccountId = first.id;
       await _restartElectrumxSync();
     });
   }
 
   Future<void> addAccount(String name, {required WalletNetwork network}) async {
-    final current = _vault;
-    if (current == null) throw StateError('Wallet is not initialized.');
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
       throw ArgumentError('Wallet name cannot be empty.');
@@ -167,30 +162,30 @@ extension WalletAccountsController on WalletController {
     );
     await _guard(() async {
       await _ensureNetworkService(selectedNetwork);
-      final index = current.nextAccountIndex;
-      final mnemonic = current.mnemonic;
-      if (mnemonic == null) {
-        throw StateError('Wallet mnemonic is missing.');
-      }
-      final account = _derivedAccount(
-        index,
-        trimmedName,
-        selectedNetwork,
-        _keyService.deriveAccount(
-          network: selectedNetwork,
-          mnemonic: mnemonic,
-          language: MnemonicLanguage.byId(current.languageId!),
-          accountIndex: index,
-        ),
-      );
-      final next = current.copyWith(
-        accounts: [...current.accounts, account],
-        nextAccountIndex: current.nextAccountIndex + 1,
-        selectedAccountId: account.id,
-      );
-      await _repository.save(next);
-      _vault = next;
-      _selectedAccountId = account.id;
+      await _updateVault((current) {
+        if (current == null) throw StateError('Wallet is not initialized.');
+        final index = current.nextAccountIndex;
+        final mnemonic = current.mnemonic;
+        if (mnemonic == null) {
+          throw StateError('Wallet mnemonic is missing.');
+        }
+        final account = _derivedAccount(
+          index,
+          trimmedName,
+          selectedNetwork,
+          _keyService.deriveAccount(
+            network: selectedNetwork,
+            mnemonic: mnemonic,
+            language: MnemonicLanguage.byId(current.languageId!),
+            accountIndex: index,
+          ),
+        );
+        return current.copyWith(
+          accounts: [...current.accounts, account],
+          nextAccountIndex: current.nextAccountIndex + 1,
+          selectedAccountId: account.id,
+        );
+      }, updateSelection: true);
       await _restartElectrumxSync();
     });
   }
@@ -209,45 +204,43 @@ extension WalletAccountsController on WalletController {
       network.networkId,
     );
     final normalizedAddress = _watchOnlyAddress(address, selectedNetwork);
-    final current = _vault;
-    if (current?.accounts.any(
-          (account) =>
-              account.blockchainId == selectedNetwork.blockchainId &&
-              account.networkId == selectedNetwork.networkId &&
-              account.address == normalizedAddress,
-        ) ==
-        true) {
-      throw const WatchOnlyWalletFailure(
-        'This address is already in the wallet.',
-      );
-    }
-
     await _guard(() async {
       await _ensureNetworkService(selectedNetwork);
-      final account = WalletAccount(
-        id: 'watch-${bytesToHex(generateRandomBytes(16))}',
-        name: trimmedName,
-        accountIndex: current?.accounts.length ?? 0,
-        blockchainId: selectedNetwork.blockchainId,
-        networkId: selectedNetwork.networkId,
-        derivationState: WalletDerivationState.watchOnly,
-        keySource: WalletKeySource.watchOnly,
-        address: normalizedAddress,
-        createdAt: DateTime.now().toUtc(),
-      );
-      final next = current == null
-          ? WalletVault(
-              accounts: [account],
-              nextAccountIndex: 0,
-              selectedAccountId: account.id,
-            )
-          : current.copyWith(
-              accounts: [...current.accounts, account],
-              selectedAccountId: account.id,
-            );
-      await _repository.save(next);
-      _vault = next;
-      _selectedAccountId = account.id;
+      await _updateVault((current) {
+        if (current?.accounts.any(
+              (account) =>
+                  account.blockchainId == selectedNetwork.blockchainId &&
+                  account.networkId == selectedNetwork.networkId &&
+                  account.address == normalizedAddress,
+            ) ==
+            true) {
+          throw const WatchOnlyWalletFailure(
+            'This address is already in the wallet.',
+          );
+        }
+
+        final account = WalletAccount(
+          id: 'watch-${bytesToHex(generateRandomBytes(16))}',
+          name: trimmedName,
+          accountIndex: current?.accounts.length ?? 0,
+          blockchainId: selectedNetwork.blockchainId,
+          networkId: selectedNetwork.networkId,
+          derivationState: WalletDerivationState.watchOnly,
+          keySource: WalletKeySource.watchOnly,
+          address: normalizedAddress,
+          createdAt: DateTime.now().toUtc(),
+        );
+        return current == null
+            ? WalletVault(
+                accounts: [account],
+                nextAccountIndex: 0,
+                selectedAccountId: account.id,
+              )
+            : current.copyWith(
+                accounts: [...current.accounts, account],
+                selectedAccountId: account.id,
+              );
+      }, updateSelection: true);
       await _restartElectrumxSync();
     });
   }
@@ -269,33 +262,32 @@ extension WalletAccountsController on WalletController {
     }
     _assertRoastAccountCanBeDeactivated(account, action: 'archiving');
 
-    final activeIndex = accounts.indexWhere((item) => item.id == accountId);
-    final wasSelected = _selectedAccountId == accountId;
-    final remainingActive = current.accounts
-        .where((item) => !item.isArchived && item.id != accountId)
-        .toList(growable: false);
-    final nextSelectedAccountId = wasSelected
-        ? remainingActive.isEmpty
-              ? null
-              : remainingActive[activeIndex.clamp(
-                      0,
-                      remainingActive.length - 1,
-                    )]
-                    .id
-        : _selectedAccountId;
     await _guard(() async {
-      final archived = account.archive(DateTime.now());
-      final next = current.copyWith(
-        accounts: [
-          for (final item in current.accounts)
-            if (item.id == accountId) archived else item,
-        ],
-        selectedAccountId: nextSelectedAccountId,
-        clearSelectedAccountId: nextSelectedAccountId == null,
-      );
-      await _repository.save(next);
-      _vault = next;
-      _selectedAccountId = nextSelectedAccountId;
+      await _updateVault((current) {
+        if (current == null) throw StateError('Wallet is not initialized.');
+        final activeIndex = accounts.indexWhere((item) => item.id == accountId);
+        final wasSelected = _selectedAccountId == accountId;
+        final remainingActive = current.accounts
+            .where((item) => !item.isArchived && item.id != accountId)
+            .toList(growable: false);
+        final nextSelectedAccountId = wasSelected
+            ? remainingActive.isEmpty
+                  ? null
+                  : remainingActive[activeIndex.clamp(
+                          0,
+                          remainingActive.length - 1,
+                        )]
+                        .id
+            : _selectedAccountId;
+        return current.copyWith(
+          accounts: [
+            for (final item in current.accounts)
+              if (item.id == accountId) item.archive(DateTime.now()) else item,
+          ],
+          selectedAccountId: nextSelectedAccountId,
+          clearSelectedAccountId: nextSelectedAccountId == null,
+        );
+      }, updateSelection: true);
 
       Object? runtimeError;
       StackTrace? runtimeStack;
@@ -338,21 +330,20 @@ extension WalletAccountsController on WalletController {
 
     await _guard(() async {
       await _ensureNetworkService(networkForAccount(account));
-      final restored = account.restore();
-      final next = current.copyWith(
-        accounts: [
-          for (final item in current.accounts)
-            if (item.id == accountId) restored else item,
-        ],
-        selectedAccountId: restored.id,
-      );
-      await _repository.save(next);
-      _vault = next;
-      _selectedAccountId = restored.id;
+      await _updateVault((current) {
+        if (current == null) throw StateError('Wallet is not initialized.');
+        return current.copyWith(
+          accounts: [
+            for (final item in current.accounts)
+              if (item.id == accountId) item.restore() else item,
+          ],
+          selectedAccountId: account.id,
+        );
+      }, updateSelection: true);
       await _restartElectrumxSync();
 
-      final setupId = restored.keySource == WalletKeySource.roast
-          ? restored.sourceId
+      final setupId = account.keySource == WalletKeySource.roast
+          ? account.sourceId
           : null;
       if (setupId != null &&
           !current.accounts.any(
@@ -373,7 +364,9 @@ extension WalletAccountsController on WalletController {
       throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
     }
     final removedAccount = current.accounts[accountIndex];
-    final remainingAccounts = [...current.accounts]..removeAt(accountIndex);
+    final remainingAccounts = current.accounts
+        .where((account) => account.id != accountId)
+        .toList(growable: false);
     final roastSetupId =
         removedAccount.keySource == WalletKeySource.roast &&
             !remainingAccounts.any(
@@ -393,40 +386,44 @@ extension WalletAccountsController on WalletController {
         'Finish the active ROAST operation before deleting this wallet.',
       );
     }
-    final selectedId = selectedAccount?.id;
-    final activeIndex = accounts.indexWhere(
-      (account) => account.id == accountId,
-    );
-    final remainingActive = remainingAccounts
-        .where((account) => !account.isArchived)
-        .toList(growable: false);
-    final nextSelectedAccountId = selectedId == removedAccount.id
-        ? remainingActive.isEmpty
-              ? null
-              : remainingActive[activeIndex.clamp(
-                      0,
-                      remainingActive.length - 1,
-                    )]
-                    .id
-        : selectedId;
     await _guard(() async {
-      final next = current.copyWith(
-        accounts: remainingAccounts,
-        activities: [
-          for (final activity in current.activities)
-            if (activity.accountId != removedAccount.id) activity,
-        ],
-        roastSetups: roastSetupId == null
-            ? current.roastSetups
-            : [
-                for (final setup in current.roastSetups)
-                  if (setup.id != roastSetupId) setup,
-              ],
-        selectedAccountId: nextSelectedAccountId,
-        clearSelectedAccountId: nextSelectedAccountId == null,
-      );
-      await _repository.save(next);
-      _vault = next;
+      await _updateVault((current) {
+        if (current == null) throw StateError('Wallet is not initialized.');
+        final remainingAccounts = current.accounts
+            .where((account) => account.id != accountId)
+            .toList(growable: false);
+        final selectedId = selectedAccount?.id;
+        final activeIndex = accounts.indexWhere(
+          (account) => account.id == accountId,
+        );
+        final remainingActive = remainingAccounts
+            .where((account) => !account.isArchived)
+            .toList(growable: false);
+        final nextSelectedAccountId = selectedId == removedAccount.id
+            ? remainingActive.isEmpty
+                  ? null
+                  : remainingActive[activeIndex.clamp(
+                          0,
+                          remainingActive.length - 1,
+                        )]
+                        .id
+            : selectedId;
+        return current.copyWith(
+          accounts: remainingAccounts,
+          activities: [
+            for (final activity in current.activities)
+              if (activity.accountId != removedAccount.id) activity,
+          ],
+          roastSetups: roastSetupId == null
+              ? current.roastSetups
+              : [
+                  for (final setup in current.roastSetups)
+                    if (setup.id != roastSetupId) setup,
+                ],
+          selectedAccountId: nextSelectedAccountId,
+          clearSelectedAccountId: nextSelectedAccountId == null,
+        );
+      }, updateSelection: true);
 
       Object? cleanupError;
       StackTrace? cleanupStack;
@@ -459,8 +456,6 @@ extension WalletAccountsController on WalletController {
         _completedRoastMessages.remove(roastSetupId);
       }
 
-      _selectedAccountId = nextSelectedAccountId;
-
       await _restartElectrumxSync();
       await _closeUnusedNetworkServices();
       if (cleanupError != null) {
@@ -480,17 +475,18 @@ extension WalletAccountsController on WalletController {
       throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
     }
     await _guard(() async {
-      final next = current.copyWith(
-        accounts: [
-          for (final account in current.accounts)
-            if (account.id == accountId)
-              account.copyWith(name: trimmedName)
-            else
-              account,
-        ],
-      );
-      await _repository.save(next);
-      _vault = next;
+      await _updateVault((current) {
+        if (current == null) throw StateError('Wallet is not initialized.');
+        return current.copyWith(
+          accounts: [
+            for (final account in current.accounts)
+              if (account.id == accountId)
+                account.copyWith(name: trimmedName)
+              else
+                account,
+          ],
+        );
+      });
     });
   }
 
@@ -498,13 +494,11 @@ extension WalletAccountsController on WalletController {
     if (index < 0 || index >= accounts.length) return;
     final accountId = accounts[index].id;
     if (accountId == _selectedAccountId) return;
-    final current = _vault;
-    if (current == null) return;
     await _guard(() async {
-      final next = current.copyWith(selectedAccountId: accountId);
-      await _repository.save(next);
-      _vault = next;
-      _selectedAccountId = accountId;
+      await _updateVault(
+        (current) => current?.copyWith(selectedAccountId: accountId),
+        updateSelection: true,
+      );
     });
   }
 
@@ -517,9 +511,7 @@ extension WalletAccountsController on WalletController {
           _roastPresence.remove(setup.id);
         }
       }
-      await _repository.delete();
-      _vault = null;
-      _selectedAccountId = null;
+      await _updateVault((_) => null, updateSelection: true);
       await _closeNetworkServices();
       _clearSyncState();
     });

@@ -163,23 +163,21 @@ extension WalletRoastSetupController on WalletController {
       keyId: setup.keyName,
       createdAt: DateTime.now().toUtc(),
     );
-    final current = _vault;
-    final next = current == null
-        ? WalletVault(
-            accounts: [account],
-            nextAccountIndex: 0,
-            roastSetups: [setup],
-            selectedAccountId: account.id,
-          )
-        : current.copyWith(
-            accounts: [...current.accounts, account],
-            roastSetups: [...current.roastSetups, setup],
-            selectedAccountId: account.id,
-          );
-    await _repository.save(next);
-    _vault = next;
-    _selectedAccountId = account.id;
-    _notifyListeners();
+    await _updateVault(
+      (current) => current == null
+          ? WalletVault(
+              accounts: [account],
+              nextAccountIndex: 0,
+              roastSetups: [setup],
+              selectedAccountId: account.id,
+            )
+          : current.copyWith(
+              accounts: [...current.accounts, account],
+              roastSetups: [...current.roastSetups, setup],
+              selectedAccountId: account.id,
+            ),
+      updateSelection: true,
+    );
     return setupId;
   }
 
@@ -438,23 +436,22 @@ extension WalletRoastSetupController on WalletController {
             keyId: successor.keyName,
             createdAt: now,
           );
-          final latest = _vault;
-          if (latest == null ||
-              !latest.roastSetups.any((setup) => setup.id == source.id)) {
-            throw StateError('The source ROAST setup is no longer available.');
-          }
-          final next = latest.copyWith(
-            accounts: [...latest.accounts, successorAccount],
-            roastSetups: [...latest.roastSetups, preparedSuccessor],
-            groupTransitions: [...latest.groupTransitions, transition],
-            selectedAccountId: successorAccount.id,
-          );
-          await _repository.save(next);
-          _vault = next;
-          _selectedAccountId = successorAccount.id;
+          await _updateVault((latest) {
+            if (latest == null ||
+                !latest.roastSetups.any((setup) => setup.id == source.id)) {
+              throw StateError(
+                'The source ROAST setup is no longer available.',
+              );
+            }
+            return latest.copyWith(
+              accounts: [...latest.accounts, successorAccount],
+              roastSetups: [...latest.roastSetups, preparedSuccessor],
+              groupTransitions: [...latest.groupTransitions, transition],
+              selectedAccountId: successorAccount.id,
+            );
+          }, updateSelection: true);
           persistedSuccessor = preparedSuccessor;
           persistedTransition = transition;
-          _notifyListeners();
         },
       );
       final savedSetup = persistedSuccessor;
@@ -486,7 +483,10 @@ extension WalletRoastSetupController on WalletController {
             ),
           ),
       ];
-      await _replaceSetup(savedSetup.copyWith(invitations: invitations));
+      await _updateSetup(
+        savedSetup.id,
+        (savedSetup) => savedSetup.copyWith(invitations: invitations),
+      );
       return RoastGroupTransitionCreation(
         transitionId: savedTransition.transitionId,
         successorSetupId: savedSetup.id,
@@ -495,8 +495,9 @@ extension WalletRoastSetupController on WalletController {
     } catch (error) {
       final savedSetup = persistedSuccessor;
       if (savedSetup != null) {
-        await _replaceSetup(
-          savedSetup.copyWith(
+        await _updateSetup(
+          savedSetup.id,
+          (savedSetup) => savedSetup.copyWith(
             status: RoastSetupStatus.error,
             errorMessage: _cleanRoastError(error),
           ),
@@ -570,15 +571,14 @@ extension WalletRoastSetupController on WalletController {
       keyId: setup.keyName,
       createdAt: DateTime.now().toUtc(),
     );
-    final next = current.copyWith(
-      accounts: [...current.accounts, account],
-      roastSetups: [...current.roastSetups, setup],
-      selectedAccountId: account.id,
-    );
-    await _repository.save(next);
-    _vault = next;
-    _selectedAccountId = account.id;
-    _notifyListeners();
+    await _updateVault((current) {
+      if (current == null) throw StateError('Wallet is not initialized.');
+      return current.copyWith(
+        accounts: [...current.accounts, account],
+        roastSetups: [...current.roastSetups, setup],
+        selectedAccountId: account.id,
+      );
+    }, updateSelection: true);
     return setupId;
   }
 
@@ -616,15 +616,18 @@ extension WalletRoastSetupController on WalletController {
     setup = setup.copyWith(
       groupFingerprintHex: _roastKeyService.groupFingerprint(setup),
     );
-    await _replaceSetup(setup);
+    await _updateSetup(setup.id, (_) => setup);
     try {
       final room = await _roastRuntime!.createRoom(setup);
-      setup = setup.copyWith(
-        coordinatorId: room.coordinatorId,
-        coordinatorRelayUrls: room.coordinatorRelayUrls,
-        coordinatorIpAddrs: room.coordinatorIpAddrs,
+      await _updateSetup(
+        setup.id,
+        (latest) => latest.copyWith(
+          coordinatorId: room.coordinatorId,
+          coordinatorRelayUrls: room.coordinatorRelayUrls,
+          coordinatorIpAddrs: room.coordinatorIpAddrs,
+        ),
       );
-      await _replaceSetup(setup);
+      setup = _setupById(setup.id);
       final invitations = [
         for (final invite in room.invites)
           RoastIssuedInvitation(
@@ -646,12 +649,15 @@ extension WalletRoastSetupController on WalletController {
             ),
           ),
       ];
-      setup = setup.copyWith(invitations: invitations);
-      await _replaceSetup(setup);
+      await _updateSetup(
+        setup.id,
+        (latest) => latest.copyWith(invitations: invitations),
+      );
       return invitations;
     } catch (error) {
-      await _replaceSetup(
-        setup.copyWith(
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
           status: RoastSetupStatus.error,
           errorMessage: _cleanRoastError(error),
         ),
@@ -670,35 +676,34 @@ extension WalletRoastSetupController on WalletController {
       status: RoastSetupStatus.connecting,
       clearError: true,
     );
-    final current = _vault!;
-    final account = current.accounts.firstWhere(
-      (item) => item.sourceId == setupId,
-    );
-    final replacementAccount = WalletAccount(
-      id: 'roast-$setupId-${setup.blockchainId}:${setup.networkId}-0',
-      name: account.name,
-      accountIndex: 0,
-      blockchainId: setup.blockchainId,
-      networkId: setup.networkId,
-      derivationState: WalletDerivationState.pending,
-      keySource: WalletKeySource.roast,
-      sourceId: setupId,
-      keyId: setup.keyName,
-      createdAt: account.createdAt,
-    );
-    final next = current.copyWith(
-      roastSetups: [
-        for (final item in current.roastSetups)
-          if (item.id == setupId) setup else item,
-      ],
-      accounts: [
-        for (final item in current.accounts)
-          if (item.sourceId == setupId) replacementAccount else item,
-      ],
-    );
-    await _repository.save(next);
-    _vault = next;
-    _notifyListeners();
+    await _updateVault((current) {
+      if (current == null) throw StateError('Wallet is not initialized.');
+      final account = current.accounts.firstWhere(
+        (item) => item.sourceId == setupId,
+      );
+      final replacementAccount = WalletAccount(
+        id: 'roast-$setupId-${setup.blockchainId}:${setup.networkId}-0',
+        name: account.name,
+        accountIndex: 0,
+        blockchainId: setup.blockchainId,
+        networkId: setup.networkId,
+        derivationState: WalletDerivationState.pending,
+        keySource: WalletKeySource.roast,
+        sourceId: setupId,
+        keyId: setup.keyName,
+        createdAt: account.createdAt,
+      );
+      return current.copyWith(
+        roastSetups: [
+          for (final item in current.roastSetups)
+            if (item.id == setupId) setup else item,
+        ],
+        accounts: [
+          for (final item in current.accounts)
+            if (item.sourceId == setupId) replacementAccount else item,
+        ],
+      );
+    });
     try {
       final snapshot = await _roastRuntime!.joinRoom(setup, decoded.roomInvite);
       _roastPresence[setup.id] = _RoastPresence(
@@ -708,8 +713,9 @@ extension WalletRoastSetupController on WalletController {
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
       }
-      await _replaceSetup(
-        setup.copyWith(
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
           status: snapshot.connected
               ? RoastSetupStatus.ready
               : RoastSetupStatus.connecting,
@@ -721,8 +727,9 @@ extension WalletRoastSetupController on WalletController {
         ),
       );
     } catch (error) {
-      await _replaceSetup(
-        setup.copyWith(
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
           status: RoastSetupStatus.error,
           errorMessage: _cleanRoastError(error),
         ),
@@ -736,21 +743,22 @@ extension WalletRoastSetupController on WalletController {
     String participantPublicKeyHex,
     RoastIssuedInvitation Function(RoastIssuedInvitation invitation) update,
   ) async {
-    final setup = _setupById(setupId);
-    final invitations = [
-      for (final invitation in setup.invitations)
-        if (invitation.participantPublicKeyHex == participantPublicKeyHex)
-          update(invitation)
-        else
-          invitation,
-    ];
-    if (!setup.invitations.any(
-      (invitation) =>
-          invitation.participantPublicKeyHex == participantPublicKeyHex,
-    )) {
-      throw StateError('The participant invitation is not available.');
-    }
-    await _replaceSetup(setup.copyWith(invitations: invitations));
+    await _updateSetup(setupId, (setup) {
+      final invitations = [
+        for (final invitation in setup.invitations)
+          if (invitation.participantPublicKeyHex == participantPublicKeyHex)
+            update(invitation)
+          else
+            invitation,
+      ];
+      if (!setup.invitations.any(
+        (invitation) =>
+            invitation.participantPublicKeyHex == participantPublicKeyHex,
+      )) {
+        throw StateError('The participant invitation is not available.');
+      }
+      return setup.copyWith(invitations: invitations);
+    });
   }
 
   Future<void> switchRoastCoordinator(
@@ -858,30 +866,18 @@ extension WalletRoastSetupController on WalletController {
   Future<void> _persistCoordinatorSelection(
     String setupId,
     RoastCoordinatorAddress address,
-  ) async {
-    final current = _vault;
-    if (current == null) throw StateError('Wallet is not initialized.');
-    final existing = _setupById(setupId);
+  ) => _updateSetup(setupId, (existing) {
     if (existing.coordinatorId == address.id &&
         _sameStrings(existing.coordinatorRelayUrls, address.relayUrls) &&
         _sameStrings(existing.coordinatorIpAddrs, address.ipAddrs)) {
-      return;
+      return existing;
     }
-    final replacement = existing.copyWith(
+    return existing.copyWith(
       coordinatorId: address.id,
       coordinatorRelayUrls: List.unmodifiable(address.relayUrls),
       coordinatorIpAddrs: List.unmodifiable(address.ipAddrs),
     );
-    final next = current.copyWith(
-      roastSetups: [
-        for (final setup in current.roastSetups)
-          if (setup.id == setupId) replacement else setup,
-      ],
-    );
-    await _repository.save(next);
-    _vault = next;
-    _notifyListeners();
-  }
+  });
 
   Future<void> _recoverCoordinatorPersistence(
     String setupId,
@@ -889,13 +885,17 @@ extension WalletRoastSetupController on WalletController {
     RoastCoordinatorSwitchFailure failure,
   ) async {
     try {
-      final stored = await _repository.load();
-      if (stored == null) throw StateError('The wallet vault is missing.');
-      final selected = stored.roastSetups.singleWhere(
-        (setup) => setup.id == setupId,
-      );
-      _vault = stored;
-      _notifyListeners();
+      final selected = await _queueVaultMutation(() async {
+        final stored = await _repository.load();
+        if (stored == null) throw StateError('The wallet vault is missing.');
+        final selected = stored.roastSetups.singleWhere(
+          (setup) => setup.id == setupId,
+        );
+        _vault = stored;
+        _vaultNeedsReload = false;
+        _notifyListeners();
+        return selected;
+      });
       final snapshot = await runtime.startSetup(selected);
       _roastCoordinatorRecovery.remove(setupId);
       await _applyCoordinatorSnapshot(setupId, snapshot);
@@ -918,8 +918,9 @@ extension WalletRoastSetupController on WalletController {
     _roastCoordinatorRecovery[setupId] = failure;
     _roastPresence.remove(setupId);
     final setup = _setupById(setupId);
-    await _replaceSetup(
-      setup.copyWith(
+    await _updateSetup(
+      setup.id,
+      (setup) => setup.copyWith(
         status: RoastSetupStatus.interrupted,
         errorMessage: _coordinatorSwitchError(failure),
       ),
@@ -935,8 +936,9 @@ extension WalletRoastSetupController on WalletController {
       signerRunning: snapshot.signerRunning,
     );
     final setup = _setupById(setupId);
-    await _replaceSetup(
-      setup.copyWith(
+    await _updateSetup(
+      setup.id,
+      (setup) => setup.copyWith(
         status: snapshot.connected
             ? setup.groupKeyHex == null
                   ? RoastSetupStatus.ready
@@ -997,15 +999,18 @@ extension WalletRoastSetupController on WalletController {
       if (transition != null && approvedDetails == null) {
         throw StateError('The approved transition DKG details are missing.');
       }
-      await _replaceSetup(
-        dkgSetup.copyWith(
+      await _updateSetup(
+        dkgSetup.id,
+        (latest) => latest.copyWith(
+          keyName: dkgSetup.keyName,
           status: RoastSetupStatus.creatingKey,
           clearError: true,
         ),
       );
       if (transition != null) {
-        await _replaceGroupTransition(
-          transition.copyWith(
+        await _updateGroupTransition(
+          transition.transitionId,
+          (transition) => transition.copyWith(
             phase: WalletGroupTransitionPhase.preparing,
             clearError: true,
           ),
@@ -1019,8 +1024,9 @@ extension WalletRoastSetupController on WalletController {
         );
       } on Object catch (error) {
         if (transition != null) {
-          await _replaceGroupTransition(
-            transition.copyWith(
+          await _updateGroupTransition(
+            transition.transitionId,
+            (transition) => transition.copyWith(
               phase: WalletGroupTransitionPhase.failed,
               errorMessage: _cleanRoastError(error),
             ),
@@ -1051,8 +1057,12 @@ extension WalletRoastSetupController on WalletController {
           setup.pendingDkgExpiry?.isAfter(DateTime.now()) != true) {
         throw StateError('There is no DKG proposal to accept.');
       }
-      await _replaceSetup(
-        setup.copyWith(status: RoastSetupStatus.creatingKey, clearError: true),
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
+          status: RoastSetupStatus.creatingKey,
+          clearError: true,
+        ),
       );
       await _roastRuntime!.acceptDkg(setupId, proposal);
     });
@@ -1066,8 +1076,9 @@ extension WalletRoastSetupController on WalletController {
         throw StateError('There is no DKG proposal to reject.');
       }
       await _roastRuntime!.rejectDkg(setupId, proposal);
-      await _replaceSetup(
-        setup.copyWith(
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
           status: RoastSetupStatus.ready,
           clearPendingDkgProposal: true,
         ),
@@ -1085,8 +1096,9 @@ extension WalletRoastSetupController on WalletController {
       await operation();
     } catch (error) {
       if (roastSetups.any((setup) => setup.id == setupId)) {
-        await _replaceSetup(
-          _setupById(setupId).copyWith(
+        await _updateSetup(
+          setupId,
+          (setup) => setup.copyWith(
             status: RoastSetupStatus.error,
             errorMessage: _cleanRoastError(error),
           ),
@@ -1104,7 +1116,10 @@ extension WalletRoastSetupController on WalletController {
     if (runtime == null || !_roastOperations.add(setup.id)) return;
     _notifyListeners();
     try {
-      await _replaceSetup(setup.copyWith(status: RoastSetupStatus.connecting));
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(status: RoastSetupStatus.connecting),
+      );
       final snapshot = await runtime.startSetup(setup);
       _roastPresence[setup.id] = _RoastPresence(
         connected: snapshot.connected,
@@ -1113,31 +1128,34 @@ extension WalletRoastSetupController on WalletController {
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
       }
-      final connected = setup.copyWith(
-        status: snapshot.groupKeyHex == null
-            ? snapshot.pendingDkgProposalHex == null
-                  ? RoastSetupStatus.ready
-                  : snapshot.pendingDkgStage != 'waiting'
-                  ? RoastSetupStatus.creatingKey
-                  : RoastSetupStatus.awaitingDkgApproval
-            : RoastSetupStatus.active,
-        onlineParticipantIds: snapshot.onlineParticipantIds,
-        coordinatorId: snapshot.coordinatorId,
-        coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
-        coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
-        groupKeyHex: snapshot.groupKeyHex,
-        pendingDkgProposalHex: snapshot.pendingDkgProposalHex,
-        pendingDkgStage: snapshot.pendingDkgStage,
-        pendingDkgCompletedParticipantIds:
-            snapshot.pendingDkgCompletedParticipantIds,
-        pendingDkgName: snapshot.pendingDkgName,
-        pendingDkgThreshold: snapshot.pendingDkgThreshold,
-        pendingDkgCreatorId: snapshot.pendingDkgCreator,
-        pendingDkgExpiry: snapshot.pendingDkgExpiry,
-        clearPendingDkgProposal: snapshot.pendingDkgProposalHex == null,
-        clearError: true,
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
+          status: snapshot.groupKeyHex == null
+              ? snapshot.pendingDkgProposalHex == null
+                    ? RoastSetupStatus.ready
+                    : snapshot.pendingDkgStage != 'waiting'
+                    ? RoastSetupStatus.creatingKey
+                    : RoastSetupStatus.awaitingDkgApproval
+              : RoastSetupStatus.active,
+          onlineParticipantIds: snapshot.onlineParticipantIds,
+          coordinatorId: snapshot.coordinatorId,
+          coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
+          coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
+          groupKeyHex: snapshot.groupKeyHex,
+          pendingDkgProposalHex: snapshot.pendingDkgProposalHex,
+          pendingDkgStage: snapshot.pendingDkgStage,
+          pendingDkgCompletedParticipantIds:
+              snapshot.pendingDkgCompletedParticipantIds,
+          pendingDkgName: snapshot.pendingDkgName,
+          pendingDkgThreshold: snapshot.pendingDkgThreshold,
+          pendingDkgCreatorId: snapshot.pendingDkgCreator,
+          pendingDkgExpiry: snapshot.pendingDkgExpiry,
+          clearPendingDkgProposal: snapshot.pendingDkgProposalHex == null,
+          clearError: true,
+        ),
       );
-      await _replaceSetup(connected);
+      final connected = _setupById(setup.id);
       final pendingDkgProposalHex = connected.pendingDkgProposalHex;
       if (connected.status == RoastSetupStatus.awaitingDkgApproval &&
           pendingDkgProposalHex != null) {
@@ -1149,8 +1167,9 @@ extension WalletRoastSetupController on WalletController {
       }
     } catch (error) {
       _roastPresence.remove(setup.id);
-      await _replaceSetup(
-        setup.copyWith(
+      await _updateSetup(
+        setup.id,
+        (setup) => setup.copyWith(
           status: RoastSetupStatus.error,
           errorMessage: _cleanRoastError(error),
         ),
@@ -1166,13 +1185,18 @@ extension WalletRoastSetupController on WalletController {
     orElse: () => throw ArgumentError.value(setupId, 'setupId'),
   );
 
-  Future<void> _replaceSetup(RoastSetup replacement) async {
-    final current = _vault;
-    if (current == null) return;
+  Future<void> _updateSetup(
+    String setupId,
+    RoastSetup Function(RoastSetup setup) update,
+  ) => _updateVault((current) {
+    if (current == null) return current;
     final previous = current.roastSetups
-        .where((setup) => setup.id == replacement.id)
+        .where((setup) => setup.id == setupId)
         .firstOrNull;
-    if (previous != null && previous.status != replacement.status) {
+    if (previous == null) return current;
+    final replacement = update(previous);
+    if (identical(previous, replacement)) return current;
+    if (previous.status != replacement.status) {
       AppLogger.info(
         '${_roastLogScope(replacement.id)} State '
         '${previous.status.name} -> ${replacement.status.name}; '
@@ -1181,35 +1205,29 @@ extension WalletRoastSetupController on WalletController {
         '${replacement.participantCount}',
       );
     }
-    final next = current.copyWith(
+    return current.copyWith(
       roastSetups: [
         for (final setup in current.roastSetups)
-          if (setup.id == replacement.id) replacement else setup,
+          if (setup.id == setupId) replacement else setup,
       ],
     );
-    await _repository.save(next);
-    _vault = next;
-    _notifyListeners();
-  }
+  });
 
-  Future<void> _replaceGroupTransition(
-    WalletGroupTransition replacement,
-  ) async {
-    final current = _vault;
-    if (current == null) return;
-    final next = current.copyWith(
+  Future<void> _updateGroupTransition(
+    String transitionId,
+    WalletGroupTransition Function(WalletGroupTransition transition) update,
+  ) => _updateVault((current) {
+    if (current == null) return current;
+    return current.copyWith(
       groupTransitions: [
         for (final transition in current.groupTransitions)
-          if (transition.transitionId == replacement.transitionId)
-            replacement
+          if (transition.transitionId == transitionId)
+            update(transition)
           else
             transition,
       ],
     );
-    await _repository.save(next);
-    _vault = next;
-    _notifyListeners();
-  }
+  });
 
   Future<void> _markTransitionReadyForSetup(String setupId) async {
     final transition = groupTransitions
@@ -1219,8 +1237,9 @@ extension WalletRoastSetupController on WalletController {
         transition.phase == WalletGroupTransitionPhase.ready) {
       return;
     }
-    await _replaceGroupTransition(
-      transition.copyWith(
+    await _updateGroupTransition(
+      transition.transitionId,
+      (transition) => transition.copyWith(
         phase: WalletGroupTransitionPhase.ready,
         clearError: true,
       ),
@@ -1244,36 +1263,35 @@ extension WalletRoastSetupController on WalletController {
     RoastSetup setup,
     String groupKeyHex,
   ) async {
-    final current = _vault;
-    if (current == null) return;
     final network = _networkById(setup.blockchainId, setup.networkId);
-    final account = current.accounts.firstWhere(
-      (item) => item.sourceId == setup.id,
-    );
-    final derived = _roastKeyService.deriveAddress(
-      groupKeyHex: groupKeyHex,
-      threshold: setup.threshold,
-      network: network,
-      accountIndex: 0,
-      pathLabel: account.derivationPath,
-    );
-    final next = current.copyWith(
-      accounts: [
-        for (final account in current.accounts)
-          if (account.sourceId == setup.id)
-            account.copyWith(
-              keyId: setup.keyName,
-              derivationState: WalletDerivationState.ready,
-              derivationPath: derived.pathLabel,
-              address: derived.address,
-            )
-          else
-            account,
-      ],
-    );
     await _ensureNetworkService(network);
-    await _repository.save(next);
-    _vault = next;
+    await _updateVault((current) {
+      if (current == null) return current;
+      final account = current.accounts.firstWhere(
+        (item) => item.sourceId == setup.id,
+      );
+      final derived = _roastKeyService.deriveAddress(
+        groupKeyHex: groupKeyHex,
+        threshold: setup.threshold,
+        network: network,
+        accountIndex: 0,
+        pathLabel: account.derivationPath,
+      );
+      return current.copyWith(
+        accounts: [
+          for (final account in current.accounts)
+            if (account.sourceId == setup.id)
+              account.copyWith(
+                keyId: setup.keyName,
+                derivationState: WalletDerivationState.ready,
+                derivationPath: derived.pathLabel,
+                address: derived.address,
+              )
+            else
+              account,
+        ],
+      );
+    });
     await _restartElectrumxSync();
   }
 

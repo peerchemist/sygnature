@@ -17,6 +17,99 @@ import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
+  test('preserves account edits overlapping transaction activity', () async {
+    final repository = _ControlledWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+      transactionService: _FakeWalletTransactionService(),
+      networkServiceFactory: (_) async => _FakeElectrumxService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    final preview = controller.prepareSend(
+      const WalletSendRequest(
+        destinationAddress: 'pc1pdestination',
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+    repository.saveStarted = Completer<void>();
+    repository.saveGate = Completer<void>();
+    final renaming = controller.renameAccount(
+      controller.accounts.single.id,
+      'Savings',
+    );
+    await repository.saveStarted!.future;
+    final sending = controller.sendTransaction(preview);
+    await Future<void>.delayed(Duration.zero);
+    repository.saveGate!.complete();
+    await renaming;
+    await sending;
+
+    expect(controller.accounts.single.name, 'Savings');
+    expect(repository.value!.accounts.single.name, 'Savings');
+    expect(
+      repository.value!.activities.map((activity) => activity.type),
+      containsAll([
+        WalletActivityType.transactionSigned,
+        WalletActivityType.transactionBroadcast,
+      ]),
+    );
+    expect(controller.vault!.activities, repository.value!.activities);
+    controller.dispose();
+  });
+
+  test('continues vault mutations after a failed save', () async {
+    final repository = _ControlledWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    final accountId = controller.accounts.single.id;
+    repository.saveError = StateError('storage unavailable');
+    await expectLater(
+      controller.renameAccount(accountId, 'Unsaved'),
+      throwsStateError,
+    );
+    expect(controller.accounts.single.name, 'Main wallet');
+    expect(repository.value!.accounts.single.name, 'Main wallet');
+
+    await controller.renameAccount(accountId, 'Saved');
+    expect(controller.accounts.single.name, 'Saved');
+    expect(repository.value!.accounts.single.name, 'Saved');
+    controller.dispose();
+  });
+
+  test('reloads an uncertain write before applying another mutation', () async {
+    final repository = _ControlledWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    final accountId = controller.accounts.single.id;
+    repository.commitBeforeError = true;
+    repository.saveError = StateError('write outcome unknown');
+    await expectLater(
+      controller.renameAccount(accountId, 'Committed'),
+      throwsStateError,
+    );
+    await controller.addAccount('Second', network: PeercoinNetworks.mainnet);
+    expect(controller.accounts.map((account) => account.name), [
+      'Committed',
+      'Second',
+    ]);
+    expect(repository.value!.accounts.map((account) => account.name), [
+      'Committed',
+      'Second',
+    ]);
+    controller.dispose();
+  });
+
   test('stores the recovery phrase before a network is selected', () async {
     final repository = MemoryWalletRepository();
     final controller = WalletController(
@@ -796,6 +889,27 @@ const _mnemonic = MnemonicSession(
   language: MnemonicLanguage.english,
   createdInApp: true,
 );
+
+class _ControlledWalletRepository extends MemoryWalletRepository {
+  Completer<void>? saveStarted;
+  Completer<void>? saveGate;
+  Object? saveError;
+  bool commitBeforeError = false;
+
+  @override
+  Future<void> save(WalletVault vault) async {
+    final started = saveStarted;
+    if (started != null && !started.isCompleted) {
+      started.complete();
+      await saveGate!.future;
+    }
+    final error = saveError;
+    saveError = null;
+    if (commitBeforeError) await super.save(vault);
+    if (error != null) throw error;
+    await super.save(vault);
+  }
+}
 
 class _FakeWalletKeyService implements WalletKeyService {
   @override
