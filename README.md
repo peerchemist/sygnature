@@ -1,8 +1,9 @@
 # Sygnature
 
-Sygnature is a cross-platform Peercoin light wallet built with Flutter. It
-supports ordinary single-user wallets and ROAST threshold wallets in which no
-participant ever holds the complete private key.
+Sygnature is a cross-platform Peercoin light wallet built with Flutter. Alongside
+ordinary personal wallets, it supports fully peer-to-peer ROAST threshold
+wallets over [Iroh](https://www.iroh.computer/), with no central Sygnature
+service and no participant ever holding the complete private key.
 
 ## Core features
 
@@ -18,17 +19,6 @@ participant ever holds the complete private key.
 - A recent-activity feed for DKG, signature requests, signing and broadcast
   events.
 
-## Personal wallet workflow
-
-```text
-Create or import recovery phrase
-  -> create a named Peercoin account
-  -> synchronize through ElectrumX
-  -> receive or prepare a payment
-  -> review and sign locally
-  -> broadcast through ElectrumX
-```
-
 ## ROAST shared-wallet workflow
 
 1. Someone creates a ROAST group and decides how many people can sign and how
@@ -39,8 +29,10 @@ Create or import recovery phrase
    signer. An invite only works for the person it was made for.
 4. Each signer pastes their invite into Sygnature and joins over an encrypted
    Iroh connection.
-5. Once everyone is in, the signers approve DKG. This creates the shared wallet
-   address, while every signer keeps their own private share on their device.
+5. Once everyone is in, the signers start
+   [distributed key generation (DKG)](https://en.wikipedia.org/wiki/Distributed_key_generation).
+   This creates the shared wallet address, while every signer keeps their own
+   private share on their device.
 6. The shared Taproot address can now receive Peercoin like any other wallet.
 7. When someone wants to spend, Sygnature asks the other signers to review and
    approve the transaction. As soon as enough people approve, the transaction
@@ -78,12 +70,11 @@ Sygnature deliberately uses a star topology rather than a signer-to-signer
 mesh:
 
 ```text
-                       Iroh / QUIC
-Signer A  ---------------------------------+
-Signer B  ---------------------------------+--> Coordinator
-Signer C  ---------------------------------+       |- room and session state
-                                                  |- event distribution
-                                                  `- DKG/ROAST coordination
+Signer A ───────────────┐
+Signer B ───────────────┼── Iroh / QUIC ──▶ Coordinator
+Signer C ───────────────┘                    ├─ Room and session state
+                                            ├─ Event distribution
+                                            └─ DKG/ROAST coordination
 ```
 
 Every signer establishes its own authenticated connection to the coordinator.
@@ -111,8 +102,7 @@ authentication keys and FROST key shares are separate cryptographic roles.
 - ElectrumX is the current blockchain data and broadcast provider.
 - ROAST runtime support currently targets Android, Linux and macOS.
 
-Detailed design notes are available in [roast-workflow.md](roast-workflow.md)
-and [ARCHITECTURE.md](ARCHITECTURE.md).
+Detailed design notes are available in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Development
 
