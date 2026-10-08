@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -56,3 +56,21 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+      - name: Publish DMG to GitHub Release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG"; then
+            args=(--verify-tag --title "$RELEASE_TAG" --generate-notes)
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              args+=(--prerelease)
+            fi
+            # Another platform may create the release at the same time.
+            gh release create "$RELEASE_TAG" "${args[@]}" || gh release view "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" sygnature_ng/build/Sygnature-macOS.dmg --clobber

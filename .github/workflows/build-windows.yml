@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -49,6 +49,19 @@ jobs:
           flutter config --enable-windows-desktop
           flutter build windows --release --no-pub
 
+      - name: Build Windows installer
+        working-directory: sygnature_ng
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $runtime = Get-ChildItem "$vsPath\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT\msvcp140.dll" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $runtime) { throw "Visual C++ runtime not found" }
+          Copy-Item "$($runtime.DirectoryName)\*.dll" build/windows/x64/runner/Release/
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" scripts/windows-installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
       - name: Upload Windows application
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -56,3 +69,30 @@ jobs:
           path: sygnature_ng/build/windows/x64/runner/Release/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sygnature-windows-installer
+          path: sygnature_ng/build/Sygnature-Windows-x64-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Publish installer to GitHub Release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG"; then
+            args=(--verify-tag --title "$RELEASE_TAG" --generate-notes)
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              args+=(--prerelease)
+            fi
+            # Another platform may create the release at the same time.
+            gh release create "$RELEASE_TAG" "${args[@]}" || gh release view "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" sygnature_ng/build/Sygnature-Windows-x64-Setup.exe --clobber

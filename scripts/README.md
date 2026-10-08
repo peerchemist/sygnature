@@ -9,6 +9,11 @@ Together they upload an Android APK, Linux Flatpak, Windows x64 bundle and macOS
 ARM64 DMG as workflow artifacts. Manual triggers are useful for testing a
 release build or warming its dependency caches before creating a tag.
 
+Tag builds also create a GitHub Release and attach the Flatpak, DMG and Windows
+EXE installer. Tags containing a hyphen, such as `0.9.7-alfa`, create a prerelease.
+Rerunning a tag build replaces its release asset. Manual builds on a branch
+only upload workflow artifacts; Android does not publish to Releases.
+
 ## Source dependencies
 
 `pubspec.yaml` fetches Noosphere directly from GitHub at the pinned commit
@@ -88,7 +93,12 @@ build/sygnature-windows-x64.zip
 ```
 
 Distribute the ZIP or the complete `windows-local` directory because the EXE
-requires the adjacent DLLs and `data` directory. Stop the VM gracefully with:
+requires the adjacent DLLs and `data` directory. GitHub Actions additionally
+packages the complete bundle and Visual C++ runtime into
+`build/Sygnature-Windows-x64-Setup.exe` using Inno Setup. The installer installs
+for the current user without administrator privileges.
+
+Stop the VM gracefully with:
 
 ```sh
 scripts/build_windows stop
