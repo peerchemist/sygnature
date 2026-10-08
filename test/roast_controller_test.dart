@@ -89,6 +89,24 @@ void main() {
       expect(invitation.copiedAt, isNotNull);
       expect(invitation.sentAt, isNotNull);
       expect(invitation.joinedAt, enrolledAt);
+      final saves = repository.saveCount;
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+      runtime.emit(
+        RoastRuntimeEnrollmentEvent(
+          setup.id,
+          invitations: [],
+          participants: [
+            RoastRuntimeParticipantEnrollment(
+              participantPublicKeyHex: publicKey,
+              enrolledAt: enrolledAt,
+            ),
+          ],
+        ),
+      );
+      await _flushEvents();
+      expect(repository.saveCount, saves);
+      expect(notifications, 0);
       controller.dispose();
     },
   );
@@ -107,7 +125,8 @@ void main() {
       setup.id,
       connected: connected,
       signerRunning: connected,
-      onlineParticipantIds: online ?? List.of(setup.onlineParticipantIds),
+      onlineParticipantIds:
+          online ?? List.of(controller.onlineRoastParticipantIds(setup.id)),
       coordinatorId: setup.coordinatorId,
       coordinatorRelayUrls: List.of(setup.coordinatorRelayUrls),
       coordinatorIpAddrs: List.of(setup.coordinatorIpAddrs),
@@ -132,8 +151,115 @@ void main() {
 
     runtime.emit(snapshot(online: const ['01']));
     await _flushEvents();
-    expect(repository.saveCount, saves + 1);
-    expect(controller.roastSetups.single.onlineParticipantIds, ['01']);
+    expect(repository.saveCount, saves);
+    expect(controller.onlineRoastParticipantIds(setup.id), ['01']);
+    expect(notifications, 2);
+    controller.dispose();
+  });
+
+  test('keeps presence out of saved and restored setup state', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+    final setup = controller.roastSetups.single;
+    final saves = repository.saveCount;
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        setup.id,
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['02'],
+        coordinatorId: setup.coordinatorId,
+        coordinatorRelayUrls: setup.coordinatorRelayUrls,
+        coordinatorIpAddrs: setup.coordinatorIpAddrs,
+      ),
+    );
+    await _flushEvents();
+    expect(repository.saveCount, saves);
+    expect(controller.onlineSignerCount(setup), 2);
+    expect(controller.roastSetups.single, same(setup));
+    await controller.renameAccount('shared', 'Renamed');
+    final json = repository.value!.roastSetups.single.toJson();
+    expect(json.containsKey('onlineParticipantIds'), isFalse);
+    final legacy = RoastSetup.fromJson({
+      ...json,
+      'onlineParticipantIds': ['stale'],
+    });
+    expect(legacy.toJson().containsKey('onlineParticipantIds'), isFalse);
+    controller.dispose();
+
+    final restored = WalletController(repository);
+    await restored.load();
+    expect(restored.onlineSignerCount(restored.roastSetups.single), 0);
+    expect(restored.onlineRoastParticipantIds(setup.id), isEmpty);
+    restored.dispose();
+  });
+
+  test(
+    'persists coordinator address changes without saving presence',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime();
+      final controller = _coordinatorController(repository, runtime);
+      await controller.load();
+      await _flushEvents();
+      final setup = controller.roastSetups.single;
+      final saves = repository.saveCount;
+      runtime.emit(
+        RoastRuntimeSnapshotEvent(
+          setup.id,
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: const ['02'],
+          coordinatorId: setup.coordinatorId,
+          coordinatorRelayUrls: const ['https://relay.example.com'],
+          coordinatorIpAddrs: const ['127.0.0.1:1234'],
+        ),
+      );
+      await _flushEvents();
+      expect(repository.saveCount, saves + 1);
+      final stored = repository.value!.roastSetups.single;
+      expect(stored.coordinatorRelayUrls, ['https://relay.example.com']);
+      expect(stored.coordinatorIpAddrs, ['127.0.0.1:1234']);
+      expect(stored.toJson().containsKey('onlineParticipantIds'), isFalse);
+      controller.dispose();
+    },
+  );
+
+  test('skips repeated DKG progress saves and notifications', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+    final setup = controller.roastSetups.single;
+    final expiry = DateTime.now().add(const Duration(hours: 1));
+    RoastRuntimeDkgEvent progress() => RoastRuntimeDkgEvent(
+      setup.id,
+      proposalHex: 'proposal',
+      name: setup.keyName,
+      threshold: setup.threshold,
+      creator: setup.hostParticipantId!,
+      expiry: expiry,
+      description: roastKeyDescription(setup),
+      stage: 'sharing',
+      rejected: false,
+      completedParticipantIds: List.of(['01']),
+    );
+    runtime.emit(progress());
+    await _flushEvents();
+    final saves = repository.saveCount;
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    runtime.emit(progress());
+    await _flushEvents();
+    expect(repository.saveCount, saves);
+    expect(notifications, 0);
+    expect(controller.roastSetups.single.pendingDkgCompletedParticipantIds, [
+      '01',
+    ]);
     controller.dispose();
   });
 
@@ -431,7 +557,6 @@ void main() {
             localCardId: 'host-card',
             localParticipantPrivateKeyHex: '11' * 32,
             participants: [participants.last],
-            onlineParticipantIds: const [],
             keyName: 'group:generation:1',
             createdAt: DateTime.utc(2026),
             usesRoomEnrollment: true,
@@ -558,7 +683,6 @@ void main() {
             publicKeyHex: localPublicKey.hex,
           ),
         ],
-        onlineParticipantIds: const [],
         keyName: 'source-key',
         createdAt: DateTime.utc(2026),
         usesRoomEnrollment: true,
@@ -1343,6 +1467,21 @@ void main() {
       controller.activitiesFor(controller.accounts.single).single.type,
       WalletActivityType.dkgCompleted,
     );
+
+    final vault = controller.vault;
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    runtime.emit(
+      RoastRuntimeKeyEvent(
+        'setup',
+        groupKeyHex: 'expected-key',
+        keyName: 'setup:generation:1',
+        description: 'expected',
+      ),
+    );
+    await _flushEvents();
+    expect(controller.vault, same(vault));
+    expect(notifications, 0);
 
     controller.dispose();
   });
@@ -2326,7 +2465,6 @@ RoastSetup _setup(RoastSetupRole role, {bool active = false}) => RoastSetup(
       publicKeyHex: '03${'33' * 32}',
     ),
   ],
-  onlineParticipantIds: const [],
   keyName: 'setup:generation:1',
   createdAt: DateTime.utc(2026),
   hostParticipantId: '01',

@@ -100,7 +100,6 @@ void main() {
           publicKeyHex: memberPublicKey.hex,
         ),
       ],
-      onlineParticipantIds: const [],
       keyName: '$groupId:generation:1',
       createdAt: DateTime.utc(2026),
       usesRoomEnrollment: true,

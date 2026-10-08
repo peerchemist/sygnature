@@ -98,7 +98,6 @@ void main() {
       localCardId: 'local',
       localParticipantPrivateKeyHex: '00' * 32,
       participants: const [],
-      onlineParticipantIds: const [],
       keyName: fixture.dkgDetails.name,
       createdAt: fixture.createdAt,
     );

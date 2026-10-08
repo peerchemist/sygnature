@@ -85,11 +85,39 @@ extension WalletRoastSetupController on WalletController {
     RoastSetup setup,
     RoastParticipant participant,
   ) {
+    final presence = _roastPresence[setup.id];
+    if (presence?.connected != true) return false;
     if (participant.cardId == setup.localCardId) {
-      final presence = _roastPresence[setup.id];
-      return presence?.connected == true && presence?.signerRunning == true;
+      return presence!.signerRunning;
     }
-    return setup.onlineParticipantIds.contains(participant.identifierHex);
+    return presence!.onlineParticipantIds.contains(participant.identifierHex);
+  }
+
+  List<String> onlineRoastParticipantIds(String setupId) {
+    final presence = _roastPresence[setupId];
+    return presence?.connected == true
+        ? presence!.onlineParticipantIds
+        : const [];
+  }
+
+  bool _setRoastPresence(
+    String setupId, {
+    required bool connected,
+    required bool signerRunning,
+    required List<String> onlineParticipantIds,
+  }) {
+    final previous = _roastPresence[setupId];
+    if (previous?.connected == connected &&
+        previous?.signerRunning == signerRunning &&
+        listEquals(previous?.onlineParticipantIds, onlineParticipantIds)) {
+      return false;
+    }
+    _roastPresence[setupId] = _RoastPresence(
+      connected: connected,
+      signerRunning: signerRunning,
+      onlineParticipantIds: List.unmodifiable(onlineParticipantIds),
+    );
+    return true;
   }
 
   Future<String> createRoastSetupDraft({
@@ -145,7 +173,6 @@ extension WalletRoastSetupController on WalletController {
           publicKeyHex: material.publicKeyHex,
         ),
       ],
-      onlineParticipantIds: const [],
       keyName: roastKeyName(groupId),
       createdAt: DateTime.now().toUtc(),
       irohIdentityIndex: irohIdentityIndexForSetup(setupId),
@@ -338,7 +365,6 @@ extension WalletRoastSetupController on WalletController {
           publicKeyHex: local.publicKeyHex,
         ),
       ],
-      onlineParticipantIds: const [],
       keyName: roastKeyName(successorGroupId),
       createdAt: DateTime.now().toUtc(),
       irohIdentityIndex: irohIdentityIndexForSetup(successorSetupId),
@@ -553,7 +579,6 @@ extension WalletRoastSetupController on WalletController {
           publicKeyHex: local.publicKeyHex,
         ),
       ],
-      onlineParticipantIds: const [],
       keyName: roastKeyName(draftGroupId),
       createdAt: DateTime.now().toUtc(),
       irohIdentityIndex: irohIdentityIndexForSetup(setupId),
@@ -706,9 +731,11 @@ extension WalletRoastSetupController on WalletController {
     });
     try {
       final snapshot = await _roastRuntime!.joinRoom(setup, decoded.roomInvite);
-      _roastPresence[setup.id] = _RoastPresence(
+      _setRoastPresence(
+        setup.id,
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
+        onlineParticipantIds: snapshot.onlineParticipantIds,
       );
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
@@ -719,7 +746,6 @@ extension WalletRoastSetupController on WalletController {
           status: snapshot.connected
               ? RoastSetupStatus.ready
               : RoastSetupStatus.connecting,
-          onlineParticipantIds: snapshot.onlineParticipantIds,
           coordinatorId: snapshot.coordinatorId,
           coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
           coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
@@ -931,9 +957,11 @@ extension WalletRoastSetupController on WalletController {
     String setupId,
     RoastRuntimeSnapshot snapshot,
   ) async {
-    _roastPresence[setupId] = _RoastPresence(
+    final presenceChanged = _setRoastPresence(
+      setupId,
       connected: snapshot.connected,
       signerRunning: snapshot.signerRunning,
+      onlineParticipantIds: snapshot.onlineParticipantIds,
     );
     final setup = _setupById(setupId);
     await _updateSetup(
@@ -944,12 +972,12 @@ extension WalletRoastSetupController on WalletController {
                   ? RoastSetupStatus.ready
                   : RoastSetupStatus.active
             : RoastSetupStatus.interrupted,
-        onlineParticipantIds: snapshot.onlineParticipantIds,
         coordinatorId: snapshot.coordinatorId,
         coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
         coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
         clearError: snapshot.connected,
       ),
+      notifyIfUnchanged: presenceChanged,
     );
   }
 
@@ -1121,9 +1149,11 @@ extension WalletRoastSetupController on WalletController {
         (setup) => setup.copyWith(status: RoastSetupStatus.connecting),
       );
       final snapshot = await runtime.startSetup(setup);
-      _roastPresence[setup.id] = _RoastPresence(
+      _setRoastPresence(
+        setup.id,
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
+        onlineParticipantIds: snapshot.onlineParticipantIds,
       );
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
@@ -1138,7 +1168,6 @@ extension WalletRoastSetupController on WalletController {
                     ? RoastSetupStatus.creatingKey
                     : RoastSetupStatus.awaitingDkgApproval
               : RoastSetupStatus.active,
-          onlineParticipantIds: snapshot.onlineParticipantIds,
           coordinatorId: snapshot.coordinatorId,
           coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
           coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
@@ -1187,31 +1216,37 @@ extension WalletRoastSetupController on WalletController {
 
   Future<void> _updateSetup(
     String setupId,
-    RoastSetup Function(RoastSetup setup) update,
-  ) => _updateVault((current) {
-    if (current == null) return current;
-    final previous = current.roastSetups
-        .where((setup) => setup.id == setupId)
-        .firstOrNull;
-    if (previous == null) return current;
-    final replacement = update(previous);
-    if (identical(previous, replacement)) return current;
-    if (previous.status != replacement.status) {
-      AppLogger.info(
-        '${_roastLogScope(replacement.id)} State '
-        '${previous.status.name} -> ${replacement.status.name}; '
-        'dkgStage=${replacement.pendingDkgStage ?? '-'}, '
-        'confirmed=${replacement.pendingDkgCompletedParticipantIds.length}/'
-        '${replacement.participantCount}',
+    RoastSetup Function(RoastSetup setup) update, {
+    bool notifyIfUnchanged = false,
+  }) async {
+    var changed = false;
+    await _updateVault((current) {
+      if (current == null) return current;
+      final previous = current.roastSetups
+          .where((setup) => setup.id == setupId)
+          .firstOrNull;
+      if (previous == null) return current;
+      final replacement = update(previous);
+      if (identical(previous, replacement)) return current;
+      changed = true;
+      if (previous.status != replacement.status) {
+        AppLogger.info(
+          '${_roastLogScope(replacement.id)} State '
+          '${previous.status.name} -> ${replacement.status.name}; '
+          'dkgStage=${replacement.pendingDkgStage ?? '-'}, '
+          'confirmed=${replacement.pendingDkgCompletedParticipantIds.length}/'
+          '${replacement.participantCount}',
+        );
+      }
+      return current.copyWith(
+        roastSetups: [
+          for (final setup in current.roastSetups)
+            if (setup.id == setupId) replacement else setup,
+        ],
       );
-    }
-    return current.copyWith(
-      roastSetups: [
-        for (final setup in current.roastSetups)
-          if (setup.id == setupId) replacement else setup,
-      ],
-    );
-  });
+    });
+    if (notifyIfUnchanged && !changed) _notifyListeners();
+  }
 
   Future<void> _updateGroupTransition(
     String transitionId,
@@ -1264,7 +1299,9 @@ extension WalletRoastSetupController on WalletController {
     String groupKeyHex,
   ) async {
     final network = _networkById(setup.blockchainId, setup.networkId);
+    final previousService = _networkServices[network.storageId];
     await _ensureNetworkService(network);
+    var accountChanged = false;
     await _updateVault((current) {
       if (current == null) return current;
       final account = current.accounts.firstWhere(
@@ -1277,6 +1314,13 @@ extension WalletRoastSetupController on WalletController {
         accountIndex: 0,
         pathLabel: account.derivationPath,
       );
+      if (account.keyId == setup.keyName &&
+          account.derivationState == WalletDerivationState.ready &&
+          account.derivationPath == derived.pathLabel &&
+          account.address == derived.address) {
+        return current;
+      }
+      accountChanged = true;
       return current.copyWith(
         accounts: [
           for (final account in current.accounts)
@@ -1292,7 +1336,10 @@ extension WalletRoastSetupController on WalletController {
         ],
       );
     });
-    await _restartElectrumxSync();
+    if (accountChanged ||
+        !identical(previousService, _networkServices[network.storageId])) {
+      await _restartElectrumxSync();
+    }
   }
 
   static String _cleanRoastError(Object error) => switch (error) {

@@ -239,7 +239,6 @@ class RoastKeyService {
       localCardId: local.single.cardId,
       localParticipantPrivateKeyHex: draft.localParticipantPrivateKeyHex,
       participants: participants,
-      onlineParticipantIds: const [],
       keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: draft.createdAt,
       irohIdentityIndex: draft.irohIdentityIndex,

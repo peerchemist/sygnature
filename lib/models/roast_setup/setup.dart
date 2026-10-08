@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show listEquals;
+
 import 'invitation.dart';
 import 'participant.dart';
 
@@ -29,7 +31,6 @@ class RoastSetup({
   required final String localCardId,
   required final String localParticipantPrivateKeyHex,
   required final List<RoastParticipant> participants,
-  required final List<String> onlineParticipantIds,
   required final String keyName,
   required final DateTime createdAt,
   final int irohIdentityIndex = 0,
@@ -62,7 +63,6 @@ class RoastSetup({
   RoastSetup copyWith({
     RoastSetupStatus? status,
     List<RoastParticipant>? participants,
-    List<String>? onlineParticipantIds,
     String? keyName,
     int? irohIdentityIndex,
     String? hostParticipantId,
@@ -82,55 +82,80 @@ class RoastSetup({
     String? errorMessage,
     bool clearError = false,
     List<RoastIssuedInvitation>? invitations,
-  }) => RoastSetup(
-    id: id,
-    groupId: groupId,
-    name: name,
-    role: role,
-    status: status ?? this.status,
-    threshold: threshold,
-    participantCount: participantCount,
-    blockchainId: blockchainId,
-    networkId: networkId,
-    localCardId: localCardId,
-    localParticipantPrivateKeyHex: localParticipantPrivateKeyHex,
-    participants: participants ?? this.participants,
-    onlineParticipantIds: onlineParticipantIds ?? this.onlineParticipantIds,
-    keyName: keyName ?? this.keyName,
-    createdAt: createdAt,
-    irohIdentityIndex: irohIdentityIndex ?? this.irohIdentityIndex,
-    usesRoomEnrollment: usesRoomEnrollment,
-    hostParticipantId: hostParticipantId ?? this.hostParticipantId,
-    coordinatorId: coordinatorId ?? this.coordinatorId,
-    coordinatorRelayUrls: coordinatorRelayUrls ?? this.coordinatorRelayUrls,
-    coordinatorIpAddrs: coordinatorIpAddrs ?? this.coordinatorIpAddrs,
-    groupFingerprintHex: groupFingerprintHex ?? this.groupFingerprintHex,
-    groupKeyHex: groupKeyHex ?? this.groupKeyHex,
-    pendingDkgProposalHex: clearPendingDkgProposal
-        ? null
-        : pendingDkgProposalHex ?? this.pendingDkgProposalHex,
-    pendingDkgStage: clearPendingDkgProposal
-        ? null
-        : pendingDkgStage ?? this.pendingDkgStage,
-    pendingDkgCompletedParticipantIds: clearPendingDkgProposal
-        ? const []
-        : pendingDkgCompletedParticipantIds ??
+  }) {
+    final next = RoastSetup(
+      id: id,
+      groupId: groupId,
+      name: name,
+      role: role,
+      status: status ?? this.status,
+      threshold: threshold,
+      participantCount: participantCount,
+      blockchainId: blockchainId,
+      networkId: networkId,
+      localCardId: localCardId,
+      localParticipantPrivateKeyHex: localParticipantPrivateKeyHex,
+      participants: participants ?? this.participants,
+      keyName: keyName ?? this.keyName,
+      createdAt: createdAt,
+      irohIdentityIndex: irohIdentityIndex ?? this.irohIdentityIndex,
+      usesRoomEnrollment: usesRoomEnrollment,
+      hostParticipantId: hostParticipantId ?? this.hostParticipantId,
+      coordinatorId: coordinatorId ?? this.coordinatorId,
+      coordinatorRelayUrls: coordinatorRelayUrls ?? this.coordinatorRelayUrls,
+      coordinatorIpAddrs: coordinatorIpAddrs ?? this.coordinatorIpAddrs,
+      groupFingerprintHex: groupFingerprintHex ?? this.groupFingerprintHex,
+      groupKeyHex: groupKeyHex ?? this.groupKeyHex,
+      pendingDkgProposalHex: clearPendingDkgProposal
+          ? null
+          : pendingDkgProposalHex ?? this.pendingDkgProposalHex,
+      pendingDkgStage: clearPendingDkgProposal
+          ? null
+          : pendingDkgStage ?? this.pendingDkgStage,
+      pendingDkgCompletedParticipantIds: clearPendingDkgProposal
+          ? const []
+          : pendingDkgCompletedParticipantIds ??
+                this.pendingDkgCompletedParticipantIds,
+      pendingDkgName: clearPendingDkgProposal
+          ? null
+          : pendingDkgName ?? this.pendingDkgName,
+      pendingDkgThreshold: clearPendingDkgProposal
+          ? null
+          : pendingDkgThreshold ?? this.pendingDkgThreshold,
+      pendingDkgCreatorId: clearPendingDkgProposal
+          ? null
+          : pendingDkgCreatorId ?? this.pendingDkgCreatorId,
+      pendingDkgExpiry: clearPendingDkgProposal
+          ? null
+          : pendingDkgExpiry ?? this.pendingDkgExpiry,
+      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      invitations: invitations ?? this.invitations,
+    );
+    return next.status == this.status &&
+            next.keyName == this.keyName &&
+            next.irohIdentityIndex == this.irohIdentityIndex &&
+            next.hostParticipantId == this.hostParticipantId &&
+            next.coordinatorId == this.coordinatorId &&
+            next.groupFingerprintHex == this.groupFingerprintHex &&
+            next.groupKeyHex == this.groupKeyHex &&
+            next.pendingDkgProposalHex == this.pendingDkgProposalHex &&
+            next.pendingDkgStage == this.pendingDkgStage &&
+            next.pendingDkgName == this.pendingDkgName &&
+            next.pendingDkgThreshold == this.pendingDkgThreshold &&
+            next.pendingDkgCreatorId == this.pendingDkgCreatorId &&
+            next.pendingDkgExpiry == this.pendingDkgExpiry &&
+            next.errorMessage == this.errorMessage &&
+            listEquals(next.participants, this.participants) &&
+            listEquals(next.coordinatorRelayUrls, this.coordinatorRelayUrls) &&
+            listEquals(next.coordinatorIpAddrs, this.coordinatorIpAddrs) &&
+            listEquals(
+              next.pendingDkgCompletedParticipantIds,
               this.pendingDkgCompletedParticipantIds,
-    pendingDkgName: clearPendingDkgProposal
-        ? null
-        : pendingDkgName ?? this.pendingDkgName,
-    pendingDkgThreshold: clearPendingDkgProposal
-        ? null
-        : pendingDkgThreshold ?? this.pendingDkgThreshold,
-    pendingDkgCreatorId: clearPendingDkgProposal
-        ? null
-        : pendingDkgCreatorId ?? this.pendingDkgCreatorId,
-    pendingDkgExpiry: clearPendingDkgProposal
-        ? null
-        : pendingDkgExpiry ?? this.pendingDkgExpiry,
-    errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
-    invitations: invitations ?? this.invitations,
-  );
+            ) &&
+            listEquals(next.invitations, this.invitations)
+        ? this
+        : next;
+  }
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -145,7 +170,6 @@ class RoastSetup({
     'localCardId': localCardId,
     'localParticipantPrivateKeyHex': localParticipantPrivateKeyHex,
     'participants': participants.map((item) => item.toJson()).toList(),
-    'onlineParticipantIds': onlineParticipantIds,
     'keyName': keyName,
     'createdAt': createdAt.toUtc().toIso8601String(),
     'irohIdentityIndex': irohIdentityIndex,
@@ -187,8 +211,6 @@ class RoastSetup({
       localParticipantPrivateKeyHex:
           json['localParticipantPrivateKeyHex']! as String,
       participants: participants,
-      onlineParticipantIds:
-          ((json['onlineParticipantIds'] as List?) ?? const []).cast<String>(),
       keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: DateTime.parse(json['createdAt']! as String),
       irohIdentityIndex:

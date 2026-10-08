@@ -60,7 +60,7 @@ extension WalletRoastEventController on WalletController {
     for (final setup in [
       ...roastSetups.where((setup) => _hasActiveAccountForSetup(setup.id)),
     ]) {
-      _roastPresence.remove(setup.id);
+      final presenceChanged = _roastPresence.remove(setup.id) != null;
       try {
         await _updateSetup(
           setup.id,
@@ -68,6 +68,7 @@ extension WalletRoastEventController on WalletController {
             status: RoastSetupStatus.interrupted,
             errorMessage: WalletRoastSetupController._cleanRoastError(error),
           ),
+          notifyIfUnchanged: presenceChanged,
         );
       } on Object {
         // Keep processing the remaining setups even if one save fails.
@@ -109,46 +110,26 @@ extension WalletRoastEventController on WalletController {
           ),
         );
       case RoastRuntimeSnapshotEvent():
-        final previousPresence = _roastPresence[event.setupId];
-        final presenceChanged =
-            previousPresence?.connected != event.connected ||
-            previousPresence?.signerRunning != event.signerRunning;
-        _roastPresence[event.setupId] = _RoastPresence(
+        final presenceChanged = _setRoastPresence(
+          event.setupId,
           connected: event.connected,
           signerRunning: event.signerRunning,
+          onlineParticipantIds: event.onlineParticipantIds,
         );
-        var setupChanged = false;
         await _updateSetup(setup.id, (setup) {
           final recovered =
               event.connected &&
               event.signerRunning &&
               (setup.status == RoastSetupStatus.connecting ||
                   setup.status == RoastSetupStatus.interrupted);
-          if (!recovered &&
-              listEquals(
-                setup.onlineParticipantIds,
-                event.onlineParticipantIds,
-              ) &&
-              (event.coordinatorId == null ||
-                  setup.coordinatorId == event.coordinatorId) &&
-              listEquals(
-                setup.coordinatorRelayUrls,
-                event.coordinatorRelayUrls,
-              ) &&
-              listEquals(setup.coordinatorIpAddrs, event.coordinatorIpAddrs)) {
-            return setup;
-          }
-          setupChanged = true;
           return setup.copyWith(
-            onlineParticipantIds: event.onlineParticipantIds,
             coordinatorId: event.coordinatorId,
             coordinatorRelayUrls: event.coordinatorRelayUrls,
             coordinatorIpAddrs: event.coordinatorIpAddrs,
             status: recovered ? _restoredRoastStatus(setup) : setup.status,
             clearError: recovered,
           );
-        });
-        if (presenceChanged && !setupChanged) _notifyListeners();
+        }, notifyIfUnchanged: presenceChanged);
       case RoastRuntimeDkgEvent()
           when event.rejected &&
               WalletRoastSetupController._dkgDefinitionMatchesSetup(
@@ -285,7 +266,8 @@ extension WalletRoastEventController on WalletController {
             details: event.message,
           );
         }
-        if (event.interrupted) _roastPresence.remove(event.setupId);
+        final presenceChanged =
+            event.interrupted && _roastPresence.remove(event.setupId) != null;
         await _updateSetup(
           setup.id,
           (setup) => setup.copyWith(
@@ -294,6 +276,7 @@ extension WalletRoastEventController on WalletController {
                 : RoastSetupStatus.error,
             errorMessage: event.message,
           ),
+          notifyIfUnchanged: presenceChanged,
         );
       case RoastRuntimeSigningRequestEvent()
           when event.request.creator == setup.localParticipant.identifierHex:

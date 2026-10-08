@@ -1546,7 +1546,6 @@ WalletVault _finalizedRoastVault() => WalletVault(
           publicKeyHex: '03${'22' * 32}',
         ),
       ],
-      onlineParticipantIds: const [],
       keyName: 'group-g1',
       createdAt: DateTime.utc(2026),
       usesRoomEnrollment: true,
@@ -1752,7 +1751,7 @@ final class _CoordinatorFlowRuntime extends _FakeRoastRuntime
     return RoastRuntimeSnapshot(
       connected: true,
       signerRunning: true,
-      onlineParticipantIds: setup.onlineParticipantIds,
+      onlineParticipantIds: const ['01'],
       coordinatorId: newCoordinator.id,
       coordinatorRelayUrls: newCoordinator.relayUrls,
       coordinatorIpAddrs: newCoordinator.ipAddrs,

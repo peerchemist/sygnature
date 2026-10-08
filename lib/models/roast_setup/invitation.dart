@@ -42,17 +42,25 @@ class RoastIssuedInvitation({
     DateTime? sentAt,
     DateTime? joinedAt,
     RoastInvitationServerStatus? serverStatus,
-  }) => RoastIssuedInvitation(
-    participantName: participantName,
-    participantPublicKeyHex: participantPublicKeyHex,
-    encoded: encoded,
-    issuedAt: issuedAt,
-    expiresAt: expiresAt,
-    copiedAt: copiedAt ?? this.copiedAt,
-    sentAt: sentAt ?? this.sentAt,
-    joinedAt: joinedAt ?? this.joinedAt,
-    serverStatus: serverStatus ?? this.serverStatus,
-  );
+  }) {
+    if ((copiedAt == null || copiedAt == this.copiedAt) &&
+        (sentAt == null || sentAt == this.sentAt) &&
+        (joinedAt == null || joinedAt == this.joinedAt) &&
+        (serverStatus == null || serverStatus == this.serverStatus)) {
+      return this;
+    }
+    return RoastIssuedInvitation(
+      participantName: participantName,
+      participantPublicKeyHex: participantPublicKeyHex,
+      encoded: encoded,
+      issuedAt: issuedAt,
+      expiresAt: expiresAt,
+      copiedAt: copiedAt ?? this.copiedAt,
+      sentAt: sentAt ?? this.sentAt,
+      joinedAt: joinedAt ?? this.joinedAt,
+      serverStatus: serverStatus ?? this.serverStatus,
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'participantName': participantName,
