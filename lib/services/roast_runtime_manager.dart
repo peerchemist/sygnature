@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart'
     show TaprootKeySignDetails, bytesEqual, bytesToHex;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import '../models/roast_setup.dart';
@@ -44,6 +45,8 @@ final class RoastRuntimeManager(
   final Set<String> _synchronizingDkgSetups = {};
   final Map<String, Uint8List> _approvedDkgDetailsBySetup = {};
   final Map<String, Timer> _keyReadinessTimers = {};
+  final Map<String, Future<void>> _refreshes = {};
+  final Set<String> _refreshAgain = {};
   NoosphereWorker? _worker;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
 
@@ -71,6 +74,8 @@ final class RoastRuntimeManager(
     final worker = await NoosphereWorker.start();
     _serverSetups.clear();
     _signerSetups.clear();
+    _dkgProposals.clear();
+    _signingRequests.clear();
     for (final timer in _keyReadinessTimers.values) {
       timer.cancel();
     }
@@ -485,6 +490,9 @@ final class RoastRuntimeManager(
     _serverSetups.remove(setupId);
     _signerSetups.remove(setupId);
     _signerCoordinators.remove(setupId);
+    _dkgProposals.removeWhere((key, _) => key.startsWith('$setupId:'));
+    _signingRequests.removeWhere((key, _) => key.startsWith('$setupId:'));
+    _refreshAgain.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
     await _roomServers.remove(setupId)?.close();
@@ -506,6 +514,7 @@ final class RoastRuntimeManager(
   }
 
   void _onWorkerEvent(NoosphereWorkerEvent event) {
+    if (_events.isClosed || !_setups.containsKey(event.setupId)) return;
     switch (event) {
       case WorkerSnapshotEvent():
         if (!_synchronizingDkgSetups.contains(event.setupId)) {
@@ -653,11 +662,36 @@ final class RoastRuntimeManager(
     }
   }
 
-  Future<void> _refresh(String setupId) async {
+  Future<void> _refresh(String setupId) {
+    final pending = _refreshes[setupId];
+    if (pending != null) {
+      _refreshAgain.add(setupId);
+      return pending;
+    }
+    return _refreshes[setupId] = _refreshUntilCurrent(setupId).whenComplete(() {
+      _refreshes.remove(setupId);
+    });
+  }
+
+  Future<void> _refreshUntilCurrent(String setupId) async {
+    do {
+      _refreshAgain.remove(setupId);
+      await _refreshSnapshot(setupId);
+    } while (_refreshAgain.contains(setupId) && _setups.containsKey(setupId));
+    _refreshAgain.remove(setupId);
+  }
+
+  Future<void> _refreshSnapshot(String setupId) async {
     final worker = _worker;
-    if (worker == null || worker.isClosed) return;
+    final setup = _setups[setupId];
+    if (worker == null || worker.isClosed || setup == null) return;
     try {
       final snapshot = await worker.snapshot(setupId);
+      if (_events.isClosed ||
+          !identical(worker, _worker) ||
+          !identical(setup, _setups[setupId])) {
+        return;
+      }
       _rememberDkgs(snapshot);
       _rememberSigningRequests(snapshot);
       _emitSnapshot(snapshot);
@@ -766,6 +800,21 @@ final class RoastRuntimeManager(
   void _rememberDkgs(NoosphereWorkerSnapshot snapshot) {
     for (final proposal in snapshot.dkgs) {
       final proposalHex = bytesToHex(proposal.proposalBytes);
+      final key = '${snapshot.setupId}:$proposalHex';
+      final previous = _dkgProposals[key];
+      if (previous != null &&
+          previous.name == proposal.name &&
+          previous.description == proposal.description &&
+          previous.threshold == proposal.threshold &&
+          previous.expiry == proposal.expiry &&
+          previous.creator == proposal.creator &&
+          previous.stage == proposal.stage &&
+          listEquals(
+            previous.completedParticipants,
+            proposal.completedParticipants,
+          )) {
+        continue;
+      }
       final participantCount = _setups[snapshot.setupId]?.participantCount;
       AppLogger.info(
         '${_roastScope(snapshot.setupId)} DKG ${_shortId(proposalHex)} '
@@ -773,7 +822,7 @@ final class RoastRuntimeManager(
         'completed=${proposal.completedParticipants.length}/'
         '${participantCount ?? '?'}',
       );
-      _dkgProposals['${snapshot.setupId}:$proposalHex'] = proposal;
+      _dkgProposals[key] = proposal;
       _events.add(
         RoastRuntimeDkgEvent(
           snapshot.setupId,
@@ -820,7 +869,22 @@ final class RoastRuntimeManager(
 
   void _emitSigningRequest(String setupId, WorkerSigningRequest request) {
     final idHex = bytesToHex(request.id);
-    _signingRequests['$setupId:$idHex'] = request;
+    final key = '$setupId:$idHex';
+    final previous = _signingRequests[key];
+    if (previous != null &&
+        bytesEqual(previous.proposalBytes, request.proposalBytes) &&
+        previous.creator == request.creator &&
+        previous.expiry == request.expiry &&
+        previous.status == request.status &&
+        previous.progress.stage == request.progress.stage &&
+        previous.progress.threshold == request.progress.threshold &&
+        listEquals(
+          previous.progress.contributingParticipants,
+          request.progress.contributingParticipants,
+        )) {
+      return;
+    }
+    _signingRequests[key] = request;
     _events.add(
       RoastRuntimeSigningRequestEvent(
         setupId,
@@ -970,6 +1034,9 @@ final class RoastRuntimeManager(
     _serverSetups.clear();
     _signerSetups.clear();
     _signerCoordinators.clear();
+    _dkgProposals.clear();
+    _signingRequests.clear();
+    _refreshAgain.clear();
     for (final subscription in _roomSubscriptions.values) {
       await subscription.cancel();
     }
