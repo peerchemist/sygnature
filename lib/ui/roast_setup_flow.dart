@@ -132,6 +132,7 @@ class const RoastSetupPanel({
             if (setup.isFinalized) ...[
               const SizedBox(height: 14),
               _CoordinatorConnectionStatus(
+                key: ValueKey('${setup.id}-${coordinatorState.name}'),
                 state: coordinatorState,
                 endpointId: setup.coordinatorId,
               ),
@@ -539,12 +540,24 @@ class const RoastSetupPanel({
 }
 
 class const _CoordinatorConnectionStatus({
+  super.key,
   required final RoastCoordinatorLocalState state,
   required final String? endpointId,
-}) extends StatelessWidget {
+}) extends StatefulWidget {
+  @override
+  State<_CoordinatorConnectionStatus> createState() =>
+      _CoordinatorConnectionStatusState();
+}
+
+class _CoordinatorConnectionStatusState
+    extends State<_CoordinatorConnectionStatus> {
+  var _dismissed = false;
+
   @override
   Widget build(BuildContext context) {
-    final (label, detail, icon, color) = switch (state) {
+    if (_dismissed) return const SizedBox.shrink();
+
+    final (label, detail, icon, color) = switch (widget.state) {
       RoastCoordinatorLocalState.switching => (
         'Switching coordinator',
         'The signer is stopped while the approved selection is saved.',
@@ -571,7 +584,7 @@ class const _CoordinatorConnectionStatus({
       ),
     };
     return Container(
-      key: ValueKey('coordinator-${state.name}'),
+      key: ValueKey('coordinator-${widget.state.name}'),
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -600,10 +613,10 @@ class const _CoordinatorConnectionStatus({
                     fontSize: 12,
                   ),
                 ),
-                if (endpointId != null) ...[
+                if (widget.endpointId != null) ...[
                   const SizedBox(height: 5),
                   Text(
-                    'Coordinator ID ${RoastSetupPanel._short(endpointId!)}',
+                    'Coordinator ID ${RoastSetupPanel._short(widget.endpointId!)}',
                     style: const TextStyle(
                       color: AppColors.inkMuted,
                       fontFamily: 'monospace',
@@ -613,6 +626,11 @@ class const _CoordinatorConnectionStatus({
                 ],
               ],
             ),
+          ),
+          const SizedBox(width: 6),
+          _DismissButton(
+            tooltip: 'Dismiss coordinator status',
+            onPressed: () => setState(() => _dismissed = true),
           ),
         ],
       ),
@@ -774,18 +792,9 @@ class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
                     style: TextStyle(color: color, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(width: 6),
-                  IconButton(
+                  _DismissButton(
                     tooltip: 'Dismiss signer enrollment',
                     onPressed: () => setState(() => _dismissed = true),
-                    icon: const Icon(Icons.close_rounded),
-                    iconSize: 16,
-                    color: AppColors.inkMuted,
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 24,
-                      height: 24,
-                    ),
                   ),
                 ],
               ),
@@ -810,6 +819,23 @@ class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
       ),
     );
   }
+}
+
+class const _DismissButton({
+  required final String tooltip,
+  required final VoidCallback onPressed,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip,
+    onPressed: onPressed,
+    icon: const Icon(Icons.close_rounded),
+    iconSize: 16,
+    color: AppColors.inkMuted,
+    padding: EdgeInsets.zero,
+    visualDensity: VisualDensity.compact,
+    constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+  );
 }
 
 class const _SwarmHealth({
