@@ -17,6 +17,40 @@ import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
+  test(
+    'reports a busy controller instead of silently skipping edits',
+    () async {
+      final repository = _ControlledWalletRepository();
+      final controller = WalletController(
+        repository,
+        keyService: _FakeWalletKeyService(),
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      final accountId = controller.accounts.single.id;
+      repository.saveStarted = Completer<void>();
+      repository.saveGate = Completer<void>();
+      final renaming = controller.renameAccount(accountId, 'First');
+      await repository.saveStarted!.future;
+
+      await expectLater(
+        controller.renameAccount(accountId, 'Skipped'),
+        throwsA(isA<WalletBusyFailure>()),
+      );
+      expect(controller.busy, isTrue);
+      repository.saveGate!.complete();
+      await renaming;
+      expect(controller.accounts.single.name, 'First');
+      expect(controller.busy, isFalse);
+      await controller.renameAccount(accountId, 'Next');
+      expect(controller.accounts.single.name, 'Next');
+      controller.dispose();
+    },
+  );
+
   test('preserves account edits overlapping transaction activity', () async {
     final repository = _ControlledWalletRepository();
     final controller = WalletController(

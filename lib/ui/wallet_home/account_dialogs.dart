@@ -1,5 +1,28 @@
 part of '../wallet_home.dart';
 
+Future<void> _runWalletAction(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  try {
+    await action();
+  } on Object catch (error, stackTrace) {
+    if (error is! WalletBusyFailure) {
+      AppLogger.error(
+        'Unable to update wallet',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    if (!context.mounted) return;
+    final message = error is WalletBusyFailure
+        ? error.toString()
+        : 'Unable to update the wallet. Please try again.';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
 Future<void> _showAddWallet(
   BuildContext context,
   WalletController controller,
@@ -77,8 +100,11 @@ Future<void> _showAddWallet(
       networks: controller.supportedNetworks,
     ),
   );
-  if (result == null || result.name.trim().isEmpty) return;
-  await controller.addAccount(result.name, network: result.network);
+  if (result == null || result.name.trim().isEmpty || !context.mounted) return;
+  await _runWalletAction(
+    context,
+    () => controller.addAccount(result.name, network: result.network),
+  );
 }
 
 class _AddWalletDialog extends StatefulWidget {
@@ -251,7 +277,11 @@ Future<void> _showRenameWallet(
     ),
   );
   nameController.dispose();
-  if (name != null) await controller.renameAccount(account.id, name);
+  if (name == null || !context.mounted) return;
+  await _runWalletAction(
+    context,
+    () => controller.renameAccount(account.id, name),
+  );
 }
 
 Future<void> _showArchivedWallets(

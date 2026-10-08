@@ -165,7 +165,10 @@ class const _WalletSidebar({
                                   setup.id,
                                 ),
                       selected: selected,
-                      onTap: () => controller.selectAccount(index),
+                      onTap: () => _runWalletAction(
+                        context,
+                        () => controller.selectAccount(index),
+                      ),
                     );
                   },
                 ),
@@ -678,7 +681,10 @@ class _MobileWalletPicker extends StatelessWidget {
                   selected: selected,
                   showCheckmark: false,
                   label: Text(controller.accounts[index].name),
-                  onSelected: (_) => controller.selectAccount(index),
+                  onSelected: (_) => _runWalletAction(
+                    context,
+                    () => controller.selectAccount(index),
+                  ),
                   selectedColor: AppColors.forest,
                   labelStyle: TextStyle(
                     color: selected ? Colors.white : AppColors.ink,
@@ -931,7 +937,10 @@ Future<void> _confirmArchiveWallet(
         content: Text('${account.name} archived.'),
         action: SnackBarAction(
           label: 'Undo',
-          onPressed: () => controller.restoreAccount(account.id),
+          onPressed: () => _runWalletAction(
+            context,
+            () => controller.restoreAccount(account.id),
+          ),
         ),
       ),
     );

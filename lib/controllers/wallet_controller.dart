@@ -91,6 +91,11 @@ typedef WalletNetworkServiceFactory = Future<ElectrumxService?> Function(
   WalletNetwork network,
 );
 
+final class const WalletBusyFailure() implements Exception {
+  @override
+  String toString() => 'Another wallet operation is in progress. Try again.';
+}
+
 class WalletController extends ChangeNotifier {
   static const _maxActivityEntries = 100;
 

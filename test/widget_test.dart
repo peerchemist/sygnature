@@ -112,6 +112,47 @@ void main() {
     expect(find.text('Main wallet'), findsWidgets);
   });
 
+  testWidgets('shows a busy failure when switching wallets during an update', (
+    tester,
+  ) async {
+    final gate = Completer<ElectrumxService?>();
+    var delayConnection = false;
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      networkServiceFactory: (_) async => delayConnection ? gate.future : null,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+    delayConnection = true;
+    final adding = controller.addAccount(
+      'Third',
+      network: PeercoinNetworks.mainnet,
+    );
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete(null);
+    });
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Main wallet'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Another wallet operation is in progress. Try again.'),
+      findsOneWidget,
+    );
+    expect(controller.selectedAccount!.name, 'Savings');
+    expect(tester.takeException(), isNull);
+    gate.complete(null);
+    await adding;
+    await tester.pumpAndSettle();
+    expect(controller.selectedAccount!.name, 'Third');
+  });
+
   testWidgets('imports a watch-only wallet without private material', (
     tester,
   ) async {

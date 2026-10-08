@@ -118,7 +118,7 @@ extension WalletSyncController on WalletController {
   }
 
   Future<void> _guard(Future<void> Function() operation) async {
-    if (_busy) return;
+    if (_busy) throw const WalletBusyFailure();
     _busy = true;
     _notifyListeners();
     try {
