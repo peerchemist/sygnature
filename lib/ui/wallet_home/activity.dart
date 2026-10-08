@@ -7,7 +7,13 @@ class _ActivityCard extends StatelessWidget {
   final WalletAccount account;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => controller.activitiesFor(account),
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final activities = controller.activitiesFor(account);
     return Card(
       child: Padding(

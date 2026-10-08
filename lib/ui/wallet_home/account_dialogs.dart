@@ -290,8 +290,9 @@ Future<void> _showArchivedWallets(
 ) async {
   await _showAdaptivePanel(
     context,
-    builder: (panelContext, desktop) => AnimatedBuilder(
-      animation: controller,
+    builder: (panelContext, desktop) => SelectorBuilder(
+      listenable: controller,
+      select: () => controller.archivedAccounts,
       builder: (context, _) => SafeArea(
         child: Padding(
           padding: EdgeInsets.fromLTRB(20, desktop ? 20 : 4, 20, 24),

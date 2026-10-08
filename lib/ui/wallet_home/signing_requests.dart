@@ -8,8 +8,15 @@ Future<void> _showRoastRequests(
   await _showAdaptivePanel(
     context,
     desktop: desktop,
-    builder: (panelContext, desktop) => AnimatedBuilder(
-      animation: controller,
+    builder: (panelContext, desktop) => SelectorBuilder(
+      listenable: controller,
+      select: () => [
+        ...controller.roastSigningRequests,
+        for (final item in controller.roastSigningRequests)
+          controller.roastSetups
+              .where((setup) => setup.id == item.setupId)
+              .firstOrNull,
+      ],
       builder: (context, _) => SafeArea(
         child: ConstrainedBox(
           constraints: BoxConstraints(

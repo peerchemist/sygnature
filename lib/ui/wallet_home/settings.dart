@@ -16,8 +16,16 @@ class const _SettingsScreen({
   required final AppNotifications notifications,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([notifications, controller]),
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: Listenable.merge([notifications, controller]),
+    select: () => [
+      controller.archivedAccounts.length,
+      controller.roastSetups.isEmpty,
+      notifications.supportsDesktopNotifications,
+      notifications.desktopEnabled,
+      notifications.soundEnabled,
+      notifications.soundVolume,
+    ],
     builder: (context, _) => Scaffold(
       appBar: AppBar(
         backgroundColor: AppColors.canvas,

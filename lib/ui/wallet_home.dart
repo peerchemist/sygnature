@@ -22,6 +22,7 @@ import 'roast_setup_flow.dart';
 import 'watch_only_wallet_dialog.dart';
 import 'widgets/brand_mark.dart';
 import 'widgets/middle_ellipsis_text.dart';
+import 'widgets/selector_builder.dart';
 
 part 'wallet_home/activity.dart';
 part 'wallet_home/send_dialog.dart';
@@ -45,22 +46,13 @@ class const WalletHome({
               children: [
                 SizedBox(
                   width: 280,
-                  child: AnimatedBuilder(
-                    animation: controller,
-                    builder: (context, _) => _WalletSidebar(
-                      controller: controller,
-                      notifications: notifications,
-                    ),
+                  child: _WalletSidebar(
+                    controller: controller,
+                    notifications: notifications,
                   ),
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(
-                  child: AnimatedBuilder(
-                    animation: controller,
-                    builder: (context, _) =>
-                        _WalletDashboard(controller: controller),
-                  ),
-                ),
+                Expanded(child: _WalletDashboard(controller: controller)),
               ],
             ),
           );
@@ -71,8 +63,9 @@ class const WalletHome({
             surfaceTintColor: Colors.transparent,
             title: const BrandMark(),
             actions: [
-              AnimatedBuilder(
-                animation: controller,
+              SelectorBuilder(
+                listenable: controller,
+                select: () => [controller.roastSigningRequests.length],
                 builder: (context, _) => Badge(
                   isLabelVisible: controller.roastSigningRequests.isNotEmpty,
                   label: Text('${controller.roastSigningRequests.length}'),
@@ -92,11 +85,7 @@ class const WalletHome({
               const SizedBox(width: 8),
             ],
           ),
-          body: AnimatedBuilder(
-            animation: controller,
-            builder: (context, _) =>
-                _WalletDashboard(controller: controller, mobile: true),
-          ),
+          body: _WalletDashboard(controller: controller, mobile: true),
         );
       },
     );
@@ -108,7 +97,17 @@ class const _WalletSidebar({
   required final AppNotifications notifications,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => [
+      ...controller.accounts,
+      controller.selectedAccount?.id,
+      controller.roastSigningRequests.length,
+    ],
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     return Material(
       color: AppColors.surface,
       child: SafeArea(
@@ -147,28 +146,55 @@ class const _WalletSidebar({
                   separatorBuilder: (_, _) => const SizedBox(height: 2),
                   itemBuilder: (context, index) {
                     final account = controller.accounts[index];
-                    final setup = controller.setupForAccount(account);
-                    final selected = index == controller.selectedAccountIndex;
-                    return _WalletListTile(
-                      account: account,
-                      displayIndex: index,
-                      setup: setup,
-                      balanceSats: controller.balanceSatsFor(account),
-                      syncStatus: controller.syncStatusFor(account),
-                      activeSigningRequestCount: setup == null
-                          ? 0
-                          : controller.activeRoastSigningRequestCount(setup.id),
-                      awaitingLocalApprovalCount: setup == null
-                          ? 0
-                          : controller
+                    return SelectorBuilder(
+                      listenable: controller,
+                      select: () {
+                        final setup = controller.setupForAccount(account);
+                        return [
+                          controller.balanceSatsFor(account),
+                          controller.syncStatusFor(account),
+                          setup?.role,
+                          setup?.isActive,
+                          setup?.isWaitingForInvitation,
+                          setup?.threshold,
+                          setup?.participantCount,
+                          if (setup != null) ...[
+                            controller.activeRoastSigningRequestCount(setup.id),
+                            controller
                                 .roastSigningRequestsAwaitingLocalApprovalCount(
                                   setup.id,
                                 ),
-                      selected: selected,
-                      onTap: () => _runWalletAction(
-                        context,
-                        () => controller.selectAccount(index),
-                      ),
+                          ],
+                        ];
+                      },
+                      builder: (context, _) {
+                        final setup = controller.setupForAccount(account);
+                        final selected =
+                            index == controller.selectedAccountIndex;
+                        return _WalletListTile(
+                          account: account,
+                          displayIndex: index,
+                          setup: setup,
+                          balanceSats: controller.balanceSatsFor(account),
+                          syncStatus: controller.syncStatusFor(account),
+                          activeSigningRequestCount: setup == null
+                              ? 0
+                              : controller.activeRoastSigningRequestCount(
+                                  setup.id,
+                                ),
+                          awaitingLocalApprovalCount: setup == null
+                              ? 0
+                              : controller
+                                    .roastSigningRequestsAwaitingLocalApprovalCount(
+                                      setup.id,
+                                    ),
+                          selected: selected,
+                          onTap: () => _runWalletAction(
+                            context,
+                            () => controller.selectAccount(index),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -400,7 +426,22 @@ class _WalletDashboard extends StatelessWidget {
   final bool mobile;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => [
+      controller.selectedAccount,
+      controller.archivedAccounts.isNotEmpty,
+      if (controller.selectedAccount case final account?) ...[
+        controller.syncStatusFor(account),
+        controller.setupForAccount(account)?.status,
+        controller.setupForAccount(account)?.isFinalized,
+        controller.setupForAccount(account)?.coordinatorId,
+      ],
+    ],
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final account = controller.selectedAccount;
     if (account == null) {
       return SafeArea(
@@ -429,12 +470,6 @@ class _WalletDashboard extends StatelessWidget {
       );
     }
     final roastSetup = controller.setupForAccount(account);
-    final signingRequests = roastSetup == null
-        ? const <RoastSigningInboxItem>[]
-        : controller.roastSigningRequestsForSetup(roastSetup.id);
-    final hasPendingDkg =
-        roastSetup?.status == RoastSetupStatus.awaitingDkgApproval &&
-        roastSetup?.pendingDkgProposalHex != null;
     final header = _DashboardHeader(
       account: account,
       syncStatus: controller.syncStatusFor(account),
@@ -443,13 +478,21 @@ class _WalletDashboard extends StatelessWidget {
       onRename: () => _showRenameWallet(context, controller, account),
       onChangeSignerGroup:
           roastSetup?.isActive == true && controller.roastAvailable
-          ? () => showRoastGroupTransition(context, controller, roastSetup!)
+          ? () => showRoastGroupTransition(
+              context,
+              controller,
+              controller.setupForAccount(account)!,
+            )
           : null,
       onSwitchCoordinator:
           roastSetup?.isFinalized == true &&
               roastSetup?.coordinatorId != null &&
               controller.roastCoordinatorSwitchAvailable
-          ? () => showRoastCoordinatorSwitch(context, controller, roastSetup!)
+          ? () => showRoastCoordinatorSwitch(
+              context,
+              controller,
+              controller.setupForAccount(account)!,
+            )
           : null,
     );
     return SafeArea(
@@ -476,15 +519,10 @@ class _WalletDashboard extends StatelessWidget {
                       _MobileWalletPicker(controller: controller),
                       const SizedBox(height: 26),
                     ],
-                    if (hasPendingDkg || signingRequests.isNotEmpty) ...[
-                      _RoastPriorityRequests(
-                        controller: controller,
-                        setup: roastSetup!,
-                        showDkg: hasPendingDkg,
-                        signingRequests: signingRequests,
-                      ),
-                      const SizedBox(height: 18),
-                    ],
+                    _WalletPriorityRequests(
+                      controller: controller,
+                      account: account,
+                    ),
                     if (wideDesktop)
                       header
                     else
@@ -620,6 +658,43 @@ class const _DesktopWalletOverview({
   );
 }
 
+class const _WalletPriorityRequests({
+  required final WalletController controller,
+  required final WalletAccount account,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => [
+      controller.setupForAccount(account),
+      if (account.sourceId case final setupId?) ...[
+        controller.roastOperationInProgress(setupId),
+        ...controller.roastSigningRequestsForSetup(setupId),
+      ],
+    ],
+    builder: (context, _) {
+      final setup = controller.setupForAccount(account);
+      if (setup == null) return const SizedBox.shrink();
+      final requests = controller.roastSigningRequestsForSetup(setup.id);
+      final showDkg =
+          setup.status == RoastSetupStatus.awaitingDkgApproval &&
+          setup.pendingDkgProposalHex != null;
+      if (!showDkg && requests.isEmpty) return const SizedBox.shrink();
+      return Column(
+        children: [
+          _RoastPriorityRequests(
+            controller: controller,
+            setup: setup,
+            showDkg: showDkg,
+            signingRequests: requests,
+          ),
+          const SizedBox(height: 18),
+        ],
+      );
+    },
+  );
+}
+
 class const _RoastPriorityRequests({
   required final WalletController controller,
   required final RoastSetup setup,
@@ -665,7 +740,13 @@ class _MobileWalletPicker extends StatelessWidget {
   final WalletController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => [...controller.accounts, controller.selectedAccount?.id],
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     return SizedBox(
       height: 46,
       child: Row(
@@ -958,7 +1039,27 @@ class _BalanceCard extends StatelessWidget {
   final WalletController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => [
+      controller.balanceSatsFor(account),
+      controller.confirmedBalanceSatsFor(account),
+      controller.availableBalanceSatsFor(account),
+      controller.reservedBalanceSatsFor(account),
+      controller.pendingBalanceSatsFor(account),
+      controller.utxosFor(account).length,
+      controller.syncStatusFor(account),
+      controller.setupForAccount(account)?.isActive,
+      if (account.sourceId case final setupId?) ...[
+        controller.roastTransactionSigningInProgress(setupId),
+        controller.roastMessageSigningInProgress(setupId),
+        controller.roastOperationInProgress(setupId),
+      ],
+    ],
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final hasAddress = account.address != null;
     final canSign =
         hasAddress && account.derivationState == WalletDerivationState.ready;

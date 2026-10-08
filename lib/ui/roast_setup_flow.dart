@@ -10,6 +10,7 @@ import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import '../services/roast_runtime_manager.dart';
 import 'app_theme.dart';
+import 'widgets/selector_builder.dart';
 
 part 'roast_setup_flow/coordinator_dialog.dart';
 part 'roast_setup_flow/group_transition_dialog.dart';
@@ -47,7 +48,27 @@ class const RoastSetupPanel({
   required final WalletAccount account,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () {
+      final setup = controller.setupForAccount(account);
+      return [
+        setup,
+        if (setup != null) ...[
+          controller.roastOperationInProgress(setup.id),
+          controller.roastMessageSigningInProgress(setup.id),
+          controller.roastCoordinatorState(setup.id),
+          controller.roastCoordinatorRecovery(setup.id),
+          controller.recoverableBroadcastForSetup(setup.id),
+          for (final participant in setup.participants)
+            controller.isRoastParticipantOnline(setup, participant),
+        ],
+      ];
+    },
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final setup = controller.setupForAccount(account);
     if (setup == null) return const SizedBox.shrink();
     final messageSigning = controller.roastMessageSigningInProgress(setup.id);

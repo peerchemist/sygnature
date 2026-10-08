@@ -153,6 +153,64 @@ void main() {
     expect(controller.selectedAccount!.name, 'Third');
   });
 
+  testWidgets(
+    'updates wallet sections only when their displayed data changes',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final electrumx = _PendingElectrumxService();
+      var connect = false;
+      final controller = WalletController(
+        MemoryWalletRepository(),
+        keyService: _FakeWalletKeyService(),
+        networkServiceFactory: (_) async => connect ? electrumx : null,
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
+      connect = true;
+      await controller.reconnectElectrumx();
+      final background = controller.accounts.first;
+      final selected = controller.selectedAccount!;
+      electrumx.emitBalance(background.address!, 1000000);
+      electrumx.emitBalance(selected.address!, 2000000);
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+      Finder balance() => find.byWidgetPredicate(
+        (widget) => widget is Text && widget.style?.fontSize == 34,
+      );
+      final amount = tester.widget<Text>(balance());
+      final activityTitle = tester.widget<Text>(find.text('Recent activity'));
+      expect(amount.data, '2.00 PPC');
+      expect(find.text('1.00 PPC'), findsOneWidget);
+
+      electrumx.emitBalance(background.address!, 3000000);
+      await tester.pumpAndSettle();
+      expect(find.text('3.00 PPC'), findsOneWidget);
+      expect(tester.widget<Text>(balance()), same(amount));
+      expect(
+        tester.widget<Text>(find.text('Recent activity')),
+        same(activityTitle),
+      );
+
+      electrumx.emitBalance(selected.address!, 4000000);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(balance()).data, '4.00 PPC');
+      expect(
+        tester.widget<Text>(find.text('Recent activity')),
+        same(activityTitle),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await electrumx.close();
+    },
+  );
+
   testWidgets('imports a watch-only wallet without private material', (
     tester,
   ) async {
@@ -587,6 +645,23 @@ class _PendingElectrumxService implements ElectrumxService {
   void emitEmpty(String address) {
     _snapshots.add(
       PeercoinElectrumxUtxoSnapshot(address: address, utxos: const []),
+    );
+  }
+
+  void emitBalance(String address, int value) {
+    _snapshots.add(
+      PeercoinElectrumxUtxoSnapshot(
+        address: address,
+        utxos: [
+          ElectrumxUtxo(
+            address: address,
+            txHash: 'funding',
+            txPos: 0,
+            height: 1,
+            value: value,
+          ),
+        ],
+      ),
     );
   }
 

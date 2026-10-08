@@ -23,6 +23,7 @@ import 'ui/onboarding_screen.dart';
 import 'ui/vault_protection_screen.dart';
 import 'ui/wallet_home.dart';
 import 'ui/widgets/brand_mark.dart';
+import 'ui/widgets/selector_builder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -546,8 +547,12 @@ class _SygnatureAppState extends State<SygnatureApp> {
           }
           final controller = snapshot.data;
           if (controller == null) return const _StartupLoading();
-          return AnimatedBuilder(
-            animation: controller,
+          return SelectorBuilder(
+            listenable: controller,
+            select: () => [
+              controller.hasWallet,
+              if (!controller.hasWallet) controller.busy,
+            ],
             child: WalletHome(
               controller: controller,
               notifications: _notifications,

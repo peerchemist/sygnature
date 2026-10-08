@@ -16,8 +16,12 @@ class const _RoastInvitationsDialog({
   required final String setupId,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller,
+  Widget build(BuildContext context) => SelectorBuilder(
+    listenable: controller,
+    select: () => [
+      for (final invitation in controller.issuedRoastInvitations(setupId))
+        (invitation, invitation.statusAt(DateTime.now().toUtc())),
+    ],
     builder: (context, _) {
       final invitations = controller.issuedRoastInvitations(setupId);
       final now = DateTime.now().toUtc();

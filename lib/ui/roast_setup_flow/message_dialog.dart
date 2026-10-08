@@ -104,8 +104,13 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
         ),
         content: SizedBox(
           width: 560,
-          child: AnimatedBuilder(
-            animation: widget.controller,
+          child: SelectorBuilder(
+            listenable: widget.controller,
+            select: () => [
+              widget.controller.setupForAccount(widget.account)?.threshold,
+              if (widget.account.sourceId case final setupId?)
+                widget.controller.roastMessageSigningProgress(setupId),
+            ],
             builder: (context, _) => SingleChildScrollView(
               child: result != null
                   ? _buildResult(result)
