@@ -625,6 +625,9 @@ void main() {
 
     expect(find.byKey(const Key('roast-enrollment-progress')), findsOneWidget);
     expect(find.text('1 of 2 signers have joined the room.'), findsOneWidget);
+    await tester.tap(find.byTooltip('Dismiss signer enrollment'));
+    await tester.pump();
+    expect(find.byKey(const Key('roast-enrollment-progress')), findsNothing);
     await tester.tap(find.text('Manage invitations'));
     await tester.pumpAndSettle();
 

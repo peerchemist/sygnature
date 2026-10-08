@@ -137,8 +137,8 @@ class const RoastSetupPanel({
               ),
               if (setup.role == RoastSetupRole.host &&
                   setup.invitations.isNotEmpty) ...[
-                const SizedBox(height: 14),
                 _RoastEnrollmentProgress(
+                  key: ValueKey(setup.id),
                   joined: enrolledSigners,
                   total: setup.participantCount,
                 ),
@@ -712,72 +712,100 @@ class const RoastDkgRequestCard({
 }
 
 class const _RoastEnrollmentProgress({
+  super.key,
   required final int joined,
   required final int total,
-}) extends StatelessWidget {
+}) extends StatefulWidget {
+  @override
+  State<_RoastEnrollmentProgress> createState() =>
+      _RoastEnrollmentProgressState();
+}
+
+class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
+  var _dismissed = false;
+
   @override
   Widget build(BuildContext context) {
-    final complete = joined >= total;
-    final color = complete ? AppColors.success : AppColors.forest;
-    final progress = total == 0
-        ? 0.0
-        : (joined / total).clamp(0.0, 1.0).toDouble();
+    if (_dismissed) return const SizedBox.shrink();
 
-    return Semantics(
-      label: 'Signer enrollment: $joined of $total joined.',
-      child: Container(
-        key: const Key('roast-enrollment-progress'),
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: complete ? AppColors.successSurface : AppColors.surface,
-          border: Border.all(color: color.withValues(alpha: 0.28)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  complete ? Icons.how_to_reg : Icons.group_add_outlined,
-                  size: 18,
-                  color: color,
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'SIGNER ENROLLMENT',
-                    style: TextStyle(
-                      color: AppColors.inkMuted,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
+    final complete = widget.joined >= widget.total;
+    final color = complete ? AppColors.success : AppColors.forest;
+    final progress = widget.total == 0
+        ? 0.0
+        : (widget.joined / widget.total).clamp(0.0, 1.0).toDouble();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Semantics(
+        label: 'Signer enrollment: ${widget.joined} of ${widget.total} joined.',
+        child: Container(
+          key: const Key('roast-enrollment-progress'),
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: complete ? AppColors.successSurface : AppColors.surface,
+            border: Border.all(color: color.withValues(alpha: 0.28)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    complete ? Icons.how_to_reg : Icons.group_add_outlined,
+                    size: 18,
+                    color: color,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'SIGNER ENROLLMENT',
+                      style: TextStyle(
+                        color: AppColors.inkMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
-                ),
-                Text(
-                  '$joined/$total',
-                  style: TextStyle(color: color, fontWeight: FontWeight.w800),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            LinearProgressIndicator(
-              value: progress,
-              minHeight: 6,
-              borderRadius: BorderRadius.circular(3),
-              color: color,
-              backgroundColor: color.withValues(alpha: 0.14),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              complete
-                  ? 'All signers have joined the room.'
-                  : '$joined of $total signers have joined the room.',
-              style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
-            ),
-          ],
+                  Text(
+                    '${widget.joined}/${widget.total}',
+                    style: TextStyle(color: color, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Dismiss signer enrollment',
+                    onPressed: () => setState(() => _dismissed = true),
+                    icon: const Icon(Icons.close_rounded),
+                    iconSize: 16,
+                    color: AppColors.inkMuted,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 24,
+                      height: 24,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(3),
+                color: color,
+                backgroundColor: color.withValues(alpha: 0.14),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                complete
+                    ? 'All signers have joined the room.'
+                    : '${widget.joined} of ${widget.total} signers have joined the room.',
+                style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
     );
