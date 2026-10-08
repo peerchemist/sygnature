@@ -15,6 +15,7 @@ import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/about_screen.dart';
+import 'package:sygnature_ng/ui/wallet_home.dart';
 import 'package:sygnature_ng/ui/widgets/middle_ellipsis_text.dart';
 
 void main() {
@@ -181,12 +182,14 @@ void main() {
 
     expect(find.text('Synchronizing'), findsOneWidget);
     expect(find.text('Ready'), findsNothing);
+    final home = tester.widget<WalletHome>(find.byType(WalletHome));
 
     electrumx.emitEmpty(controller.accounts.single.address!);
     await tester.pump();
 
     expect(find.text('Ready'), findsOneWidget);
     expect(find.text('Synchronizing'), findsNothing);
+    expect(tester.widget<WalletHome>(find.byType(WalletHome)), same(home));
 
     await tester.pumpWidget(const SizedBox.shrink());
     await electrumx.close();

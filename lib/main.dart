@@ -548,11 +548,12 @@ class _SygnatureAppState extends State<SygnatureApp> {
           if (controller == null) return const _StartupLoading();
           return AnimatedBuilder(
             animation: controller,
-            builder: (context, _) => controller.hasWallet
-                ? WalletHome(
-                    controller: controller,
-                    notifications: _notifications,
-                  )
+            child: WalletHome(
+              controller: controller,
+              notifications: _notifications,
+            ),
+            builder: (context, child) => controller.hasWallet
+                ? child!
                 : OnboardingScreen(controller: controller),
           );
         },
