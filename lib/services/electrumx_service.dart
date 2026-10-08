@@ -80,6 +80,12 @@ class ElectrumxException implements Exception {
   }
 }
 
+final class const ElectrumxRpcException(
+  final int code,
+  super.message, {
+  final Object? data,
+}) extends ElectrumxException;
+
 class PeercoinElectrumxUtxoSnapshot {
   const PeercoinElectrumxUtxoSnapshot({
     required this.address,
@@ -481,7 +487,7 @@ class PeercoinElectrumxService
         return result;
       } catch (error, stackTrace) {
         lastError = error;
-        if (error is ElectrumxException && error.cause is Map) {
+        if (error is ElectrumxRpcException) {
           rpcError ??= error;
         }
         AppLogger.warn(
@@ -831,8 +837,20 @@ class _ElectrumxClient({
 
     final error = decoded['error'];
     if (error != null) {
+      if (error is! Map ||
+          error['code'] is! int ||
+          error['message'] is! String) {
+        completer.completeError(
+          const FormatException('Invalid ElectrumX JSON-RPC error response.'),
+        );
+        return;
+      }
       completer.completeError(
-        ElectrumxException('ElectrumX request $id failed.', cause: error),
+        ElectrumxRpcException(
+          error['code'] as int,
+          error['message'] as String,
+          data: error['data'],
+        ),
       );
       return;
     }

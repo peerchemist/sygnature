@@ -76,7 +76,10 @@ extension WalletSigningController on WalletController {
         ? null
         : _networkServices[networkForAccount(account).storageId];
     if (service == null) {
-      throw StateError('ElectrumX is not configured.');
+      throw const WalletBroadcastFailure(
+        WalletBroadcastFailureKind.unavailable,
+        'ElectrumX is unavailable for this wallet. Reconnect and retry.',
+      );
     }
     return service.broadcastTransaction(rawTransactionHex);
   }
@@ -336,7 +339,10 @@ extension WalletSigningController on WalletController {
         error: error,
         stackTrace: stackTrace,
       );
-      throw WalletTransactionRejected(_sendFailureMessage(error));
+      Error.throwWithStackTrace(
+        WalletSubmissionFailure(_sendFailureMessage(error), cause: error),
+        stackTrace,
+      );
     } finally {
       _sending = false;
     }
@@ -417,14 +423,17 @@ extension WalletSigningController on WalletController {
       try {
         final service = _networkServices[networkForAccount(account).storageId];
         if (service == null) {
-          throw StateError('ElectrumX is not configured.');
+          throw const WalletBroadcastFailure(
+            WalletBroadcastFailureKind.unavailable,
+            'ElectrumX is unavailable for this wallet. Reconnect and retry.',
+          );
         }
         serverTransactionId = await service.broadcastTransaction(
           signed.rawTransactionHex,
         );
       } on Object catch (error, stackTrace) {
         final network = networkForAccount(account);
-        final message = _broadcastFailureMessage(error);
+        final failure = _broadcastFailure(error);
         AppLogger.error(
           '[ELECTRUMX ${network.storageId}] Transaction broadcast failed; '
           'localTxId=${signed.transactionId}; '
@@ -436,9 +445,9 @@ extension WalletSigningController on WalletController {
           accountId: account.id,
           transactionId: signed.transactionId,
           status: WalletTransactionStatus.failed,
-          details: message,
+          details: failure.message,
         );
-        throw WalletTransactionRejected(message);
+        Error.throwWithStackTrace(failure, stackTrace);
       }
       _broadcastedTransactionIds.add(signed.transactionId);
       await _setTransactionStatus(
@@ -456,36 +465,48 @@ extension WalletSigningController on WalletController {
     }
   }
 
-  String _broadcastFailureMessage(Object error) {
+  WalletBroadcastFailure _broadcastFailure(Object error) {
+    if (error is WalletBroadcastFailure) return error;
     Object cause = error;
     for (var depth = 0; depth < 8; depth++) {
-      if (cause is ElectrumxException && cause.cause != null) {
+      if (cause is ElectrumxException &&
+          cause is! ElectrumxRpcException &&
+          cause.cause != null) {
         cause = cause.cause!;
         continue;
       }
       break;
     }
 
-    if (cause is Map) {
-      final message = cause['message'];
-      final code = cause['code'];
-      if (message is String && message.trim().isNotEmpty) {
-        final detail = _sanitizeBroadcastError(message);
-        final codeSuffix = code == null ? '' : ' (code $code)';
-        return 'ElectrumX rejected the transaction: $detail$codeSuffix';
-      }
+    if (cause is ElectrumxRpcException) {
+      return WalletBroadcastFailure(
+        WalletBroadcastFailureKind.rejected,
+        'ElectrumX rejected the transaction: '
+        '${_sanitizeBroadcastError(cause.message)} (code ${cause.code})',
+        cause: error,
+        rpcCode: cause.code,
+      );
     }
     if (cause is TimeoutException) {
-      return 'Broadcast timed out. Verify the network connection and retry.';
-    }
-    if (cause is StateError) {
-      return 'ElectrumX is unavailable for this wallet. Reconnect and retry.';
+      return WalletBroadcastFailure(
+        WalletBroadcastFailureKind.timeout,
+        'Broadcast timed out. Verify the network connection and retry.',
+        cause: error,
+      );
     }
     if (cause is ElectrumxException) {
-      return 'ElectrumX could not broadcast the transaction. '
-          'Verify the network connection and retry.';
+      return WalletBroadcastFailure(
+        WalletBroadcastFailureKind.connection,
+        'ElectrumX could not broadcast the transaction. '
+        'Verify the network connection and retry.',
+        cause: error,
+      );
     }
-    return 'Broadcast failed. Verify the network connection and retry.';
+    return WalletBroadcastFailure(
+      WalletBroadcastFailureKind.unexpected,
+      'Broadcast failed. Verify the network connection and retry.',
+      cause: error,
+    );
   }
 
   String _sanitizeBroadcastError(String message) {

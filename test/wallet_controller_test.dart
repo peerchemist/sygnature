@@ -738,7 +738,7 @@ void main() {
           'All ElectrumX servers failed.',
           cause: ElectrumxException(
             'ElectrumX request failed.',
-            cause: {'code': -26, 'message': 'bad-txns-inputs-missingorspent'},
+            cause: ElectrumxRpcException(-26, 'bad-txns-inputs-missingorspent'),
           ),
         );
       final controller = WalletController(
@@ -779,12 +779,24 @@ void main() {
       await expectLater(
         controller.sendTransaction(preview),
         throwsA(
-          isA<WalletTransactionRejected>().having(
-            (error) => error.message,
-            'message',
-            'ElectrumX rejected the transaction: '
-                'bad-txns-inputs-missingorspent (code -26)',
-          ),
+          isA<WalletBroadcastFailure>()
+              .having(
+                (error) => error.kind,
+                'kind',
+                WalletBroadcastFailureKind.rejected,
+              )
+              .having((error) => error.rpcCode, 'RPC code', -26)
+              .having(
+                (error) => error.cause,
+                'cause',
+                same(electrumx.broadcastError),
+              )
+              .having(
+                (error) => error.message,
+                'message',
+                'ElectrumX rejected the transaction: '
+                    'bad-txns-inputs-missingorspent (code -26)',
+              ),
         ),
       );
       expect(electrumx.broadcastedTransactions, ['signed-transaction']);
@@ -798,21 +810,74 @@ void main() {
     },
   );
 
-  test(
-    'reports when no ElectrumX service is available for broadcast',
-    () async {
+  test('reports when no ElectrumX service is available for broadcast', () async {
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      transactionService: _FakeWalletTransactionService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+
+    final preview = controller.prepareSend(
+      const WalletSendRequest(
+        destinationAddress: 'pc1pdestination',
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+
+    await expectLater(
+      controller.sendTransaction(preview),
+      throwsA(
+        isA<WalletBroadcastFailure>()
+            .having(
+              (error) => error.kind,
+              'kind',
+              WalletBroadcastFailureKind.unavailable,
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'ElectrumX is unavailable for this wallet. Reconnect and retry.',
+            ),
+      ),
+    );
+
+    controller.dispose();
+  });
+
+  for (final (error, kind) in [
+    (
+      ElectrumxException(
+        'All servers failed.',
+        cause: TimeoutException('request timed out'),
+      ),
+      WalletBroadcastFailureKind.timeout,
+    ),
+    (
+      const ElectrumxException('Connection closed.'),
+      WalletBroadcastFailureKind.connection,
+    ),
+    (
+      StateError('Unexpected local failure.'),
+      WalletBroadcastFailureKind.unexpected,
+    ),
+  ]) {
+    test('preserves the cause of a ${kind.name} broadcast failure', () async {
+      final electrumx = _FakeElectrumxService()..broadcastError = error;
       final controller = WalletController(
         MemoryWalletRepository(),
         keyService: _FakeWalletKeyService(),
         transactionService: _FakeWalletTransactionService(),
-        networkServiceFactory: (_) async => null,
+        networkServiceFactory: (_) async => electrumx,
       );
       await controller.load();
       await controller.createWallet(
         _mnemonic,
         network: PeercoinNetworks.mainnet,
       );
-
       final preview = controller.prepareSend(
         const WalletSendRequest(
           destinationAddress: 'pc1pdestination',
@@ -824,17 +889,14 @@ void main() {
       await expectLater(
         controller.sendTransaction(preview),
         throwsA(
-          isA<WalletTransactionRejected>().having(
-            (error) => error.message,
-            'message',
-            'ElectrumX is unavailable for this wallet. Reconnect and retry.',
-          ),
+          isA<WalletBroadcastFailure>()
+              .having((failure) => failure.kind, 'kind', kind)
+              .having((failure) => failure.cause, 'cause', same(error)),
         ),
       );
-
       controller.dispose();
-    },
-  );
+    });
+  }
 
   test('maps and logs an unexpected signing failure', () async {
     final transactions = _FakeWalletTransactionService()
@@ -859,11 +921,17 @@ void main() {
     await expectLater(
       controller.sendTransaction(preview),
       throwsA(
-        isA<WalletTransactionRejected>().having(
-          (error) => error.message,
-          'message',
-          'Transaction submission failed: signer exploded',
-        ),
+        isA<WalletSubmissionFailure>()
+            .having(
+              (error) => error.cause,
+              'cause',
+              same(transactions.signingError),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'Transaction submission failed: signer exploded',
+            ),
       ),
     );
 

@@ -7,11 +7,10 @@ import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import 'peercoin_network_service.dart';
 
-sealed class WalletTransactionFailure implements Exception {
-  const WalletTransactionFailure(this.message);
-
-  final String message;
-
+sealed class const WalletTransactionFailure(
+  final String message, {
+  final Object? cause,
+}) implements Exception {
   @override
   String toString() => message;
 }
@@ -42,6 +41,32 @@ class WalletSigningUnavailable extends WalletTransactionFailure {
 class WalletTransactionRejected extends WalletTransactionFailure {
   const WalletTransactionRejected(super.message);
 }
+
+enum WalletSigningFailureKind { expired, rejected, interrupted }
+
+final class const WalletSigningFailure(
+  final WalletSigningFailureKind kind,
+  super.message, {
+  super.cause,
+}) extends WalletTransactionFailure;
+
+enum WalletBroadcastFailureKind {
+  rejected,
+  timeout,
+  unavailable,
+  connection,
+  unexpected,
+}
+
+final class const WalletBroadcastFailure(
+  final WalletBroadcastFailureKind kind,
+  super.message, {
+  super.cause,
+  final int? rpcCode,
+}) extends WalletTransactionFailure;
+
+final class const WalletSubmissionFailure(super.message, {super.cause})
+    extends WalletTransactionFailure;
 
 abstract interface class WalletTransactionService {
   WalletTransactionPreview prepare({

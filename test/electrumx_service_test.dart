@@ -138,9 +138,36 @@ void main() {
       service.broadcastTransaction('deadbeef'),
       throwsA(
         isA<ElectrumxException>().having(
-          (error) => (error.cause as ElectrumxException).cause,
+          (error) => error.cause,
           'JSON-RPC error',
-          const {'code': -26, 'message': 'bad-txns-inputs-missingorspent'},
+          isA<ElectrumxRpcException>()
+              .having((error) => error.code, 'code', -26)
+              .having(
+                (error) => error.message,
+                'message',
+                'bad-txns-inputs-missingorspent',
+              ),
+        ),
+      ),
+    );
+  });
+
+  test('distinguishes malformed RPC errors from server rejections', () async {
+    final service = PeercoinElectrumxService(
+      electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+      connector: (_) async => _FakeConnection(
+        broadcastError: const {'code': 'invalid', 'message': 'bad response'},
+      ),
+    );
+    addTearDown(service.close);
+
+    await expectLater(
+      service.broadcastTransaction('deadbeef'),
+      throwsA(
+        isA<ElectrumxException>().having(
+          (error) => error.cause,
+          'cause',
+          isA<FormatException>(),
         ),
       ),
     );
