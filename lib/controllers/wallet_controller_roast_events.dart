@@ -316,6 +316,7 @@ extension WalletRoastEventController on WalletController {
               id: 'signature-request-received:$requestKey',
               accountId: account.id,
               type: WalletActivityType.signatureRequestReceived,
+              expiresAt: event.request.expiry,
               reference: event.request.idHex,
               details: event.request.message.isEmpty
                   ? null

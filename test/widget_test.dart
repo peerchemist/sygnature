@@ -559,6 +559,16 @@ void main() {
         nextAccountIndex: 1,
         activities: [
           WalletActivity(
+            id: 'message-signature-requested:message-request',
+            accountId: account.id,
+            type: WalletActivityType.messageSignatureRequested,
+            occurredAt: DateTime.now()
+                .subtract(const Duration(days: 2))
+                .toUtc(),
+            reference: 'message-request',
+            details: 'Expired message',
+          ),
+          WalletActivity(
             id: 'broadcast:txid',
             accountId: account.id,
             type: WalletActivityType.transactionBroadcast,
@@ -583,6 +593,15 @@ void main() {
     expect(find.text('Recent activity'), findsOneWidget);
     expect(find.text('Transaction confirmed'), findsOneWidget);
     expect(find.textContaining('Transaction transa'), findsOneWidget);
+    expect(find.text('EXPIRED'), findsOneWidget);
+    expect(
+      find.byKey(
+        const Key(
+          'activity-expired-message-signature-requested:message-request',
+        ),
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }

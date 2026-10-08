@@ -146,6 +146,7 @@ extension WalletSigningController on WalletController {
         id: 'message-signature-requested:$pendingKey',
         accountId: account.id,
         type: WalletActivityType.messageSignatureRequested,
+        expiresAt: proposal.expiry,
         reference: proposal.idHex,
         details: text,
       );
@@ -281,6 +282,7 @@ extension WalletSigningController on WalletController {
             id: 'transaction-signature-requested:$pendingKey',
             accountId: account.id,
             type: WalletActivityType.transactionSignatureRequested,
+            expiresAt: proposal.expiry,
             reference: proposal.idHex,
             details: preview.signingMessage.isEmpty
                 ? null

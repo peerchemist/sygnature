@@ -15,6 +15,7 @@ class _ActivityCard extends StatelessWidget {
 
   Widget _buildContent(BuildContext context) {
     final activities = controller.activitiesFor(account);
+    final now = DateTime.now();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -59,6 +60,11 @@ class _ActivityCard extends StatelessWidget {
                   activity: activities[index],
                   account: account,
                   controller: controller,
+                  expired: _isExpiredRequest(
+                    activities[index],
+                    activities,
+                    now,
+                  ),
                 ),
                 if (index != activities.length - 1) const Divider(height: 1),
               ],
@@ -74,6 +80,7 @@ class const _ActivityRow({
   required final WalletActivity activity,
   required final WalletAccount account,
   required final WalletController controller,
+  required final bool expired,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -88,6 +95,7 @@ class const _ActivityRow({
               activity: activity,
               account: account,
               controller: controller,
+              expired: expired,
             )
           : showRoastSignMessageDialog(
               context,
@@ -118,12 +126,42 @@ class const _ActivityRow({
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    presentation.title,
-                    style: const TextStyle(
-                      color: AppColors.ink,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          presentation.title,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (expired) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          key: Key('activity-expired-${activity.id}'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.dangerSurface,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'EXPIRED',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   if (activity.details case final details?) ...[
                     const SizedBox(height: 3),
@@ -168,6 +206,47 @@ class const _ActivityRow({
   }
 }
 
+bool _isRequestActivity(WalletActivity activity) => switch (activity.type) {
+  WalletActivityType.signatureRequestReceived ||
+  WalletActivityType.transactionSignatureRequested ||
+  WalletActivityType.messageSignatureRequested => true,
+  _ => false,
+};
+
+bool _isExpiredRequest(
+  WalletActivity activity,
+  List<WalletActivity> activities,
+  DateTime now,
+) {
+  if (!_isRequestActivity(activity)) return false;
+  final reference = activity.reference;
+  if (reference == null) return false;
+  final completed = activities.any(
+    (candidate) =>
+        candidate.reference == reference &&
+            (candidate.type == WalletActivityType.signatureRequestApproved ||
+                candidate.type == WalletActivityType.signatureRequestRejected ||
+                candidate.type == WalletActivityType.messageSigned) ||
+        activity.type == WalletActivityType.transactionSignatureRequested &&
+            candidate.id ==
+                activity.id.replaceFirst(
+                  'transaction-signature-requested:',
+                  'transaction-signed:',
+                ),
+  );
+  if (completed) return false;
+  final explicitlyExpired = activities.any(
+    (candidate) =>
+        candidate.type == WalletActivityType.signatureRequestExpired &&
+        candidate.reference == reference,
+  );
+  if (explicitlyExpired) return true;
+  final expiresAt =
+      activity.expiresAt ??
+      activity.occurredAt.add(maxRoastSigningRequestTimeout);
+  return !expiresAt.isAfter(now);
+}
+
 RoastSignedMessage? _signedMessageFromActivity(WalletActivity activity) {
   final publicKeyHex = activity.signedMessagePublicKeyHex;
   final signatureHex = activity.signedMessageSignatureHex;
@@ -191,6 +270,7 @@ Future<void> _showActivityDetails(
   required WalletActivity activity,
   required WalletAccount account,
   required WalletController controller,
+  required bool expired,
 }) {
   final presentation = _activityPresentation(activity);
   final setup = controller.setupForAccount(account);
@@ -216,6 +296,8 @@ Future<void> _showActivityDetails(
                 label: 'Created',
                 value: _activityDateTime(activity.occurredAt),
               ),
+              if (expired)
+                const _ActivityDetail(label: 'Status', value: 'Expired'),
               if (setup != null) ...[
                 _ActivityDetail(label: 'Signer group', value: setup.name),
                 _ActivityDetail(

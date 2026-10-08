@@ -81,6 +81,7 @@ extension WalletActivityController on WalletController {
     required String id,
     required String accountId,
     required WalletActivityType type,
+    DateTime? expiresAt,
     String? reference,
     String? details,
     String? signedMessagePublicKeyHex,
@@ -100,6 +101,7 @@ extension WalletActivityController on WalletController {
             accountId: accountId,
             type: type,
             occurredAt: DateTime.now().toUtc(),
+            expiresAt: expiresAt,
             reference: reference,
             details: details,
             signedMessagePublicKeyHex: signedMessagePublicKeyHex,
@@ -115,6 +117,7 @@ extension WalletActivityController on WalletController {
         } else {
           final previous = current.activities[index];
           final updated = previous.copyWith(
+            expiresAt: expiresAt,
             details: details,
             signedMessagePublicKeyHex: signedMessagePublicKeyHex,
             signedMessageSignatureHex: signedMessageSignatureHex,
@@ -122,7 +125,8 @@ extension WalletActivityController on WalletController {
             transactionRecipients: transactionRecipients,
             transactionFeeSats: transactionFeeSats,
           );
-          if (updated.details == previous.details &&
+          if (updated.expiresAt == previous.expiresAt &&
+              updated.details == previous.details &&
               updated.signedMessagePublicKeyHex ==
                   previous.signedMessagePublicKeyHex &&
               updated.signedMessageSignatureHex ==

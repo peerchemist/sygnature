@@ -78,6 +78,22 @@ void main() {
     expect(restored.signedMessageEncoded, 'portable-message');
   });
 
+  test('round trips a request activity expiry', () {
+    final expiresAt = DateTime.utc(2026, 1, 2, 3, 4);
+    final original = WalletActivity(
+      id: 'message-signature-requested:setup:request',
+      accountId: 'shared',
+      type: WalletActivityType.messageSignatureRequested,
+      occurredAt: DateTime.utc(2026),
+      expiresAt: expiresAt,
+      reference: 'request',
+    );
+
+    final restored = WalletActivity.fromJson(original.toJson());
+
+    expect(restored.expiresAt, expiresAt);
+  });
+
   test('round trips a vault with an empty activity feed', () {
     final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson();
 

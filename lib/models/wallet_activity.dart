@@ -51,6 +51,7 @@ class WalletActivity({
   required final String accountId,
   required final WalletActivityType type,
   required final DateTime occurredAt,
+  final DateTime? expiresAt,
   final String? reference,
   final String? details,
   final String? signedMessagePublicKeyHex,
@@ -62,6 +63,7 @@ class WalletActivity({
   final int? transactionFeeSats,
 }) {
   WalletActivity copyWith({
+    DateTime? expiresAt,
     WalletTransactionStatus? transactionStatus,
     int? blockHeight,
     String? details,
@@ -77,6 +79,7 @@ class WalletActivity({
     accountId: accountId,
     type: type,
     occurredAt: occurredAt,
+    expiresAt: expiresAt ?? this.expiresAt,
     reference: reference,
     details: clearDetails ? null : details ?? this.details,
     signedMessagePublicKeyHex:
@@ -95,6 +98,7 @@ class WalletActivity({
     'accountId': accountId,
     'type': type.name,
     'occurredAt': occurredAt.toUtc().toIso8601String(),
+    'expiresAt': expiresAt?.toUtc().toIso8601String(),
     'reference': reference,
     'details': details,
     'signedMessagePublicKeyHex': signedMessagePublicKeyHex,
@@ -113,6 +117,10 @@ class WalletActivity({
     accountId: json['accountId']! as String,
     type: WalletActivityType.values.byName(json['type']! as String),
     occurredAt: DateTime.parse(json['occurredAt']! as String),
+    expiresAt: switch (json['expiresAt']) {
+      final String value => DateTime.parse(value),
+      _ => null,
+    },
     reference: json['reference'] as String?,
     details: json['details'] as String?,
     signedMessagePublicKeyHex: json['signedMessagePublicKeyHex'] as String?,
