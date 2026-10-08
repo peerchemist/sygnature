@@ -39,7 +39,11 @@ jobs:
       - name: Run linter
         run: flutter analyze --fatal-infos
 
+      - name: Prepare Iroh native library for tests
+        run: dart run iroh_quic:setup
+
       - name: Run tests
         env:
+          FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR: ${{ github.workspace }}/build/native_assets/linux
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/native_assets/linux
         run: flutter test

@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
-readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly project_dir
 
 build_mode="debug"
 device_id=""

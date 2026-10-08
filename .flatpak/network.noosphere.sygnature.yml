@@ -1,4 +1,4 @@
-# Flatpak exposes freedesktop-sdk-26.08.2 through the 26.08 runtime branch.
+# Use the supported 26.08 branch, including its maintenance releases.
 app-id: network.noosphere.sygnature
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"

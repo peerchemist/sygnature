@@ -3,8 +3,10 @@
 set -euo pipefail
 
 readonly container_name="sygnature-windows-builder"
-readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly project_dir
 readonly storage_dir="${SYGNATURE_WINDOWS_STORAGE:-$project_dir/.windows-builder/storage}"
 readonly image="${SYGNATURE_WINDOWS_IMAGE:-docker.io/dockurr/windows:6.05}"
 readonly windows_version="${SYGNATURE_WINDOWS_VERSION:-11}"
@@ -45,12 +47,10 @@ container_exists() {
 }
 
 require_host_support() {
-  for tool in podman; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-      echo "error: required command not found: $tool" >&2
-      exit 1
-    fi
-  done
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "error: required command not found: podman" >&2
+    exit 1
+  fi
   for device in /dev/kvm /dev/net/tun; do
     if [[ ! -c "$device" ]]; then
       echo "error: required device is unavailable: $device" >&2

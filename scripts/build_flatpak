@@ -4,9 +4,10 @@ set -euo pipefail
 
 readonly app_id="network.noosphere.sygnature"
 readonly runtime_branch="26.08"
-readonly sdk_release="freedesktop-sdk-26.08.2"
-readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly project_dir
 readonly manifest="$project_dir/.flatpak/$app_id.yml"
 readonly output_dir="$project_dir/build/flatpak"
 readonly build_dir="$output_dir/build"
@@ -29,16 +30,6 @@ fi
 for runtime in org.freedesktop.Platform org.freedesktop.Sdk; do
   if ! flatpak info --user "$runtime//$runtime_branch" >/dev/null 2>&1; then
     flatpak install --user --noninteractive flathub "$runtime//$runtime_branch"
-  fi
-
-  installed_release="$(
-    flatpak list --user --runtime --columns=application,version,branch |
-      awk -F '\t' -v id="$runtime" -v branch="$runtime_branch" \
-        '$1 == id && $3 == branch { print $2; exit }'
-  )"
-  if [[ "$installed_release" != "$sdk_release" ]]; then
-    echo "error: $runtime//$runtime_branch is $installed_release; expected $sdk_release" >&2
-    exit 1
   fi
 done
 

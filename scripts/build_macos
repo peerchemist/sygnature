@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
-readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
+project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly project_dir
 
 output_path="build/Sygnature-macOS.dmg"
 flutter_args=()
@@ -92,7 +94,8 @@ if [[ ! -d "$app_path" ]]; then
   exit 1
 fi
 
-readonly temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/sygnature-macos.XXXXXX")"
+temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/sygnature-macos.XXXXXX")"
+readonly temporary_dir
 trap 'rm -rf -- "$temporary_dir"' EXIT
 
 readonly staging_dir="$temporary_dir/dmg"
