@@ -6,8 +6,8 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import '../models/roast_signing_operation.dart';
-import 'hive_storage_initializer.dart';
-import 'wallet_repository.dart';
+import 'encrypted_hive_box.dart';
+import 'secure_key_store.dart';
 
 class RoastPersistence._(
   final Box<dynamic> _box,
@@ -41,8 +41,11 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
                : const UnavailableSecureKeyStore()),
        _cipherKey = cipherKey;
 
-  static const _boxName = 'sygnature_roast_private_v1';
-  static const _cipherKeyName = 'sygnature_roast_hive_key_v1';
+  static const _storage = EncryptedHiveBox(
+    name: 'sygnature_roast_private_v1',
+    cipherKeyName: 'sygnature_roast_hive_key_v1',
+    invalidKeyMessage: 'Invalid encrypted ROAST storage key length.',
+  );
   static const _signingOperationsKey = 'wallet-signing-operations-v1';
   static const _serverStateStorageVersion = 1;
 
@@ -54,23 +57,7 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   Future<RoastPersistence> open() => _opening ??= _open();
 
   Future<RoastPersistence> _open() async {
-    await HiveStorageInitializer.initialize(boxName: _boxName);
-    var key = _cipherKey;
-    if (key == null) {
-      var encodedKey = await _keyStore.read(_cipherKeyName);
-      if (encodedKey == null) {
-        encodedKey = base64UrlEncode(Hive.generateSecureKey());
-        await _keyStore.write(_cipherKeyName, encodedKey);
-      }
-      key = base64Url.decode(encodedKey);
-    }
-    if (key.length != 32) {
-      throw StateError('Invalid encrypted ROAST storage key length.');
-    }
-    final box = await Hive.openBox<dynamic>(
-      _boxName,
-      encryptionCipher: HiveAesCipher(key),
-    );
+    final box = await _storage.open(keyStore: _keyStore, cipherKey: _cipherKey);
     return RoastPersistence._(box, _keyStore);
   }
 
