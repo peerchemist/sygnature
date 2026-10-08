@@ -203,7 +203,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
       controller.dispose();
       return;
     }
-    setState(() => _controller = Future.value(controller));
+    setState(() {
+      _controller = Future.value(controller);
+    });
   }
 
   Future<void> _setUpPasswordVault(
@@ -226,7 +228,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
         controller.dispose();
         return;
       }
-      setState(() => _controller = Future.value(controller));
+      setState(() {
+        _controller = Future.value(controller);
+      });
     } catch (error, stackTrace) {
       AppLogger.error(
         '[VAULT] Password-protected vault setup failed',
@@ -248,7 +252,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
         controller.dispose();
         return;
       }
-      setState(() => _controller = Future.value(controller));
+      setState(() {
+        _controller = Future.value(controller);
+      });
     } catch (error, stackTrace) {
       AppLogger.warn(
         '[VAULT] Password unlock failed',
