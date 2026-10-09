@@ -511,6 +511,10 @@ class const RoastSetupPanel({
     if (message != null &&
         message.isNotEmpty &&
         message.toLowerCase() != 'null') {
+      if (message == 'Worker exited; in-flight mutations were not replayed.') {
+        return 'The ROAST signing service stopped unexpectedly. Reconnect, '
+            'then review any pending signing request before trying again.';
+      }
       return message;
     }
     return switch (setup.status) {
