@@ -344,7 +344,7 @@ class const _WalletListTile({
                       children: [
                         Expanded(
                           child: Text(
-                            setup != null && !setup!.isActive
+                            setup != null && account.address == null
                                 ? setup!.isWaitingForInvitation
                                       ? 'Resume setup'
                                       : 'Resume setup · ${setup!.threshold} of ${setup!.participantCount}'
@@ -530,13 +530,13 @@ class _WalletDashboard extends StatelessWidget {
                         header: header,
                         account: account,
                         controller: controller,
-                        showDetails: roastSetup == null || roastSetup.isActive,
+                        showDetails: account.address != null,
                       ),
                     if (roastSetup != null) ...[
                       const SizedBox(height: 18),
                       RoastSetupPanel(controller: controller, account: account),
                     ],
-                    if (roastSetup != null && !roastSetup.isActive) ...[
+                    if (roastSetup != null && account.address == null) ...[
                       const SizedBox(height: 18),
                       const _PendingRoastNotice(),
                     ] else if (wideDesktop) ...[
@@ -1059,6 +1059,7 @@ class _BalanceCard extends StatelessWidget {
     final canSign =
         hasAddress && account.derivationState == WalletDerivationState.ready;
     final roastSetup = controller.setupForAccount(account);
+    final signingAvailable = roastSetup == null || roastSetup.isActive;
     final transactionSigning =
         roastSetup != null &&
         controller.roastTransactionSigningInProgress(roastSetup.id);
@@ -1153,11 +1154,13 @@ class _BalanceCard extends StatelessWidget {
                     label: 'Send',
                     enabled:
                         canSign &&
+                        signingAvailable &&
                         syncStatus == AccountSyncStatus.synced &&
                         balance.availableSats > 0 &&
                         !transactionSigning,
                     onPressed:
                         canSign &&
+                            signingAvailable &&
                             syncStatus == AccountSyncStatus.synced &&
                             balance.availableSats > 0 &&
                             !transactionSigning

@@ -746,6 +746,59 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets(
+    'syncs and shows shared wallet balance while coordinator is unavailable',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      const address = 'pc1proast';
+      final electrumx = _FlowElectrumxService(
+        PeercoinElectrumxUtxoSnapshot(
+          address: address,
+          utxos: [
+            ElectrumxUtxo(
+              address: address,
+              txHash: 'a' * 64,
+              txPos: 0,
+              height: 100,
+              value: 1250000,
+            ),
+          ],
+        ),
+      );
+      final runtime = _FakeRoastRuntime()
+        ..startError = StateError('Coordinator unavailable.');
+      final controller = WalletController(
+        MemoryWalletRepository()..value = _activeRoastVault(),
+        roastRuntime: runtime,
+        roastKeyService: _FakeRoastKeyService(),
+        networkServiceFactory: (_) async => electrumx,
+      );
+      await controller.load();
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pumpAndSettle();
+
+      expect(electrumx.watchedAddresses, contains(address));
+      expect(
+        controller.syncStatusFor(controller.accounts.single),
+        AccountSyncStatus.synced,
+      );
+      expect(controller.roastSetups.single.status, RoastSetupStatus.error);
+      expect(find.text('1.25 PPC'), findsWidgets);
+      expect(find.text('Resume setup'), findsNothing);
+      final sendButton = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Send'),
+      );
+      expect(sendButton.onPressed, isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('requires exact local approval before coordinator switching', (
     tester,
   ) async {
@@ -1621,10 +1674,15 @@ final class _FlowRoastKeyService(final RoastDerivedAddress derived)
 
 final class _FlowElectrumxService(final PeercoinElectrumxUtxoSnapshot snapshot)
     implements ElectrumxService {
+  final Set<String> watchedAddresses = {};
+
   @override
   Stream<PeercoinElectrumxUtxoSnapshot> watchUtxosForAddresses(
     Iterable<String> addresses,
-  ) => Stream.value(snapshot);
+  ) {
+    watchedAddresses.addAll(addresses);
+    return Stream.value(snapshot);
+  }
 
   @override
   Future<List<ElectrumxUtxo>> fetchUtxos(String address) async => const [];
@@ -1641,6 +1699,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   RoastRuntimeSnapshot? startSnapshot;
+  Object? startError;
   List<RoastSigningRequest> snapshotSigningRequests = const [];
   RoastRuntimeSnapshot? joinSnapshot;
   Completer<void>? signatureRequestGate;
@@ -1655,6 +1714,7 @@ class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(setup) async {
+    if (startError case final error?) throw error;
     for (final request in snapshotSigningRequests) {
       emit(RoastRuntimeSigningRequestEvent(setup.id, request: request));
     }
