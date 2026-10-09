@@ -31,7 +31,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
     );
-    final issued = <RoastRoomInvite>[];
+    final issued = <NoosphereRoomInvite>[];
     for (final participant in setup.participants) {
       final invite = await server.issueRoomInvite(
         roomId: setup.groupId,
@@ -44,10 +44,9 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         await _joinRoomInvite(invite, privateKey);
       } else {
         issued.add(
-          RoastRoomInvite(
-            participantPublicKeyHex: participant.publicKeyHex,
-            encoded: invite.encode(),
-            expiresAt: invite.expiresAt,
+          NoosphereRoomInvite(
+            prefix: sygnatureRoomInvitePrefix,
+            invite: invite,
           ),
         );
       }
@@ -65,29 +64,27 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     );
   }
 
-  Future<RoastRuntimeSnapshot> _joinRoom(
+  Future<RoomSnapshot> _joinRoom(
     RoastSetup setup,
-    String encodedInvite,
+    NoosphereRoomInvite link,
   ) async {
     AppLogger.info(
       '${RoastRuntimeManager._roastScope(setup.id)} Validating room invite',
     );
-    final invite = RoomInvite.decode(encodedInvite);
-    if (invite.roomId != setup.groupId ||
-        invite.expectedParticipantPublicKey.hex !=
-            setup.localParticipant.publicKeyHex ||
-        bytesToHex(invite.coordinatorEndpointId) !=
-            bytesToHex(PublicKey.fromZ32(setup.coordinatorId!).asBytes())) {
+    final invite = link.invite;
+    if (invite.expectedParticipantPublicKey.hex !=
+        setup.localParticipant.publicKeyHex) {
       throw const FormatException(
-        'The room invite does not match this participant setup.',
+        'The room invite is bound to another participant key.',
       );
     }
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
     );
     invite.requirePrivateKey(privateKey);
+    late final RoomSnapshot room;
     try {
-      await _joinRoomInvite(invite, privateKey);
+      room = await _joinRoomInvite(invite, privateKey);
     } on RoomEnrollmentProtocolException catch (error, stackTrace) {
       Error.throwWithStackTrace(
         RoastEnrollmentFailure(
@@ -98,7 +95,6 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         stackTrace,
       );
     } on TimeoutException catch (error, stackTrace) {
-      _reconcileInterruptedEnrollment(setup);
       Error.throwWithStackTrace(
         RoastEnrollmentFailure(
           kind: RoastEnrollmentFailureKind.timeout,
@@ -107,7 +103,6 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         stackTrace,
       );
     } on FormatException catch (error, stackTrace) {
-      _reconcileInterruptedEnrollment(setup);
       Error.throwWithStackTrace(
         RoastEnrollmentFailure(
           kind: RoastEnrollmentFailureKind.malformedResponse,
@@ -116,7 +111,6 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         stackTrace,
       );
     } on Object catch (error, stackTrace) {
-      _reconcileInterruptedEnrollment(setup);
       Error.throwWithStackTrace(
         RoastEnrollmentFailure(
           kind: RoastEnrollmentFailureKind.connection,
@@ -128,14 +122,15 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     AppLogger.info(
       '${RoastRuntimeManager._roastScope(setup.id)} Room enrollment completed',
     );
-    _setups[setup.id] = setup;
-    _scheduleRoomSignerConnection(setup);
-    return _pendingRoomSnapshot(setup);
-  }
-
-  void _reconcileInterruptedEnrollment(RoastSetup setup) {
-    _setups[setup.id] = setup;
-    _scheduleRoomSignerConnection(setup);
+    if (room.roomId != invite.roomId ||
+        bytesToHex(room.coordinatorEndpointId) !=
+            bytesToHex(invite.coordinatorEndpointId) ||
+        room.participants.isEmpty) {
+      throw const FormatException(
+        'The enrollment response does not match the room invitation.',
+      );
+    }
+    return room;
   }
 
   RoastRuntimeSnapshot _pendingRoomSnapshot(RoastSetup setup) =>
@@ -333,19 +328,5 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
   Future<RoomSnapshot> _joinRoomInvite(
     RoomInvite invite,
     ECPrivateKey privateKey,
-  ) {
-    final endpointId = PublicKey.fromBytes(invite.coordinatorEndpointId);
-    return IrohRoomEnrollmentApi.joinRoom(
-      IrohClientTransportConfig(
-        bootstrapAddress: EndpointAddr(
-          endpointId,
-          relayUrls: [for (final url in invite.relayUrls) RelayUrl.parse(url)],
-          ipAddrs: invite.ipAddrs,
-        ),
-        pinnedServerId: endpointId,
-      ),
-      invite,
-      (_) async => privateKey,
-    );
-  }
+  ) => IrohRoomEnrollmentApi.joinRoom(invite, (_) async => privateKey);
 }

@@ -319,10 +319,8 @@ final class RoastRuntimeManager(
   }) => _createRoom(setup, beforeInvitations: beforeInvitations);
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(
-    RoastSetup setup,
-    String encodedInvite,
-  ) => _joinRoom(setup, encodedInvite);
+  Future<RoomSnapshot> joinRoom(RoastSetup setup, NoosphereRoomInvite invite) =>
+      _joinRoom(setup, invite);
 
   static WorkerCoordinatorAddress _coordinator(EndpointAddr address) =>
       WorkerCoordinatorAddress(

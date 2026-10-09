@@ -24,5 +24,10 @@ Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignore
 [Icons]
 Name: "{group}\Sygnature"; Filename: "{app}\sygnature.exe"
 
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\sygnature-roast-v1"; ValueType: string; ValueName: ""; ValueData: "URL:Sygnature ROAST Invitation"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\sygnature-roast-v1"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\sygnature-roast-v1\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\sygnature.exe"" ""%1"""
+
 [Run]
 Filename: "{app}\sygnature.exe"; Description: "Launch Sygnature"; Flags: nowait postinstall skipifsilent

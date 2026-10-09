@@ -569,8 +569,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere"
-      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      ref: "0.1.1"
+      resolved-ref: "8ec7d67d0b76ff24a0b81a4644d79688a62079c4"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.0"
@@ -578,8 +578,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/noosphere_client"
-      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      ref: "0.1.1"
+      resolved-ref: "8ec7d67d0b76ff24a0b81a4644d79688a62079c4"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "4.0.0"
@@ -587,17 +587,17 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      ref: "0.1.1"
+      resolved-ref: "8ec7d67d0b76ff24a0b81a4644d79688a62079c4"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.1.0"
+    version: "0.1.1"
   noosphere_server:
     dependency: "direct overridden"
     description:
       path: "packages/noosphere_server"
-      ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
-      resolved-ref: fafb28dba31a2d3acc17d9c90060a3ad46d7300d
+      ref: "0.1.1"
+      resolved-ref: "8ec7d67d0b76ff24a0b81a4644d79688a62079c4"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "3.0.0"

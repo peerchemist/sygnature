@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import 'setup.dart';
-
 abstract final class RoastExchangeCodec {
   static const version = 1;
   static const uriScheme = 'sygnature-roast-v1';
@@ -30,47 +28,11 @@ abstract final class RoastExchangeCodec {
     );
   }
 
-  static String encodeInvitation(
-    RoastSetup setup, {
-    required String roomInvite,
-    required String participantPublicKeyHex,
-    required DateTime expiresAt,
-    String? transitionSourceGroupId,
-  }) {
-    if (!setup.isFinalized ||
-        setup.coordinatorId == null ||
-        setup.hostParticipantId == null) {
-      throw StateError('The ROAST setup is not ready for an invitation.');
-    }
-    return _encode({
-      'version': version,
-      'type': 'room-invitation',
-      'groupId': setup.groupId,
-      'setupName': setup.name,
-      'threshold': setup.threshold,
-      'participantCount': setup.participantCount,
-      'blockchainId': setup.blockchainId,
-      'networkId': setup.networkId,
-      'keyName': setup.keyName,
-      'hostParticipantId': setup.hostParticipantId,
-      'coordinatorId': setup.coordinatorId,
-      'coordinatorRelayUrls': setup.coordinatorRelayUrls,
-      'coordinatorIpAddrs': setup.coordinatorIpAddrs,
-      'groupFingerprintHex': setup.groupFingerprintHex,
-      'participantPublicKeyHex': participantPublicKeyHex,
-      'roomInvite': roomInvite,
-      'expiresAt': expiresAt.toUtc().toIso8601String(),
-      'transitionSourceGroupId': ?transitionSourceGroupId,
-      'participants': setup.participants.map((item) => item.toJson()).toList(),
-    });
-  }
+  static String _encode(Map<String, Object?> value) => _checkEncodedLength(
+    '$_prefix${base64Url.encode(utf8.encode(jsonEncode(value)))}',
+  );
 
-  static Map<String, Object?> decodeInvitation(String encoded) =>
-      _decode(encoded, expectedType: 'room-invitation');
-
-  static String _encode(Map<String, Object?> value) {
-    final encoded =
-        '$_prefix${base64Url.encode(utf8.encode(jsonEncode(value)))}';
+  static String _checkEncodedLength(String encoded) {
     if (encoded.length > maxEncodedLength) {
       throw const FormatException('ROAST exchange payload is too large.');
     }

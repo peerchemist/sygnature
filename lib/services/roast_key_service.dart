@@ -8,6 +8,7 @@ import 'package:coinlib/coinlib.dart'
         P2SHAddress,
         P2TR,
         P2TRAddress,
+        bytesEqual,
         bytesToHex,
         generateRandomBytes,
         hexToBytes;
@@ -28,11 +29,6 @@ class RoastDerivedAddress({
   required final String pathLabel,
   required final String address,
   required final String internalKeyHex,
-});
-
-class RoastInvitation({
-  required final RoastSetup setup,
-  required final String roomInvite,
 });
 
 class RoastKeyService {
@@ -181,81 +177,110 @@ class RoastKeyService {
     ).fingerprint,
   );
 
-  RoastInvitation applyInvitation(RoastSetup draft, String encodedInvitation) {
-    final json = RoastExchangeCodec.decodeInvitation(encodedInvitation);
-    final groupId = json['groupId']! as String;
-    final participants = (json['participants']! as List)
-        .map((item) => RoastParticipant.fromJson(item as Map))
-        .toList(growable: false);
-    final local = participants.where(
-      (item) => item.publicKeyHex == draft.localParticipant.publicKeyHex,
-    );
-    if (local.length != 1) {
-      throw const FormatException(
-        'This invitation does not contain your participant card.',
-      );
-    }
-    final threshold = json['threshold']! as int;
-    final participantCount = json['participantCount']! as int;
-    final hostParticipantId = json['hostParticipantId']! as String;
-    final expiry = DateTime.parse(json['expiresAt']! as String);
-    if (!expiry.isAfter(DateTime.now())) {
+  void validateRoomInvite(RoastSetup draft, NoosphereRoomInvite link) {
+    final invite = link.invite;
+    if (!invite.expiresAt.isAfter(DateTime.now().toUtc())) {
       throw const FormatException('The ROAST invitation has expired.');
     }
-    validateRoster(
-      participants: participants,
-      participantCount: participantCount,
-      threshold: threshold,
-      hostParticipantId: hostParticipantId,
+    final privateKey = ECPrivateKey.fromHex(
+      draft.localParticipantPrivateKeyHex,
     );
-    if (json['participantPublicKeyHex'] !=
+    if (invite.expectedParticipantPublicKey.hex !=
         draft.localParticipant.publicKeyHex) {
       throw const FormatException(
         'This room invitation is bound to another participant key.',
       );
     }
-    final roomInvite = json['roomInvite'];
-    if (roomInvite is! String || roomInvite.trim().isEmpty) {
-      throw const FormatException('The room invitation is missing.');
-    }
-    final decodedRoomInvite = RoomInvite.decode(roomInvite);
-    if (decodedRoomInvite.roomId != groupId ||
-        decodedRoomInvite.expectedParticipantPublicKey.hex !=
-            draft.localParticipant.publicKeyHex) {
+    invite.requirePrivateKey(privateKey);
+  }
+
+  RoastSetup applyRoomEnrollment(
+    RoastSetup draft,
+    RoomInvite invite,
+    RoomSnapshot enrollment,
+  ) {
+    if (enrollment.roomId != invite.roomId ||
+        !bytesEqual(
+          enrollment.coordinatorEndpointId,
+          invite.coordinatorEndpointId,
+        )) {
       throw const FormatException(
-        'The room invitation does not match this participant setup.',
+        'The enrollment response does not match the room invitation.',
       );
     }
-    final invited = RoastSetup(
+    if (enrollment.threshold != draft.threshold ||
+        enrollment.expectedParticipants != draft.participantCount) {
+      throw const FormatException(
+        'The room signing policy does not match this wallet draft.',
+      );
+    }
+    final publicKeys =
+        enrollment.invites
+            .map((invite) => invite.expectedParticipantPublicKey.hex)
+            .toSet()
+            .toList()
+          ..sort();
+    final hostParticipantPublicKeyHex =
+        enrollment.participants.first.publicKey.hex;
+    if (publicKeys.length != enrollment.expectedParticipants ||
+        !publicKeys.contains(draft.localParticipant.publicKeyHex) ||
+        !publicKeys.contains(hostParticipantPublicKeyHex)) {
+      throw const FormatException('The enrolled room roster is incomplete.');
+    }
+    final participants = [
+      for (var index = 0; index < publicKeys.length; index++)
+        if (publicKeys[index] == draft.localParticipant.publicKeyHex)
+          RoastParticipant(
+            cardId: draft.localParticipant.cardId,
+            name: draft.localParticipant.name,
+            identifierHex: (index + 1).toRadixString(16).padLeft(2, '0'),
+            publicKeyHex: publicKeys[index],
+          )
+        else
+          RoastParticipant(
+            cardId: '${invite.roomId}:${publicKeys[index]}',
+            name: publicKeys[index] == hostParticipantPublicKeyHex
+                ? 'Coordinator'
+                : 'Signer ${index + 1}',
+            identifierHex: (index + 1).toRadixString(16).padLeft(2, '0'),
+            publicKeyHex: publicKeys[index],
+          ),
+    ];
+    final hostParticipantId = participants
+        .singleWhere(
+          (participant) =>
+              participant.publicKeyHex == hostParticipantPublicKeyHex,
+        )
+        .identifierHex;
+    validateRoster(
+      participants: participants,
+      participantCount: enrollment.expectedParticipants,
+      threshold: enrollment.threshold,
+      hostParticipantId: hostParticipantId,
+    );
+    var setup = RoastSetup(
       id: draft.id,
-      groupId: groupId,
-      name: json['setupName']! as String,
+      groupId: invite.roomId,
+      name: draft.name,
       role: RoastSetupRole.member,
       status: RoastSetupStatus.ready,
-      threshold: threshold,
-      participantCount: participantCount,
-      blockchainId: json['blockchainId']! as String,
-      networkId: json['networkId']! as String,
-      localCardId: local.single.cardId,
+      threshold: enrollment.threshold,
+      participantCount: enrollment.expectedParticipants,
+      blockchainId: draft.blockchainId,
+      networkId: draft.networkId,
+      localCardId: draft.localCardId,
       localParticipantPrivateKeyHex: draft.localParticipantPrivateKeyHex,
       participants: participants,
-      keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
+      keyName: roastKeyName(invite.roomId),
       createdAt: draft.createdAt,
       irohIdentityIndex: draft.irohIdentityIndex,
       usesRoomEnrollment: true,
       hostParticipantId: hostParticipantId,
-      coordinatorId: PublicKey.fromBytes(
-        decodedRoomInvite.coordinatorEndpointId,
-      ).toZ32(),
-      coordinatorRelayUrls: decodedRoomInvite.relayUrls,
-      coordinatorIpAddrs: decodedRoomInvite.ipAddrs,
-      groupFingerprintHex: json['groupFingerprintHex'] as String?,
+      coordinatorId: PublicKey.fromBytes(enrollment.coordinatorEndpointId)
+          .toZ32(),
     );
-    final actualFingerprint = groupFingerprint(invited);
-    if (invited.groupFingerprintHex != actualFingerprint) {
-      throw const FormatException('The invitation fingerprint is invalid.');
-    }
-    return RoastInvitation(setup: invited, roomInvite: roomInvite);
+    setup = setup.copyWith(groupFingerprintHex: groupFingerprint(setup));
+    return setup;
   }
 
   RoastDerivedAddress deriveAddress({

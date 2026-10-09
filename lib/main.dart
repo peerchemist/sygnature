@@ -247,13 +247,11 @@ class _SygnatureAppState extends State<SygnatureApp> {
   }
 
   Future<void> _handleRoastInvitation(String invitation) async {
-    final decoded = RoastExchangeCodec.decodeInvitation(invitation);
-    final participantPublicKey = decoded['participantPublicKeyHex'];
-    if (participantPublicKey is! String || participantPublicKey.isEmpty) {
-      throw const FormatException(
-        'The invitation does not contain a participant public key.',
-      );
-    }
+    final link = NoosphereRoomInvite.decode(
+      invitation,
+      prefix: sygnatureRoomInvitePrefix,
+    );
+    final participantPublicKey = link.invite.expectedParticipantPublicKey.hex;
     final controllerFuture = _controller;
     if (controllerFuture == null) {
       throw StateError('Unlock the vault before opening an invitation.');
@@ -272,33 +270,13 @@ class _SygnatureAppState extends State<SygnatureApp> {
               setup.localParticipant.publicKeyHex == participantPublicKey,
         )
         .toList(growable: false);
-    final transitionSourceGroupId = decoded['transitionSourceGroupId'];
-    final matchingSources = transitionSourceGroupId is String
-        ? controller.roastSetups
-              .where(
-                (setup) =>
-                    setup.groupId == transitionSourceGroupId &&
-                    setup.isActive &&
-                    setup.localParticipant.publicKeyHex == participantPublicKey,
-              )
-              .toList(growable: false)
-        : const <RoastSetup>[];
-    if (matchingDrafts.length > 1 ||
-        (matchingDrafts.isEmpty && matchingSources.length != 1)) {
+    if (matchingDrafts.length != 1) {
       throw const FormatException(
         'This invitation is bound to a different signer. Open the member '
         'wallet whose public key was shared with the host.',
       );
     }
-    var setup = matchingDrafts.firstOrNull;
-    final setupName = decoded['setupName'] is String
-        ? decoded['setupName']! as String
-        : 'Shared wallet';
-    final threshold = decoded['threshold'];
-    final participantCount = decoded['participantCount'];
-    final signerSummary = threshold is int && participantCount is int
-        ? '$threshold of $participantCount signers required'
-        : 'Participant-bound ROAST invitation';
+    final setup = matchingDrafts.single;
     final context = await _navigatorContext();
     if (context == null || !context.mounted) return;
     final confirmed = await showDialog<bool>(
@@ -310,23 +288,19 @@ class _SygnatureAppState extends State<SygnatureApp> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              setupName,
+              setup.name,
               style: Theme.of(dialogContext).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(signerSummary),
+            Text(
+              '${setup.threshold} of ${setup.participantCount} signers '
+              'required',
+            ),
             const SizedBox(height: 12),
             const Text(
               'This invitation matches the signer identity stored on this '
               'device.',
             ),
-            if (setup == null) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'The existing signer identity will be reused in a new '
-                'successor wallet.',
-              ),
-            ],
           ],
         ),
         actions: [
@@ -343,22 +317,8 @@ class _SygnatureAppState extends State<SygnatureApp> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    if (setup == null) {
-      if (threshold is! int || participantCount is! int) {
-        throw const FormatException(
-          'The successor invitation is missing its signing policy.',
-        );
-      }
-      final setupId = await controller.createRoastTransitionJoinDraft(
-        sourceSetupId: matchingSources.single.id,
-        walletName: setupName,
-        threshold: threshold,
-        participantCount: participantCount,
-      );
-      setup = controller.roastSetups.singleWhere((item) => item.id == setupId);
-    }
     final accountIndex = controller.accounts.indexWhere(
-      (account) => account.sourceId == setup!.id,
+      (account) => account.sourceId == setup.id,
     );
     if (accountIndex >= 0) await controller.selectAccount(accountIndex);
     try {

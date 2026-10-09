@@ -494,19 +494,14 @@ extension WalletRoastSetupController on WalletController {
                 .singleWhere(
                   (participant) =>
                       participant.publicKeyHex ==
-                      invite.participantPublicKeyHex,
+                      invite.invite.expectedParticipantPublicKey.hex,
                 )
                 .name,
-            participantPublicKeyHex: invite.participantPublicKeyHex,
+            participantPublicKeyHex:
+                invite.invite.expectedParticipantPublicKey.hex,
             issuedAt: DateTime.now().toUtc(),
-            expiresAt: invite.expiresAt,
-            encoded: RoastExchangeCodec.encodeInvitation(
-              savedSetup,
-              roomInvite: invite.encoded,
-              participantPublicKeyHex: invite.participantPublicKeyHex,
-              expiresAt: invite.expiresAt,
-              transitionSourceGroupId: source.groupId,
-            ),
+            expiresAt: invite.invite.expiresAt,
+            encoded: invite.encode(),
           ),
       ];
       await _updateSetup(
@@ -660,18 +655,14 @@ extension WalletRoastSetupController on WalletController {
                 .singleWhere(
                   (participant) =>
                       participant.publicKeyHex ==
-                      invite.participantPublicKeyHex,
+                      invite.invite.expectedParticipantPublicKey.hex,
                 )
                 .name,
-            participantPublicKeyHex: invite.participantPublicKeyHex,
+            participantPublicKeyHex:
+                invite.invite.expectedParticipantPublicKey.hex,
             issuedAt: DateTime.now().toUtc(),
-            expiresAt: invite.expiresAt,
-            encoded: RoastExchangeCodec.encodeInvitation(
-              setup,
-              roomInvite: invite.encoded,
-              participantPublicKeyHex: invite.participantPublicKeyHex,
-              expiresAt: invite.expiresAt,
-            ),
+            expiresAt: invite.invite.expiresAt,
+            encoded: invite.encode(),
           ),
       ];
       await _updateSetup(
@@ -696,65 +687,72 @@ extension WalletRoastSetupController on WalletController {
     if (draft.role != RoastSetupRole.member) {
       throw StateError('This setup is not waiting for an invitation.');
     }
-    final decoded = _roastKeyService.applyInvitation(draft, invitation);
-    final setup = decoded.setup.copyWith(
-      status: RoastSetupStatus.connecting,
-      clearError: true,
-    );
-    await _updateVault((current) {
-      if (current == null) throw StateError('Wallet is not initialized.');
-      final account = current.accounts.firstWhere(
-        (item) => item.sourceId == setupId,
-      );
-      final replacementAccount = WalletAccount(
-        id: 'roast-$setupId-${setup.blockchainId}:${setup.networkId}-0',
-        name: account.name,
-        accountIndex: 0,
-        blockchainId: setup.blockchainId,
-        networkId: setup.networkId,
-        derivationState: WalletDerivationState.pending,
-        keySource: WalletKeySource.roast,
-        sourceId: setupId,
-        keyId: setup.keyName,
-        createdAt: account.createdAt,
-      );
-      return current.copyWith(
-        roastSetups: [
-          for (final item in current.roastSetups)
-            if (item.id == setupId) setup else item,
-        ],
-        accounts: [
-          for (final item in current.accounts)
-            if (item.sourceId == setupId) replacementAccount else item,
-        ],
-      );
-    });
     try {
-      final snapshot = await _roastRuntime!.joinRoom(setup, decoded.roomInvite);
+      // This validates the bound identity key before the runtime opens Iroh.
+      final invite = NoosphereRoomInvite.decode(
+        invitation.trim(),
+        prefix: sygnatureRoomInvitePrefix,
+      );
+      _roastKeyService.validateRoomInvite(draft, invite);
+      final enrollment = await _roastRuntime!.joinRoom(draft, invite);
+      final enrolled = _roastKeyService.applyRoomEnrollment(
+        draft,
+        invite.invite,
+        enrollment,
+      );
+      await _updateVault((current) {
+        if (current == null) throw StateError('Wallet is not initialized.');
+        final account = current.accounts.firstWhere(
+          (item) => item.sourceId == setupId,
+        );
+        final replacementAccount = WalletAccount(
+          id:
+              'roast-$setupId-'
+              '${enrolled.blockchainId}:${enrolled.networkId}-0',
+          name: account.name,
+          accountIndex: 0,
+          blockchainId: enrolled.blockchainId,
+          networkId: enrolled.networkId,
+          derivationState: WalletDerivationState.pending,
+          keySource: WalletKeySource.roast,
+          sourceId: setupId,
+          keyId: enrolled.keyName,
+          createdAt: account.createdAt,
+        );
+        return current.copyWith(
+          roastSetups: [
+            for (final item in current.roastSetups)
+              if (item.id == setupId) enrolled else item,
+          ],
+          accounts: [
+            for (final item in current.accounts)
+              if (item.sourceId == setupId) replacementAccount else item,
+          ],
+        );
+      });
+      final snapshot = await _roastRuntime.startSetup(enrolled);
       _setRoastPresence(
-        setup.id,
+        enrolled.id,
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
         onlineParticipantIds: snapshot.onlineParticipantIds,
       );
       if (snapshot.connected && snapshot.signerRunning) {
-        _roastCoordinatorRecovery.remove(setup.id);
+        _roastCoordinatorRecovery.remove(enrolled.id);
       }
       await _updateSetup(
-        setup.id,
+        enrolled.id,
         (setup) => setup.copyWith(
           status: snapshot.connected
               ? RoastSetupStatus.ready
               : RoastSetupStatus.connecting,
           coordinatorId: snapshot.coordinatorId,
-          coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
-          coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
           clearError: true,
         ),
       );
     } catch (error) {
       await _updateSetup(
-        setup.id,
+        draft.id,
         (setup) => setup.copyWith(
           status: RoastSetupStatus.error,
           errorMessage: _cleanRoastError(error),
@@ -1347,10 +1345,15 @@ extension WalletRoastSetupController on WalletController {
       kind: RoastEnrollmentFailureKind.rejected,
       :final roomFailureCode,
     ) =>
-      roomFailureCode == 0xffff
-          ? 'The coordinator rejected room enrollment.'
-          : 'The coordinator rejected room enrollment '
-                '(room code $roomFailureCode).',
+      switch (roomFailureCode) {
+        6 => 'This room invitation has expired.',
+        7 => 'This room invitation has already been used.',
+        8 => 'This room invitation was revoked.',
+        0xffff => 'The coordinator rejected room enrollment.',
+        _ =>
+          'The coordinator rejected room enrollment '
+              '(room code $roomFailureCode).',
+      },
     RoastEnrollmentFailure(kind: RoastEnrollmentFailureKind.timeout) =>
       'Room enrollment timed out. Check coordinator state before retrying.',
     RoastEnrollmentFailure(
@@ -1362,6 +1365,7 @@ extension WalletRoastSetupController on WalletController {
       'The enrollment connection was interrupted. Check coordinator state '
           'before retrying.',
     NoosphereWorkerException(:final message) => message,
+    FormatException(:final message) => message,
     ArgumentError() => error.toString(),
     StateError(:final message) => message,
     _ => 'Unable to connect to the ROAST coordinator.',

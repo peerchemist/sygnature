@@ -21,7 +21,7 @@ import 'package:noosphere/domain.dart'
         NewDkgDetails,
         thresholdBip86DerivationPath;
 import 'package:noosphere_flutter/noosphere_flutter.dart'
-    show NoosphereWorkerException;
+    show NoosphereRoomInvite, NoosphereWorkerException;
 
 import '../models/electrumx_utxo.dart';
 import '../models/group_transition.dart';

@@ -11,6 +11,7 @@ const defaultRoastSigningRequestTimeout = Duration(minutes: 30);
 const maxRoastSigningRequestTimeout = Duration(hours: 24);
 const maxRoastSigningMessageBytes = SignaturesRequestDetails.maxMessageBytes;
 const maxRoastSignedMessageBytes = SignedMessagePayload.maxTextBytes;
+const sygnatureRoomInvitePrefix = 'sygnature-roast-v1:';
 
 sealed class RoastRuntimeEvent {
   const RoastRuntimeEvent(this.setupId);
@@ -207,14 +208,8 @@ class RoastSigningProposal({
   required final DateTime expiry,
 });
 
-class RoastRoomInvite({
-  required final String participantPublicKeyHex,
-  required final String encoded,
-  required final DateTime expiresAt,
-});
-
 class RoastRoomCreation({
-  required final List<RoastRoomInvite> invites,
+  required final List<NoosphereRoomInvite> invites,
   required final Uint8List coordinatorEndpointId,
   required final String coordinatorId,
   required final List<String> coordinatorRelayUrls,
@@ -295,7 +290,7 @@ abstract interface class RoastRuntime {
     RoastSetup setup, {
     Future<void> Function(RoastRoomCreation room)? beforeInvitations,
   });
-  Future<RoastRuntimeSnapshot> joinRoom(RoastSetup setup, String encodedInvite);
+  Future<RoomSnapshot> joinRoom(RoastSetup setup, NoosphereRoomInvite invite);
   Future<void> requestDkg(
     RoastSetup setup, {
     NewDkgDetails? approvedDetails,
