@@ -210,6 +210,26 @@ void main() {
         ? RoastPersistenceFactory(secureKeyStore: keys).open()
         : HiveWalletRepository.open(secureKeyStore: keys);
 
+    test('never replaces a missing key for existing $name data', () async {
+      final keys = _MemorySecureKeyStore();
+      await open(keys);
+      await Hive.close();
+      final file = File('${directory.path}/$boxName.hive');
+      final before = await file.readAsBytes();
+      final savedKey = keys.values.remove(keyName)!;
+      final writes = keys.writes;
+
+      await expectLater(open(keys), throwsA(isA<StateError>()));
+      expect(Hive.isBoxOpen(boxName), isFalse);
+      expect(await file.readAsBytes(), before);
+      expect(keys.writes, writes);
+      expect(keys.values, isEmpty);
+
+      keys.values[keyName] = savedKey;
+      await open(keys);
+      expect(Hive.isBoxOpen(boxName), isTrue);
+    });
+
     test('rejects malformed $name keys without replacing them', () async {
       final keys = _MemorySecureKeyStore()..values[keyName] = 'invalid-base64!';
       await expectLater(open(keys), throwsA(isA<FormatException>()));

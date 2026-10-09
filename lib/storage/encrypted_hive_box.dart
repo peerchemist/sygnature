@@ -38,6 +38,9 @@ class const EncryptedHiveBox({
   Future<Uint8List> _loadOrCreateKey(SecureKeyStore keyStore) async {
     var encodedKey = await keyStore.read(cipherKeyName);
     if (encodedKey == null) {
+      if (await Hive.boxExists(name)) {
+        throw StateError('The existing encrypted storage key is unavailable.');
+      }
       encodedKey = base64UrlEncode(Hive.generateSecureKey());
       await keyStore.write(cipherKeyName, encodedKey);
     }
