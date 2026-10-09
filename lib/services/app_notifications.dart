@@ -22,6 +22,7 @@ class AppNotifications({
       (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
           ? null
           : const FlutterSecureStorage(
+              aOptions: AndroidOptions(resetOnError: false),
               mOptions: MacOsOptions(usesDataProtectionKeychain: true),
             ));
   final UiSounds _sounds = sounds ?? UiSounds();

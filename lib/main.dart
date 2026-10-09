@@ -88,6 +88,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   Future<VaultProtectionStore> _initializeVault() async {
     final store = await VaultProtectionStore.open();
+    if (store.config?.mode == VaultProtectionMode.device) return store;
     if (!await HiveWalletRepository.boxExists()) return store;
 
     late final (HiveWalletRepository, SecureKeyStore)? existingVault;
@@ -157,7 +158,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
     return keys;
   }
 
-  Future<WalletController> _createPasswordController(
+  Future<WalletController> _createCipherKeyController(
     VaultKeyMaterial keys,
   ) async {
     await _notificationsReady;
@@ -224,7 +225,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
       } else {
         keys = await _derivePasswordKeys(password, config);
       }
-      final controller = await _createPasswordController(keys);
+      final controller = await _createCipherKeyController(keys);
       if (!mounted) {
         controller.dispose();
         return;
@@ -248,7 +249,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   ) async {
     try {
       final keys = await _derivePasswordKeys(password, config);
-      final controller = await _createPasswordController(keys);
+      final controller = await _createCipherKeyController(keys);
       if (!mounted) {
         controller.dispose();
         return;
@@ -264,6 +265,27 @@ class _SygnatureAppState extends State<SygnatureApp> {
       );
       rethrow;
     }
+  }
+
+  Future<void> _openDeviceVault(
+    VaultProtectionStore store, {
+    bool setup = false,
+  }) async {
+    final keys = await loadDeviceVaultKeys(
+      keyStore: PlatformSecureKeyStore.device(),
+      create: setup,
+    );
+    // Persist the mode before creating boxes so an interrupted setup can never
+    // be mistaken for a legacy system vault on the next process start.
+    if (setup) await store.configureDevice();
+    final controller = await _createCipherKeyController(keys);
+    if (!mounted) {
+      controller.dispose();
+      return;
+    }
+    setState(() {
+      _controller = Future.value(controller);
+    });
   }
 
   Future<Uint8List> _walletBip39Seed(WalletRepository repository) async {
@@ -518,7 +540,17 @@ class _SygnatureAppState extends State<SygnatureApp> {
             setup: true,
             systemVaultEnabled: systemVaultAvailable(),
             onSystem: () => _setUpSystemVault(store),
+            onDevice: () => _openDeviceVault(store, setup: true),
             onPassword: (password) => _setUpPasswordVault(store, password),
+          );
+        }
+        if (config.mode == VaultProtectionMode.device) {
+          return VaultProtectionScreen(
+            setup: false,
+            unlockMode: VaultProtectionMode.device,
+            systemVaultEnabled: false,
+            onDevice: () => _openDeviceVault(store),
+            onPassword: (_) async {},
           );
         }
         if (config.mode == VaultProtectionMode.password) {

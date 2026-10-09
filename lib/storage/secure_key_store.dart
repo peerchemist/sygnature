@@ -29,8 +29,27 @@ class PlatformSecureKeyStore({
   final FlutterSecureStorage _storage =
       storage ??
       const FlutterSecureStorage(
+        aOptions: AndroidOptions(resetOnError: false),
         mOptions: MacOsOptions(usesDataProtectionKeychain: true),
       );
+
+  factory PlatformSecureKeyStore.device() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      throw UnsupportedError('Device unlock is only available on Android.');
+    }
+    return PlatformSecureKeyStore(
+      storage: const FlutterSecureStorage(
+        aOptions: AndroidOptions.biometric(
+          enforceBiometrics: true,
+          biometricType: AndroidBiometricType.biometricOrDeviceCredential,
+          requireBiometricsPerOperation: true,
+          storageNamespace: 'sygnature_device_vault_v1',
+          biometricPromptTitle: 'Unlock Sygnature',
+          resetOnError: false,
+        ),
+      ),
+    );
+  }
 
   static bool get isAvailable =>
       kIsWeb || defaultTargetPlatform != TargetPlatform.macOS;

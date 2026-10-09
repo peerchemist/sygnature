@@ -5,8 +5,9 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:pointycastle/export.dart';
 
 import 'hive_storage_initializer.dart';
+import 'secure_key_store.dart';
 
-enum VaultProtectionMode { system, password }
+enum VaultProtectionMode { system, password, device }
 
 class const VaultProtectionConfig({
   required final VaultProtectionMode mode,
@@ -129,6 +130,42 @@ class VaultProtectionStore(final Box<dynamic> _box) {
     _configKey,
     const VaultProtectionConfig(mode: VaultProtectionMode.system).toJson(),
   );
+
+  Future<void> configureDevice() => _box.put(
+    _configKey,
+    const VaultProtectionConfig(mode: VaultProtectionMode.device).toJson(),
+  );
+}
+
+bool deviceVaultAvailable({bool? web, TargetPlatform? platform}) =>
+    !(web ?? kIsWeb) &&
+    (platform ?? defaultTargetPlatform) == TargetPlatform.android;
+
+/// Reads one authenticated root key before either encrypted box is opened.
+/// Derived keys stay in memory for this process; background work needs no prompt.
+Future<VaultKeyMaterial> loadDeviceVaultKeys({
+  required SecureKeyStore keyStore,
+  bool create = false,
+}) async {
+  const keyName = 'sygnature_device_vault_key_v1';
+  var encoded = await keyStore.read(keyName);
+  if (encoded == null && create) {
+    await keyStore.write(keyName, base64UrlEncode(Hive.generateSecureKey()));
+    // Require an authenticated read even when provisioning a new vault.
+    encoded = await keyStore.read(keyName);
+  }
+  if (encoded == null) {
+    throw StateError('The device vault encryption key is unavailable.');
+  }
+  final rootKey = base64Url.decode(encoded);
+  try {
+    if (rootKey.length != 32) {
+      throw StateError('Invalid device vault key length.');
+    }
+    return _expandVaultKeyMaterial(rootKey);
+  } finally {
+    rootKey.fillRange(0, rootKey.length, 0);
+  }
 }
 
 bool systemVaultAvailable({bool? web, TargetPlatform? platform}) {
@@ -187,15 +224,17 @@ VaultKeyMaterial _deriveVaultKeyMaterial(Map<String, Object?> settings) {
   passwordBytes.fillRange(0, passwordBytes.length, 0);
 
   try {
-    return VaultKeyMaterial(
-      walletKey: _deriveDomainKey(rootKey, 'wallet-v1'),
-      roastKey: _deriveDomainKey(rootKey, 'roast-v1'),
-      verifier: _deriveDomainKey(rootKey, 'password-verifier-v1'),
-    );
+    return _expandVaultKeyMaterial(rootKey);
   } finally {
     rootKey.fillRange(0, rootKey.length, 0);
   }
 }
+
+VaultKeyMaterial _expandVaultKeyMaterial(Uint8List rootKey) => VaultKeyMaterial(
+  walletKey: _deriveDomainKey(rootKey, 'wallet-v1'),
+  roastKey: _deriveDomainKey(rootKey, 'roast-v1'),
+  verifier: _deriveDomainKey(rootKey, 'password-verifier-v1'),
+);
 
 Uint8List _deriveDomainKey(Uint8List rootKey, String domain) {
   final hmac = HMac(SHA256Digest(), 64)..init(KeyParameter(rootKey));

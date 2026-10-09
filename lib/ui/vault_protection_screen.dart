@@ -12,6 +12,8 @@ class const VaultProtectionScreen({
   required final bool systemVaultEnabled,
   required final PasswordVaultCallback onPassword,
   final Future<void> Function()? onSystem,
+  final Future<void> Function()? onDevice,
+  final VaultProtectionMode unlockMode = VaultProtectionMode.password,
 }) extends StatefulWidget {
   @override
   State<VaultProtectionScreen> createState() => _VaultProtectionScreenState();
@@ -29,7 +31,9 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
   @override
   void initState() {
     super.initState();
-    _mode = widget.systemVaultEnabled
+    _mode = !widget.setup
+        ? widget.unlockMode
+        : widget.systemVaultEnabled
         ? VaultProtectionMode.system
         : VaultProtectionMode.password;
   }
@@ -43,6 +47,11 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
 
   Future<void> _submit() async {
     if (_busy) return;
+    if (_mode == VaultProtectionMode.device) {
+      final callback = widget.onDevice;
+      if (callback != null) await _run(callback);
+      return;
+    }
     if (widget.setup && _mode == VaultProtectionMode.system) {
       final callback = widget.onSystem;
       if (callback == null) return;
@@ -64,7 +73,10 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = widget.setup
+        _error = _mode == VaultProtectionMode.device
+            ? 'Device authentication was cancelled or failed, or the vault '
+                  'cannot be opened. Please try again.'
+            : widget.setup
             ? 'The encrypted vault could not be created. Please try again.'
             : 'The password is incorrect or the vault cannot be opened.';
       });
@@ -98,6 +110,9 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
                         widget.setup
                             ? 'Choose how Sygnature protects the encryption '
                                   'keys stored on this device.'
+                            : _mode == VaultProtectionMode.device
+                            ? 'Use your device biometric or screen lock to '
+                                  'unlock this vault.'
                             : 'Enter the password used to encrypt this vault.',
                       ),
                       if (widget.setup) ...[
@@ -119,6 +134,24 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
+                        if (deviceVaultAvailable()) ...[
+                          _ProtectionOption(
+                            key: const Key('device-vault-option'),
+                            title: 'Device unlock',
+                            description:
+                                'Use biometrics or your device screen lock '
+                                'when Sygnature starts. Device credentials '
+                                'require Android 11 or later.',
+                            icon: Icons.fingerprint_rounded,
+                            mode: VaultProtectionMode.device,
+                            selected: _mode == VaultProtectionMode.device,
+                            enabled: !_busy,
+                            onSelected: () => setState(
+                              () => _mode = VaultProtectionMode.device,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                         _ProtectionOption(
                           key: const Key('password-vault-option'),
                           title: 'Password',
@@ -134,8 +167,7 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
                           ),
                         ),
                       ],
-                      if (!widget.setup ||
-                          _mode == VaultProtectionMode.password) ...[
+                      if (_mode == VaultProtectionMode.password) ...[
                         const SizedBox(height: 22),
                         TextFormField(
                           key: const Key('vault-password'),
