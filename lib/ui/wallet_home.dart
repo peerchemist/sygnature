@@ -1050,6 +1050,7 @@ class _BalanceCard extends StatelessWidget {
         controller.roastMessageSigningInProgress(setupId),
         controller.roastOperationInProgress(setupId),
       ],
+      controller.hasDismissibleRoastSigningOperation(account.id),
     ],
     builder: (context, _) => _buildContent(context),
   );
@@ -1066,6 +1067,8 @@ class _BalanceCard extends StatelessWidget {
     final messageSigning =
         roastSetup != null &&
         controller.roastMessageSigningInProgress(roastSetup.id);
+    final hasDismissibleSigningOperation = controller
+        .hasDismissibleRoastSigningOperation(account.id);
     final canSignMessage =
         canSign &&
         roastSetup?.isActive == true &&
@@ -1198,6 +1201,32 @@ class _BalanceCard extends StatelessWidget {
                   'Wait for it to finish before creating another one.',
                   key: Key('transaction-signature-request-warning'),
                   style: TextStyle(color: AppColors.warningDark, fontSize: 12),
+                ),
+              ] else if (hasDismissibleSigningOperation) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'A failed approval request is still reserving '
+                        'transaction inputs.',
+                        style: TextStyle(
+                          color: AppColors.warningDark,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      key: const Key('dismiss-roast-signing-operation'),
+                      onPressed: () => _dismissFailedRoastSigningOperation(
+                        context,
+                        controller,
+                        account,
+                      ),
+                      child: const Text('Dismiss failed request'),
+                    ),
+                  ],
                 ),
               ],
             ],

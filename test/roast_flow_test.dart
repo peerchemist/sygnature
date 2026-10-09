@@ -962,6 +962,18 @@ void main() {
     expect(find.text('REQUEST TIMEOUT'), findsOneWidget);
     expect(find.text('90 minutes'), findsOneWidget);
     expect(find.byKey(const Key('request-message-signatures')), findsOneWidget);
+    expect(
+      find.byKey(const Key('request-message-signatures-unavailable')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const Key('request-message-signatures')),
+          )
+          .onPressed,
+      isNull,
+    );
   });
 
   testWidgets('opens signer-group changes from active wallet settings', (
@@ -1478,6 +1490,49 @@ void main() {
     await tester.tap(find.byKey(const Key('send-review-button')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        'setup',
+        connected: false,
+        signerRunning: false,
+        onlineParticipantIds: const [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('request-approvals-unavailable')),
+      findsOneWidget,
+    );
+    var requestButton = tester.widget<FilledButton>(
+      find.byKey(const Key('send-confirm-button')),
+    );
+    expect(requestButton.onPressed, isNull);
+
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        'setup',
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: const ['01'],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('request-approvals-unavailable')),
+      findsNothing,
+    );
+    requestButton = tester.widget<FilledButton>(
+      find.byKey(const Key('send-confirm-button')),
+    );
+    expect(requestButton.onPressed, isNotNull);
+
     await tester.tap(find.byKey(const Key('send-confirm-button')));
     await tester.pump();
     expect(runtime.transactionRequestTimeout, const Duration(hours: 2));

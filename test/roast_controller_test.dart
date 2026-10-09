@@ -2224,6 +2224,8 @@ void main() {
       interrupted: false,
       message: 'The previous connection expired; this request was declined.',
       state: RoastSigningOperationState.rejected,
+      throwsBeforeSubmit: false,
+      reservesUtxos: false,
     ),
     (
       kind: WalletSigningFailureKind.interrupted,
@@ -2231,6 +2233,8 @@ void main() {
       interrupted: true,
       message: 'Signing request failed.',
       state: RoastSigningOperationState.interrupted,
+      throwsBeforeSubmit: false,
+      reservesUtxos: true,
     ),
     (
       kind: WalletSigningFailureKind.interrupted,
@@ -2238,6 +2242,8 @@ void main() {
       interrupted: false,
       message: 'Signing request failed.',
       state: RoastSigningOperationState.interrupted,
+      throwsBeforeSubmit: false,
+      reservesUtxos: true,
     ),
     (
       kind: WalletSigningFailureKind.expired,
@@ -2245,10 +2251,22 @@ void main() {
       interrupted: false,
       message: 'No signatures arrived.',
       state: RoastSigningOperationState.expired,
+      throwsBeforeSubmit: false,
+      reservesUtxos: false,
+    ),
+    (
+      kind: WalletSigningFailureKind.interrupted,
+      operation: RoastRuntimeOperation.signatures,
+      interrupted: true,
+      message: 'Operation could not be completed.',
+      state: RoastSigningOperationState.interrupted,
+      throwsBeforeSubmit: true,
+      reservesUtxos: true,
     ),
   ]) {
     test(
-      'classifies ${scenario.operation.name} as ${scenario.state.name} independently of message text',
+      'classifies ${scenario.operation.name} as ${scenario.state.name} '
+      '${scenario.throwsBeforeSubmit ? 'before submission' : 'independently of message text'}',
       () async {
         final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
         final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
@@ -2264,7 +2282,11 @@ void main() {
         final runtime = _FakeRoastRuntime()
           ..snapshotGroupKey = 'expected-key'
           ..failSigningRequests =
-              scenario.kind != WalletSigningFailureKind.expired
+              scenario.kind != WalletSigningFailureKind.expired &&
+              !scenario.throwsBeforeSubmit
+          ..signatureRequestError = scenario.throwsBeforeSubmit
+              ? StateError(scenario.message)
+              : null
           ..signingFailureOperation = scenario.operation
           ..signingFailureInterrupted = scenario.interrupted
           ..signingFailureMessage = scenario.message;
@@ -2312,11 +2334,15 @@ void main() {
                 : defaultRoastSigningRequestTimeout,
           ),
           throwsA(
-            isA<WalletSigningFailure>().having(
-              (error) => error.kind,
-              'kind',
-              scenario.kind,
-            ),
+            isA<WalletSigningFailure>()
+                .having((error) => error.kind, 'kind', scenario.kind)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  scenario.throwsBeforeSubmit
+                      ? contains('coordinator')
+                      : isNotEmpty,
+                ),
           ),
         );
 
@@ -2324,10 +2350,7 @@ void main() {
         final failedOperation =
             (await operations.loadSigningOperations()).single;
         expect(failedOperation.state, scenario.state);
-        expect(
-          failedOperation.reservesUtxos,
-          scenario.state == RoastSigningOperationState.interrupted,
-        );
+        expect(failedOperation.reservesUtxos, scenario.reservesUtxos);
         final restored = RoastSigningOperation.fromJson(
           failedOperation.toJson(),
         );
@@ -2340,6 +2363,18 @@ void main() {
         final legacy = RoastSigningOperation.fromJson(legacyJson);
         expect(legacy.state, RoastSigningOperationState.rejected);
         expect(legacy.reservesUtxos, isFalse);
+        expect(
+          controller.hasDismissibleRoastSigningOperation('shared'),
+          scenario.reservesUtxos,
+        );
+        if (scenario.reservesUtxos) {
+          await controller.dismissRoastSigningOperation('shared');
+          expect(
+            (await operations.getSigningOperation(failedOperation.storageId))!
+                .reservesUtxos,
+            isFalse,
+          );
+        }
         controller.dispose();
       },
     );
@@ -2743,6 +2778,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   RoastRuntimeSnapshot? startSnapshot;
   void Function()? afterRoomPrepared;
   Object? joinRoomError;
+  Object? signatureRequestError;
   int joinRoomCalls = 0;
   String? messageText;
   String? messageNote;
@@ -2851,6 +2887,7 @@ class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<void> requestSignatures(setup, RoastSigningProposal proposal) async {
+    if (signatureRequestError case final error?) throw error;
     if (failSigningRequests) {
       _events.add(
         RoastRuntimeFailureEvent(

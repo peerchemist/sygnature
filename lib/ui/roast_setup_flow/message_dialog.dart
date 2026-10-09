@@ -41,14 +41,27 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
   void initState() {
     super.initState();
     _result = widget.initialResult;
+    widget.controller.addListener(_refresh);
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_refresh);
     _textController.dispose();
     _noteController.dispose();
     _timeoutController.dispose();
     super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _canRequestSignatures {
+    final setup = widget.controller.setupForAccount(widget.account);
+    if (setup == null || !setup.isActive) return false;
+    return widget.controller.roastCoordinatorState(setup.id) ==
+        RoastCoordinatorLocalState.connected;
   }
 
   void _review() {
@@ -156,7 +169,11 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
                     ? 'request-message-signatures'
                     : 'review-message-signature',
               ),
-              onPressed: _reviewing ? _sign : _review,
+              onPressed: _reviewing
+                  ? _canRequestSignatures
+                        ? _sign
+                        : null
+                  : _review,
               child: Text(_reviewing ? 'Request signatures' : 'Review'),
             ),
           ],
@@ -243,6 +260,15 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
         style: TextStyle(color: AppColors.inkMuted),
       ),
       const SizedBox(height: 16),
+      if (!_canRequestSignatures) ...[
+        const Text(
+          'Request signatures is unavailable because the ROAST signer is not '
+          'connected to the coordinator.',
+          key: Key('request-message-signatures-unavailable'),
+          style: TextStyle(color: AppColors.warningDark, fontSize: 12),
+        ),
+        const SizedBox(height: 16),
+      ],
       _MessageBox(label: 'EXACT TEXT TO SIGN', text: _textController.text),
       if (_noteController.text.trim().isNotEmpty) ...[
         const SizedBox(height: 12),

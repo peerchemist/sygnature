@@ -20,6 +20,47 @@ Future<void> _showSendDialog(
   );
 }
 
+Future<bool> _dismissFailedRoastSigningOperation(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Dismiss failed request?'),
+      content: const Text(
+        'This releases the transaction inputs reserved by the failed request '
+        'so you can create a new one. Only continue if the old request should '
+        'be abandoned.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm-dismiss-roast-signing-operation'),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Dismiss request'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return false;
+  try {
+    await controller.dismissRoastSigningOperation(account.id);
+    return true;
+  } on Object {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not dismiss the failed request.')),
+      );
+    }
+    return false;
+  }
+}
+
 class _SendDialog extends StatefulWidget {
   const _SendDialog({required this.controller, required this.account});
 
@@ -67,6 +108,14 @@ class _SendDialogState extends State<_SendDialog> {
 
   void _refreshMaximumAvailable() {
     if (mounted) setState(() {});
+  }
+
+  bool get _canRequestRoastApprovals {
+    if (widget.account.keySource != WalletKeySource.roast) return true;
+    final setup = widget.controller.setupForAccount(widget.account);
+    if (setup == null || !setup.isActive) return false;
+    return widget.controller.roastCoordinatorState(setup.id) ==
+        RoastCoordinatorLocalState.connected;
   }
 
   int? _maximumAvailableSats() {
@@ -157,6 +206,12 @@ class _SendDialogState extends State<_SendDialog> {
     final preview = _preview;
     final canClosePendingRequest =
         _submitting && widget.account.keySource == WalletKeySource.roast;
+    final canDismissFailedRequest =
+        preview != null &&
+        widget.controller.hasDismissibleRoastSigningOperation(
+          widget.account.id,
+        );
+    final canSubmit = preview == null || _canRequestRoastApprovals;
     return PopScope(
       canPop: !_submitting || canClosePendingRequest,
       child: AlertDialog(
@@ -188,6 +243,19 @@ class _SendDialogState extends State<_SendDialog> {
                   : 'Back',
             ),
           ),
+          if (canDismissFailedRequest)
+            TextButton(
+              key: const Key('send-dismiss-failed-request-button'),
+              onPressed: () async {
+                final dismissed = await _dismissFailedRoastSigningOperation(
+                  context,
+                  widget.controller,
+                  widget.account,
+                );
+                if (dismissed && mounted) setState(() => _error = null);
+              },
+              child: const Text('Dismiss failed request'),
+            ),
           FilledButton(
             key: Key(
               preview == null ? 'send-review-button' : 'send-confirm-button',
@@ -196,7 +264,9 @@ class _SendDialogState extends State<_SendDialog> {
                 ? null
                 : preview == null
                 ? _review
-                : _send,
+                : canSubmit
+                ? _send
+                : null,
             child: _submitting
                 ? const SizedBox.square(
                     dimension: 18,
@@ -367,6 +437,16 @@ class _SendDialogState extends State<_SendDialog> {
           'You can close this window. The approval request will continue in '
           'the wallet.',
           style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+        ),
+      ],
+      if (widget.account.keySource == WalletKeySource.roast &&
+          !_canRequestRoastApprovals) ...[
+        const SizedBox(height: 12),
+        const Text(
+          'Request approvals is unavailable because the ROAST signer is not '
+          'connected to the coordinator.',
+          key: Key('request-approvals-unavailable'),
+          style: TextStyle(color: AppColors.warningDark, fontSize: 12),
         ),
       ],
       if (_error != null) ...[

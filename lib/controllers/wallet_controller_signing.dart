@@ -43,6 +43,28 @@ extension WalletSigningController on WalletController {
           .where((operation) => operation.setupId == setupId)
           .firstOrNull;
 
+  bool hasDismissibleRoastSigningOperation(String accountId) =>
+      _dismissibleRoastSigningOperation(accountId) != null;
+
+  Future<void> dismissRoastSigningOperation(String accountId) async {
+    final operation = _dismissibleRoastSigningOperation(accountId);
+    if (operation == null) return;
+    await _saveRoastSigningOperation(
+      operation.copyWith(reservationsReleased: true),
+    );
+  }
+
+  RoastSigningOperation? _dismissibleRoastSigningOperation(String accountId) =>
+      _storedRoastSigningOperations.values
+          .where(
+            (operation) =>
+                operation.accountId == accountId &&
+                operation.state == RoastSigningOperationState.interrupted &&
+                operation.rawTransactionHex == null &&
+                operation.reservesUtxos,
+          )
+          .firstOrNull;
+
   String roastOutputAddress(
     RoastSigningInboxItem item,
     RoastSigningOutput output,
@@ -114,12 +136,10 @@ extension WalletSigningController on WalletController {
     }
     final setup = setupForAccount(account);
     final runtime = _roastRuntime;
-    if (setup == null ||
-        runtime == null ||
-        !setup.isActive ||
-        setup.groupKeyHex == null) {
+    if (setup == null || runtime == null || setup.groupKeyHex == null) {
       throw const WalletSigningUnavailable();
     }
+    _requireRoastCoordinator(setup);
     if (roastMessageSigningInProgress(setup.id)) {
       throw StateError('A message signature request is already active.');
     }
@@ -223,12 +243,10 @@ extension WalletSigningController on WalletController {
       } else {
         final setup = setupForAccount(account);
         final runtime = _roastRuntime;
-        if (setup == null ||
-            runtime == null ||
-            !setup.isActive ||
-            setup.groupKeyHex == null) {
+        if (setup == null || runtime == null || setup.groupKeyHex == null) {
           throw const WalletSigningUnavailable();
         }
+        _requireRoastCoordinator(setup);
         final network = networkForAccount(account);
         final derived = _roastKeyService.deriveAddress(
           groupKeyHex: setup.groupKeyHex!,
@@ -288,7 +306,19 @@ extension WalletSigningController on WalletController {
                 ? null
                 : preview.signingMessage,
           );
-          await runtime.requestSignatures(setup, proposal);
+          try {
+            await runtime.requestSignatures(setup, proposal);
+          } on Object catch (error, stackTrace) {
+            Error.throwWithStackTrace(
+              WalletSigningFailure(
+                WalletSigningFailureKind.interrupted,
+                'Could not send the approval request. Make sure the ROAST '
+                'coordinator is running and connected, then try again.',
+                cause: error,
+              ),
+              stackTrace,
+            );
+          }
           final outcome = await completer.future.timeout(
             proposal.expiry.difference(DateTime.now()),
             onTimeout: () => throw const WalletSigningFailure(
@@ -547,6 +577,19 @@ extension WalletSigningController on WalletController {
       'Transaction submission failed: ${_sanitizeBroadcastError(message)}',
     _ => 'Transaction submission failed. Check the application log and retry.',
   };
+
+  void _requireRoastCoordinator(RoastSetup setup) {
+    if (setup.isActive &&
+        roastCoordinatorState(setup.id) ==
+            RoastCoordinatorLocalState.connected) {
+      return;
+    }
+    throw const WalletSigningFailure(
+      WalletSigningFailureKind.interrupted,
+      'The ROAST signer is not connected to the coordinator. Start or '
+      'reconnect it before requesting approvals.',
+    );
+  }
 
   Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
     final setup = _setupById(item.setupId);
