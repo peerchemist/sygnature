@@ -5,6 +5,12 @@ ordinary personal wallets, it supports fully peer-to-peer ROAST threshold
 wallets over [Iroh](https://www.iroh.computer/), with no central Sygnature
 service and no participant ever holding the complete private key.
 
+## Screenshots
+
+![Sygnature shared wallet dashboard and recent activity](screenshots/1.png)
+
+![Sygnature notification and network settings](screenshots/2.png)
+
 ## Core features
 
 - Peercoin mainnet and testnet with Taproot key-path transactions.
