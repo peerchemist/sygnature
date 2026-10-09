@@ -40,6 +40,11 @@ void main() {
       final options = args['options'] as Map;
       expect(options['enforceBiometrics'], isNot('true'));
       expect(options['accessControlFlags'], isNull);
+      if (defaultTargetPlatform == TargetPlatform.macOS) {
+        // Includes notification preferences as well as vault keyring calls.
+        expect(options['usesDataProtectionKeychain'], 'false');
+        expect(options['authenticationUIBehavior'], 'u_AuthUIF');
+      }
       final key = args['key'] as String;
       switch (call.method) {
         case 'read':

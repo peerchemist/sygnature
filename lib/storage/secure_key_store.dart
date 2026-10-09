@@ -30,7 +30,9 @@ class PlatformSecureKeyStore({FlutterSecureStorage? storage})
         aOptions: AndroidOptions(resetOnError: false),
         mOptions: MacOsOptions(
           usesDataProtectionKeychain: false,
-          authenticationUIBehavior: 'fail',
+          // The Darwin plugin forwards this string without mapping it.
+          // Raw value of Apple's kSecUseAuthenticationUIFail.
+          authenticationUIBehavior: 'u_AuthUIF',
         ),
       );
 

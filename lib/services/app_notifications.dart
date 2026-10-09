@@ -23,7 +23,8 @@ class AppNotifications({
         aOptions: AndroidOptions(resetOnError: false),
         mOptions: MacOsOptions(
           usesDataProtectionKeychain: false,
-          authenticationUIBehavior: 'fail',
+          // Raw kSecUseAuthenticationUIFail; the plugin forwards it unchanged.
+          authenticationUIBehavior: 'u_AuthUIF',
         ),
       );
   final UiSounds _sounds = sounds ?? UiSounds();

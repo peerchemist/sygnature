@@ -15,7 +15,7 @@ void main() {
   });
 
   test(
-    'macOS login Keychain access never requests authentication UI',
+    'passes the native no-authentication-UI value to macOS Keychain',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       final calls = <MethodCall>[];
@@ -32,7 +32,7 @@ void main() {
       for (final call in calls) {
         final options = (call.arguments as Map)['options'] as Map;
         expect(options['usesDataProtectionKeychain'], 'false');
-        expect(options['authenticationUIBehavior'], 'fail');
+        expect(options['authenticationUIBehavior'], 'u_AuthUIF');
         expect(options['accessControlFlags'], isNull);
       }
     },
