@@ -1,5 +1,11 @@
 # Sygnature
 
+> **Alpha software — use at your own risk.** Breaking changes, including changes
+> to storage formats and protocols, are possible at any time. Backward
+> compatibility and data preservation are not guaranteed. The software is
+> provided without warranty of any kind. Do not use it for funds you cannot
+> afford to lose, and keep secure backups of your recovery material.
+
 Sygnature is a cross-platform Peercoin light wallet built with Flutter. Alongside
 ordinary personal wallets, it supports fully peer-to-peer ROAST threshold
 wallets over [Iroh](https://www.iroh.computer/), with no central Sygnature
