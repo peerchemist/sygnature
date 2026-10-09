@@ -128,4 +128,37 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
+  testWidgets('Android rejects a legacy password vault without prompting', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.runAsync(() async {
+      final store = await VaultProtectionStore.open();
+      final config = store.createPasswordConfig();
+      final keys = deriveVaultKeyMaterialSync('legacy-password', config);
+      await store.configurePassword(config.withVerifier(keys.verifier));
+      await Hive.close();
+    });
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(const SygnatureApp());
+      for (var attempt = 0; attempt < 100; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await tester.pump();
+        if (find.text('Unable to open vault').evaluate().isNotEmpty) break;
+      }
+    });
+
+    expect(find.text('Unable to open vault'), findsOneWidget);
+    expect(
+      find.textContaining('unsupported legacy protection'),
+      findsOneWidget,
+    );
+    expect(find.byType(VaultProtectionScreen), findsNothing);
+    expect(find.byKey(const Key('vault-password')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
+  });
 }

@@ -33,6 +33,8 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
     super.initState();
     _mode = !widget.setup
         ? widget.unlockMode
+        : deviceVaultAvailable()
+        ? VaultProtectionMode.device
         : widget.systemVaultEnabled
         ? VaultProtectionMode.system
         : VaultProtectionMode.password;
@@ -117,23 +119,25 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
                       ),
                       if (widget.setup) ...[
                         const SizedBox(height: 22),
-                        _ProtectionOption(
-                          key: const Key('system-vault-option'),
-                          title: 'System vault',
-                          description: widget.systemVaultEnabled
-                              ? 'Unlock automatically using this device\'s '
-                                    'secure storage.'
-                              : 'Unavailable on macOS builds distributed '
-                                    'without Keychain access.',
-                          icon: Icons.security_rounded,
-                          mode: VaultProtectionMode.system,
-                          selected: _mode == VaultProtectionMode.system,
-                          enabled: widget.systemVaultEnabled && !_busy,
-                          onSelected: () => setState(
-                            () => _mode = VaultProtectionMode.system,
+                        if (!deviceVaultAvailable()) ...[
+                          _ProtectionOption(
+                            key: const Key('system-vault-option'),
+                            title: 'System vault',
+                            description: widget.systemVaultEnabled
+                                ? 'Unlock automatically using this device\'s '
+                                      'secure storage.'
+                                : 'Unavailable on macOS builds distributed '
+                                      'without Keychain access.',
+                            icon: Icons.security_rounded,
+                            mode: VaultProtectionMode.system,
+                            selected: _mode == VaultProtectionMode.system,
+                            enabled: widget.systemVaultEnabled && !_busy,
+                            onSelected: () => setState(
+                              () => _mode = VaultProtectionMode.system,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 10),
+                          const SizedBox(height: 10),
+                        ],
                         if (deviceVaultAvailable()) ...[
                           _ProtectionOption(
                             key: const Key('device-vault-option'),
@@ -152,20 +156,21 @@ class _VaultProtectionScreenState extends State<VaultProtectionScreen> {
                           ),
                           const SizedBox(height: 10),
                         ],
-                        _ProtectionOption(
-                          key: const Key('password-vault-option'),
-                          title: 'Password',
-                          description:
-                              'Enter the password whenever Sygnature starts. '
-                              'It is never stored on this device.',
-                          icon: Icons.password_rounded,
-                          mode: VaultProtectionMode.password,
-                          selected: _mode == VaultProtectionMode.password,
-                          enabled: !_busy,
-                          onSelected: () => setState(
-                            () => _mode = VaultProtectionMode.password,
+                        if (!deviceVaultAvailable())
+                          _ProtectionOption(
+                            key: const Key('password-vault-option'),
+                            title: 'Password',
+                            description:
+                                'Enter the password whenever Sygnature starts. '
+                                'It is never stored on this device.',
+                            icon: Icons.password_rounded,
+                            mode: VaultProtectionMode.password,
+                            selected: _mode == VaultProtectionMode.password,
+                            enabled: !_busy,
+                            onSelected: () => setState(
+                              () => _mode = VaultProtectionMode.password,
+                            ),
                           ),
-                        ),
                       ],
                       if (_mode == VaultProtectionMode.password) ...[
                         const SizedBox(height: 22),

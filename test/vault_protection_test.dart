@@ -71,6 +71,8 @@ void main() {
   testWidgets('offers password protection while disabling macOS system vault', (
     tester,
   ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     String? password;
     var systemSelections = 0;
     await tester.pumpWidget(
@@ -109,5 +111,41 @@ void main() {
     await tester.pump();
 
     expect(password, 'eight123');
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('offers only device protection during Android setup', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    var deviceSelections = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: VaultProtectionScreen(
+          setup: true,
+          systemVaultEnabled: true,
+          onSystem: () async {},
+          onDevice: () async {
+            deviceSelections++;
+          },
+          onPassword: (_) async {},
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('device-vault-option')), findsOneWidget);
+    expect(find.byKey(const Key('system-vault-option')), findsNothing);
+    expect(find.byKey(const Key('password-vault-option')), findsNothing);
+    expect(find.byKey(const Key('vault-password')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('vault-protection-submit')));
+    await tester.pump();
+
+    expect(deviceSelections, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
   });
 }

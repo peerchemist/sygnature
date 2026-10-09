@@ -101,7 +101,17 @@ class _SygnatureAppState extends State<SygnatureApp> {
       _controller = Future.value(controller);
       return store;
     }
-    if (store.config?.mode == VaultProtectionMode.device) return store;
+    if (deviceVaultAvailable()) {
+      final mode = store.config?.mode;
+      if (mode != VaultProtectionMode.device &&
+          (mode != null || await HiveWalletRepository.boxExists())) {
+        throw StateError(
+          'This Android vault uses unsupported legacy protection. '
+          'Clear the application data to create a device-protected vault.',
+        );
+      }
+      return store;
+    }
     if (!await HiveWalletRepository.boxExists()) return store;
 
     late final (HiveWalletRepository, SecureKeyStore)? existingVault;
