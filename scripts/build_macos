@@ -8,11 +8,12 @@ project_dir="$(cd -- "$script_dir/.." && pwd)"
 readonly project_dir
 
 output_path="build/Sygnature-macOS.dmg"
+architecture="arm64"
 flutter_args=()
 
 usage() {
   cat <<'EOF'
-Usage: scripts/build_macos [--output PATH] [FLUTTER_BUILD_OPTIONS]
+Usage: scripts/build_macos [--arch arm64|x86_64] [--output PATH] [FLUTTER_BUILD_OPTIONS]
 
 Builds the macOS release app and packages it in a compressed DMG for testers.
 Uses ad-hoc signing; no Apple signing certificate or provisioning profile is
@@ -20,11 +21,23 @@ required. Testers may need to allow the app in Privacy & Security on first launc
 Additional options are passed to `flutter build macos`, for example:
 
   scripts/build_macos --no-pub --build-name 0.9.1 --build-number 3
+  scripts/build_macos --arch x86_64 --output build/Sygnature-macOS-x86_64.dmg
 EOF
 }
 
 while (($# > 0)); do
   case "$1" in
+    --arch)
+      if (($# < 2)); then
+        echo "error: --arch requires arm64 or x86_64" >&2
+        exit 2
+      fi
+      architecture="$2"
+      shift
+      ;;
+    --arch=*)
+      architecture="${1#*=}"
+      ;;
     --output)
       if (($# < 2)); then
         echo "error: --output requires a path" >&2
@@ -46,6 +59,11 @@ while (($# > 0)); do
   esac
   shift
 done
+
+if [[ "$architecture" != "arm64" && "$architecture" != "x86_64" ]]; then
+  echo "error: --arch must be arm64 or x86_64" >&2
+  exit 2
+fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "error: macOS is required to build a DMG" >&2
@@ -86,7 +104,7 @@ xcodebuild \
   PROVISIONING_PROFILE_SPECIFIER= \
   ENABLE_HARDENED_RUNTIME=NO \
   ONLY_ACTIVE_ARCH=YES \
-  ARCHS=arm64
+  ARCHS="$architecture"
 
 readonly app_path="$project_dir/build/macos/Build/Products/Release/sygnature.app"
 if [[ ! -d "$app_path" ]]; then
@@ -126,5 +144,5 @@ hdiutil create \
 mv -f -- "$temporary_dmg" "$output_path"
 
 echo "macOS DMG: $output_path"
-echo "Architecture: arm64"
+echo "Architecture: $architecture"
 echo "Note: this ad-hoc signed build is not notarized. If blocked on first launch, use System Settings > Privacy & Security > Open Anyway."

@@ -114,10 +114,12 @@ scripts/build_macos --no-pub
 ```
 
 The result is `build/Sygnature-macOS.dmg`, containing the ARM64 `Sygnature.app`
-and an Applications shortcut. Xcode ad-hoc signs the app with its sandbox and
-network entitlements; the script then re-signs the complete staged bundle with
-one ad-hoc identity and verifies it before packaging. No Apple signing
-certificate or provisioning profile is required, including on CI runners.
+and an Applications shortcut. Pass `--arch x86_64` to build for an Intel Mac;
+use `--output` to give that DMG a distinct name. Both architectures target
+macOS 12.0 or newer. Xcode ad-hoc signs the app with its sandbox and network
+entitlements; the script then re-signs the complete staged bundle with one
+ad-hoc identity and verifies it before packaging. No Apple signing certificate
+or provisioning profile is required, including on CI runners.
 The testing build disables hardened runtime so macOS can load its ad-hoc signed
 frameworks, which have no Apple Team ID. The app sandbox remains enabled.
 
@@ -126,5 +128,6 @@ open it. If macOS blocks it, use **System Settings > Privacy & Security > Open
 Anyway**. For distribution without this manual approval, use a Developer ID
 signing and notarization workflow.
 
-Use `--output PATH.dmg` to choose another output path. Additional arguments,
-such as `--build-name` and `--build-number`, are passed to Flutter.
+Use `--output PATH.dmg` to choose another output path. The GitHub Actions
+workflow builds and publishes separate `arm64` and `x86_64` DMGs. Additional
+arguments, such as `--build-name` and `--build-number`, are passed to Flutter.

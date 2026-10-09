@@ -125,6 +125,9 @@ The Apple Silicon package is written to `build/Sygnature-macOS.dmg`. It is
 ad-hoc signed but not notarized, so testers may need to use **System Settings >
 Privacy & Security > Open Anyway** after the first blocked launch. No Apple
 signing certificate or provisioning profile is required.
+Use `scripts/build_macos --arch x86_64` on an Intel Mac to build the Intel
+version, which targets macOS 12.0 or newer. Tagged GitHub Actions builds publish
+separate ARM64 and Intel DMGs.
 
 ## License
 
