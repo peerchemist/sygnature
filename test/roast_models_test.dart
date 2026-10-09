@@ -9,6 +9,7 @@ import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
+import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 
 void main() {
   setUpAll(() async {
@@ -47,11 +48,14 @@ void main() {
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
   });
 
-  test('participant cards and legacy invitations round trip', () {
+  test('participant cards and clickable room invites round trip', () {
     const groupId = 'abcdef0123456789abcdef0123456789';
     final service = _InvitationTestRoastKeyService();
     final memberKey = ECPrivateKey.generate();
     final memberPublicKey = ECCompressedPublicKey.fromPubkey(memberKey.pubkey);
+    final hostPublicKey = ECCompressedPublicKey.fromPubkey(
+      ECPrivateKey.generate().pubkey,
+    );
     final card = RoastExchangeCodec.encodeParticipantCard(
       cardId: 'card-b',
       name: 'Computer B',
@@ -69,15 +73,14 @@ void main() {
       token: Uint8List(32),
       expectedParticipantPublicKey: memberPublicKey,
       coordinatorEndpointId: coordinator.asBytes(),
-      ipAddrs: const ['192.168.1.251:40660'],
       expiresAt: expiresAt,
     );
-    final setup = RoastSetup(
+    final draft = RoastSetup(
       id: 'local-setup',
-      groupId: groupId,
+      groupId: 'local-draft',
       name: 'Family',
       role: RoastSetupRole.member,
-      status: RoastSetupStatus.ready,
+      status: RoastSetupStatus.draft,
       threshold: 2,
       participantCount: 2,
       blockchainId: 'peercoin',
@@ -86,52 +89,75 @@ void main() {
       localParticipantPrivateKeyHex: bytesToHex(memberKey.data),
       participants: [
         RoastParticipant(
-          cardId: 'card-a',
-          name: 'Computer A',
-          identifierHex: '01',
-          publicKeyHex: ECCompressedPublicKey.fromPubkey(
-            ECPrivateKey.generate().pubkey,
-          ).hex,
-        ),
-        RoastParticipant(
           cardId: 'card-b',
           name: 'Computer B',
-          identifierHex: '02',
+          identifierHex: '',
           publicKeyHex: memberPublicKey.hex,
         ),
       ],
-      keyName: '$groupId:generation:1',
+      keyName: 'local-draft-g1',
       createdAt: DateTime.utc(2026),
       usesRoomEnrollment: true,
-      hostParticipantId: '01',
-      coordinatorId: coordinator.toString(),
-      coordinatorIpAddrs: roomInvite.ipAddrs,
-      groupFingerprintHex: 'fingerprint',
     );
 
-    final encodedInvitation = RoastExchangeCodec.encodeInvitation(
-      setup,
-      roomInvite: roomInvite.encode(),
-      participantPublicKeyHex: memberPublicKey.hex,
-      expiresAt: expiresAt,
-    );
-    final invitation = RoastExchangeCodec.decodeInvitation(encodedInvitation);
-    expect(invitation['setupName'], 'Family');
-    expect(invitation['threshold'], 2);
-    expect(invitation['participants'], hasLength(2));
-    expect(invitation['roomInvite'], roomInvite.encode());
-    expect(invitation['participantPublicKeyHex'], memberPublicKey.hex);
-    expect(invitation['coordinatorId'], startsWith('PublicKey('));
-
-    final decoded = service.applyInvitation(setup, encodedInvitation);
-
-    expect(decoded.setup.coordinatorId, coordinator.toZ32());
-    expect(decoded.setup.coordinatorIpAddrs, roomInvite.ipAddrs);
-    expect(decoded.setup.keyName, '$groupId-g1');
+    final encodedInvitation = NoosphereRoomInvite(
+      prefix: sygnatureRoomInvitePrefix,
+      invite: roomInvite,
+    ).encode();
+    const prefix = sygnatureRoomInvitePrefix;
+    expect(encodedInvitation, startsWith(prefix));
     expect(
-      () => PublicKey.fromZ32(decoded.setup.coordinatorId!),
-      returnsNormally,
+      () => NoosphereRoomInvite.decode(
+        encodedInvitation.substring(prefix.length),
+        prefix: prefix,
+      ),
+      throwsFormatException,
     );
+    final invitation = NoosphereRoomInvite.decode(
+      encodedInvitation,
+      prefix: prefix,
+    );
+    expect(invitation.invite.toBytes(), roomInvite.toBytes());
+    service.validateRoomInvite(draft, invitation);
+
+    final wrongKey = ECPrivateKey.generate();
+    final wrongKeyDraft = RoastSetup(
+      id: draft.id,
+      groupId: draft.groupId,
+      name: draft.name,
+      role: draft.role,
+      status: draft.status,
+      threshold: draft.threshold,
+      participantCount: draft.participantCount,
+      blockchainId: draft.blockchainId,
+      networkId: draft.networkId,
+      localCardId: draft.localCardId,
+      localParticipantPrivateKeyHex: bytesToHex(wrongKey.data),
+      participants: draft.participants,
+      keyName: draft.keyName,
+      createdAt: draft.createdAt,
+      usesRoomEnrollment: true,
+    );
+    expect(
+      () => service.validateRoomInvite(wrongKeyDraft, invitation),
+      throwsArgumentError,
+    );
+
+    final setup = service.applyRoomEnrollment(
+      draft,
+      invitation.invite,
+      _roomSnapshot(
+        roomId: groupId,
+        coordinatorEndpointId: coordinator.asBytes(),
+        hostPublicKey: hostPublicKey,
+        memberPublicKey: memberPublicKey,
+      ),
+    );
+    expect(setup.coordinatorId, coordinator.toZ32());
+    expect(setup.coordinatorIpAddrs, isEmpty);
+    expect(setup.coordinatorRelayUrls, isEmpty);
+    expect(setup.keyName, '$groupId-g1');
+    expect(() => PublicKey.fromZ32(setup.coordinatorId!), returnsNormally);
   });
 
   test('issued invitation state round trips with its local progress', () {
@@ -293,4 +319,40 @@ final class _InvitationTestRoastKeyService() extends RoastKeyService {
 
   @override
   String groupFingerprint(RoastSetup setup) => 'fingerprint';
+}
+
+RoomSnapshot _roomSnapshot({
+  required String roomId,
+  required Uint8List coordinatorEndpointId,
+  required ECCompressedPublicKey hostPublicKey,
+  required ECCompressedPublicKey memberPublicKey,
+}) {
+  final now = DateTime.now().toUtc();
+  RoomInviteSnapshot invite(String id, ECCompressedPublicKey publicKey) =>
+      RoomInviteSnapshot(
+        inviteId: id,
+        expectedParticipantPublicKey: publicKey,
+        tokenHash: Uint8List(32),
+        issuedAt: now,
+        expiresAt: now.add(const Duration(days: 1)),
+        usedAt: null,
+        revokedAt: null,
+        status: RoomInviteStatus.pending,
+      );
+  return RoomSnapshot(
+    roomId: roomId,
+    lifecycle: RoomLifecycle.enrolling,
+    expectedParticipants: 2,
+    threshold: 2,
+    coordinatorEndpointId: coordinatorEndpointId,
+    invites: [invite('host', hostPublicKey), invite('member', memberPublicKey)],
+    participants: [
+      RoomParticipantSnapshot(
+        publicKey: hostPublicKey,
+        enrolledAt: now,
+        identifier: null,
+      ),
+    ],
+    groupConfig: null,
+  );
 }

@@ -1,13 +1,28 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:coinlib/coinlib.dart'
-    show ECPrivateKey, Network, P2TRAddress, Taproot, loadCoinlib;
+    show
+        ECCompressedPublicKey,
+        ECPrivateKey,
+        Network,
+        P2TRAddress,
+        Taproot,
+        bytesToHex,
+        loadCoinlib;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noosphere/domain.dart'
     show GroupTransitionKeyPlan, NewDkgDetails;
+import 'package:noosphere_flutter/noosphere_flutter.dart'
+    show
+        NoosphereRoomInvite,
+        RoomInvite,
+        RoomInviteSnapshot,
+        RoomInviteStatus,
+        RoomLifecycle,
+        RoomParticipantSnapshot,
+        RoomSnapshot;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
@@ -252,8 +267,8 @@ void main() {
     await tester.tap(find.text('Paste invite from clipboard'));
     await tester.pumpAndSettle();
 
-    expect(keyService.appliedInvitation, 'invalid-invite');
-    expect(find.textContaining('Invalid test invitation'), findsOneWidget);
+    expect(keyService.appliedInvitation, isNull);
+    expect(find.textContaining('room invite prefix'), findsWidgets);
     expect(find.byType(AlertDialog), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -294,9 +309,7 @@ void main() {
     );
     final participantPublicKey =
         controller.roastSetups.single.localParticipant.publicKeyHex;
-    final invitation =
-        '${RoastExchangeCodec.uriScheme}:'
-        '${base64Url.encode(utf8.encode(jsonEncode({'version': RoastExchangeCodec.version, 'type': 'room-invitation', 'setupName': 'Linked wallet', 'threshold': 2, 'participantCount': 2, 'participantPublicKeyHex': participantPublicKey})))}';
+    final invitation = _roomInviteFor(participantPublicKey).encode();
 
     await tester.pumpWidget(
       SygnatureApp(
@@ -307,7 +320,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Join shared wallet?'), findsOneWidget);
-    expect(find.text('Linked wallet'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Member wallet'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('2 of 2 signers required'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('roast-invite-link-join')));
@@ -321,7 +340,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('reuses a retained signer identity from a transition app link', (
+  testWidgets('requires a matching member draft for an app link', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
@@ -357,9 +376,8 @@ void main() {
     );
     await controller.load();
     final source = controller.roastSetups.single;
-    final invitation =
-        '${RoastExchangeCodec.uriScheme}:'
-        '${base64Url.encode(utf8.encode(jsonEncode({'version': RoastExchangeCodec.version, 'type': 'room-invitation', 'setupName': 'Successor wallet', 'threshold': 2, 'participantCount': 2, 'participantPublicKeyHex': source.localParticipant.publicKeyHex, 'transitionSourceGroupId': source.groupId})))}';
+    final invitation = _roomInviteFor(source.localParticipant.publicKeyHex)
+        .encode();
 
     await tester.pumpWidget(
       SygnatureApp(
@@ -369,25 +387,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Join shared wallet?'), findsOneWidget);
-    expect(find.textContaining('existing signer identity'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('roast-invite-link-join')));
-    await tester.pumpAndSettle();
-
-    expect(controller.roastSetups, hasLength(2));
-    final successor = controller.roastSetups.singleWhere(
-      (setup) => setup.id != source.id,
-    );
-    expect(successor.localCardId, source.localCardId);
-    expect(
-      successor.localParticipantPrivateKeyHex,
-      source.localParticipantPrivateKeyHex,
-    );
-    expect(
-      successor.localParticipant.publicKeyHex,
-      source.localParticipant.publicKeyHex,
-    );
-    expect(keyService.appliedInvitation, invitation);
+    expect(find.text('Could not open invitation'), findsOneWidget);
+    expect(find.textContaining('different signer'), findsOneWidget);
+    expect(controller.roastSetups, hasLength(1));
+    expect(keyService.appliedInvitation, isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -1670,17 +1673,35 @@ WalletVault _finalizedRoastVault() => WalletVault(
   ],
 );
 
+NoosphereRoomInvite _roomInviteFor(String participantPublicKeyHex) =>
+    NoosphereRoomInvite(
+      prefix: sygnatureRoomInvitePrefix,
+      invite: RoomInvite(
+        roomId: 'linked-room',
+        inviteId: 'linked-invite',
+        token: Uint8List(32),
+        expectedParticipantPublicKey: ECCompressedPublicKey.fromHex(
+          participantPublicKeyHex,
+        ),
+        coordinatorEndpointId: Uint8List(32)..[0] = 1,
+        expiresAt: DateTime.now().toUtc().add(const Duration(days: 1)),
+      ),
+    );
+
 final class _FakeRoastKeyService extends RoastKeyService {
   int _id = 0;
   String? appliedInvitation;
   bool acceptInvitation = false;
 
   @override
-  RoastParticipantMaterial generateParticipant() => RoastParticipantMaterial(
-    cardId: 'local-card',
-    privateKeyHex: '11' * 32,
-    publicKeyHex: '02${'22' * 32}',
-  );
+  RoastParticipantMaterial generateParticipant() {
+    final key = ECPrivateKey.fromHex('11' * 32);
+    return RoastParticipantMaterial(
+      cardId: 'local-card',
+      privateKeyHex: bytesToHex(key.data),
+      publicKeyHex: ECCompressedPublicKey.fromPubkey(key.pubkey).hex,
+    );
+  }
 
   @override
   String newSetupId() => 'setup-${_id++}';
@@ -1703,15 +1724,39 @@ final class _FakeRoastKeyService extends RoastKeyService {
   );
 
   @override
-  RoastInvitation applyInvitation(RoastSetup draft, String invitation) {
-    appliedInvitation = invitation;
-    if (acceptInvitation) {
-      return RoastInvitation(
-        setup: draft.copyWith(status: RoastSetupStatus.ready),
-        roomInvite: 'room-invite',
-      );
-    }
+  void validateRoomInvite(RoastSetup draft, NoosphereRoomInvite invitation) {
+    appliedInvitation = invitation.encode();
+    if (acceptInvitation) return;
     throw const FormatException('Invalid test invitation.');
+  }
+
+  @override
+  RoastSetup applyRoomEnrollment(
+    RoastSetup draft,
+    RoomInvite invite,
+    RoomSnapshot enrollment,
+  ) {
+    final remoteKey = ECPrivateKey.fromHex('22' * 32);
+    return draft.copyWith(
+      status: RoastSetupStatus.ready,
+      participants: [
+        RoastParticipant(
+          cardId: draft.localCardId,
+          name: draft.localParticipant.name,
+          identifierHex: '01',
+          publicKeyHex: draft.localParticipant.publicKeyHex,
+        ),
+        RoastParticipant(
+          cardId: 'remote-card',
+          name: 'Coordinator',
+          identifierHex: '02',
+          publicKeyHex: ECCompressedPublicKey.fromPubkey(remoteKey.pubkey).hex,
+        ),
+      ],
+      hostParticipantId: '02',
+      coordinatorId: 'coordinator',
+      groupFingerprintHex: 'fingerprint',
+    );
   }
 }
 
@@ -1773,7 +1818,7 @@ class _FakeRoastRuntime implements RoastRuntime {
     for (final request in snapshotSigningRequests) {
       emit(RoastRuntimeSigningRequestEvent(setup.id, request: request));
     }
-    return startSnapshot ?? (throw UnimplementedError());
+    return startSnapshot ?? joinSnapshot ?? (throw UnimplementedError());
   }
 
   @override
@@ -1783,8 +1828,45 @@ class _FakeRoastRuntime implements RoastRuntime {
   }) => throw UnimplementedError();
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) async =>
-      joinSnapshot ?? (throw UnimplementedError());
+  Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) async {
+    final now = DateTime.now().toUtc();
+    final hostPublicKey = ECCompressedPublicKey.fromPubkey(
+      ECPrivateKey.fromHex('22' * 32).pubkey,
+    );
+    RoomInviteSnapshot roomInvite(String id, ECCompressedPublicKey publicKey) =>
+        RoomInviteSnapshot(
+          inviteId: id,
+          expectedParticipantPublicKey: publicKey,
+          tokenHash: Uint8List(32),
+          issuedAt: now,
+          expiresAt: now.add(const Duration(days: 1)),
+          usedAt: null,
+          revokedAt: null,
+          status: RoomInviteStatus.pending,
+        );
+    return RoomSnapshot(
+      roomId: invite.invite.roomId,
+      lifecycle: RoomLifecycle.enrolling,
+      expectedParticipants: setup.participantCount,
+      threshold: setup.threshold,
+      coordinatorEndpointId: invite.invite.coordinatorEndpointId,
+      invites: [
+        roomInvite('host', hostPublicKey),
+        roomInvite(
+          'member',
+          ECCompressedPublicKey.fromHex(setup.localParticipant.publicKeyHex),
+        ),
+      ],
+      participants: [
+        RoomParticipantSnapshot(
+          publicKey: hostPublicKey,
+          enrolledAt: now,
+          identifier: null,
+        ),
+      ],
+      groupConfig: null,
+    );
+  }
 
   @override
   Future<void> requestDkg(

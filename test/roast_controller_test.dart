@@ -12,6 +12,9 @@ import 'package:noosphere_flutter/noosphere_flutter.dart'
         MessageSignatureMetadata,
         NewDkgDetails,
         NoosphereFlutter,
+        NoosphereRoomInvite,
+        RoomInvite,
+        RoomSnapshot,
         SignaturesRequestDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
@@ -498,29 +501,29 @@ void main() {
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
+    final memberPublicKey = ECCompressedPublicKey.fromPubkey(
+      ECPrivateKey.generate().pubkey,
+    );
+    final hostPublicKey = ECCompressedPublicKey.fromPubkey(
+      ECPrivateKey.generate().pubkey,
+    );
     final participants = [
       RoastParticipant(
         cardId: 'member-card',
         name: 'Member',
         identifierHex: '01',
-        publicKeyHex: '02${'11' * 32}',
+        publicKeyHex: memberPublicKey.hex,
       ),
       RoastParticipant(
         cardId: 'host-card',
         name: 'Host',
         identifierHex: '02',
-        publicKeyHex: '03${'22' * 32}',
+        publicKeyHex: hostPublicKey.hex,
       ),
     ];
     final runtime = _FakeRoastRuntime()
       ..roomCreation = RoastRoomCreation(
-        invites: [
-          RoastRoomInvite(
-            participantPublicKeyHex: participants.first.publicKeyHex,
-            encoded: 'noosphere-bound-invite',
-            expiresAt: DateTime.now().add(const Duration(days: 1)),
-          ),
-        ],
+        invites: [_roomInvite(participants.first.publicKeyHex)],
         coordinatorEndpointId: Uint8List(32),
         coordinatorId: 'coordinator',
         coordinatorRelayUrls: const [],
@@ -576,11 +579,14 @@ void main() {
 
     expect(invitations, hasLength(1));
     expect(invitations.single.participantName, 'Member');
-    final payload = RoastExchangeCodec.decodeInvitation(
+    final payload = NoosphereRoomInvite.decode(
       invitations.single.encoded,
+      prefix: sygnatureRoomInvitePrefix,
     );
-    expect(payload['roomInvite'], 'noosphere-bound-invite');
-    expect(payload['participantPublicKeyHex'], participants.first.publicKeyHex);
+    expect(
+      payload.invite.expectedParticipantPublicKey.hex,
+      participants.first.publicKeyHex,
+    );
     expect(runtime.createdRoomSetup?.hostParticipantId, '02');
     expect(controller.issuedRoastInvitations('setup'), invitations);
     expect(repository.value!.roastSetups.single.invitations, invitations);
@@ -716,10 +722,9 @@ void main() {
         ..snapshotGroupKey = sourceGroupKey.hex
         ..roomCreation = RoastRoomCreation(
           invites: [
-            RoastRoomInvite(
-              participantPublicKeyHex: remotePublicKey.hex,
-              encoded: 'successor-room-invite',
-              expiresAt: DateTime.now().add(const Duration(days: 1)),
+            _roomInvite(
+              remotePublicKey.hex,
+              coordinatorEndpointId: coordinatorEndpointId,
             ),
           ],
           coordinatorEndpointId: coordinatorEndpointId,
@@ -751,10 +756,11 @@ void main() {
       expect(proposalWasPersistedBeforeInvitations, isTrue);
       expect(created.invitations, hasLength(1));
       expect(
-        RoastExchangeCodec.decodeInvitation(
+        NoosphereRoomInvite.decode(
           created.invitations.single.encoded,
-        )['transitionSourceGroupId'],
-        sourceSetup.groupId,
+          prefix: sygnatureRoomInvitePrefix,
+        ).invite.expectedParticipantPublicKey.hex,
+        remotePublicKey.hex,
       );
       final successor = controller.roastSetups.singleWhere(
         (setup) => setup.id == created.successorSetupId,
@@ -1164,6 +1170,19 @@ void main() {
     'distinguishes enrollment rejection and interruption without retrying',
     () async {
       final cases = <({RoastEnrollmentFailure failure, String message})>[
+        for (final rejection in const [
+          (code: 6, message: 'has expired'),
+          (code: 7, message: 'already been used'),
+          (code: 8, message: 'was revoked'),
+        ])
+          (
+            failure: RoastEnrollmentFailure(
+              kind: RoastEnrollmentFailureKind.rejected,
+              cause: StateError('rejected'),
+              roomFailureCode: rejection.code,
+            ),
+            message: rejection.message,
+          ),
         (
           failure: RoastEnrollmentFailure(
             kind: RoastEnrollmentFailureKind.rejected,
@@ -1213,8 +1232,11 @@ void main() {
           network: PeercoinNetworks.mainnet,
         );
 
+        final invite = _roomInvite(
+          ECCompressedPublicKey.fromPubkey(ECPrivateKey.generate().pubkey).hex,
+        ).encode();
         await expectLater(
-          controller.joinRoastSetup(setupId, 'room-invite'),
+          controller.joinRoastSetup(setupId, invite),
           throwsA(same(testCase.failure)),
         );
 
@@ -2727,6 +2749,23 @@ final class _RoomRoastKeyService(final List<RoastParticipant> roster)
   String groupFingerprint(setup) => 'fingerprint';
 }
 
+NoosphereRoomInvite _roomInvite(
+  String participantPublicKeyHex, {
+  Uint8List? coordinatorEndpointId,
+}) => NoosphereRoomInvite(
+  prefix: sygnatureRoomInvitePrefix,
+  invite: RoomInvite(
+    roomId: 'room',
+    inviteId: 'invite',
+    token: Uint8List(32),
+    expectedParticipantPublicKey: ECCompressedPublicKey.fromHex(
+      participantPublicKeyHex,
+    ),
+    coordinatorEndpointId: coordinatorEndpointId ?? (Uint8List(32)..[0] = 1),
+    expiresAt: DateTime.now().toUtc().add(const Duration(days: 1)),
+  ),
+);
+
 final class _EnrollmentRoastKeyService extends RoastKeyService {
   var _nextId = 0;
 
@@ -2741,8 +2780,7 @@ final class _EnrollmentRoastKeyService extends RoastKeyService {
   String newSetupId() => 'enrollment-${_nextId++}';
 
   @override
-  RoastInvitation applyInvitation(RoastSetup draft, String encodedInvitation) =>
-      RoastInvitation(setup: draft, roomInvite: encodedInvitation);
+  void validateRoomInvite(RoastSetup draft, NoosphereRoomInvite link) {}
 }
 
 final class _FixedRoastKeyService(final RoastDerivedAddress address)
@@ -2826,7 +2864,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   }
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) async {
+  Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) async {
     joinRoomCalls++;
     final error = joinRoomError;
     if (error != null) throw error;
@@ -3112,7 +3150,7 @@ final class _SigningRoastRuntime(
   }) => throw UnimplementedError();
 
   @override
-  Future<RoastRuntimeSnapshot> joinRoom(setup, String encodedInvite) =>
+  Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) =>
       throw UnimplementedError();
 
   @override
