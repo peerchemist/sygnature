@@ -20,7 +20,6 @@ import 'storage/roast_storage.dart';
 import 'storage/vault_protection.dart';
 import 'ui/app_theme.dart';
 import 'ui/onboarding_screen.dart';
-import 'ui/vault_protection_screen.dart';
 import 'ui/wallet_home.dart';
 import 'ui/widgets/brand_mark.dart';
 import 'ui/widgets/selector_builder.dart';
@@ -61,7 +60,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   final AppNotifications _notifications = AppNotifications();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final Future<void> _notificationsReady = _notifications.initialize();
-  late final Future<VaultProtectionStore>? _protectionStore;
+  Future<VaultProtectionStore>? _protectionStore;
   Future<WalletController>? _controller;
   StreamSubscription<Uri>? _incomingLinkSubscription;
   Future<void> _incomingLinkWork = Future.value();
@@ -110,33 +109,28 @@ class _SygnatureAppState extends State<SygnatureApp> {
           'Clear the application data to create a device-protected vault.',
         );
       }
-      return store;
-    }
-    if (!await HiveWalletRepository.boxExists()) return store;
-
-    late final (HiveWalletRepository, SecureKeyStore)? existingVault;
-    try {
-      existingVault = await _openExistingSystemVault();
-    } catch (_) {
-      if (store.config == null) rethrow;
-      return store;
-    }
-    if (existingVault == null) {
-      if (store.config == null) {
-        throw StateError('The existing vault encryption key is unavailable.');
+      try {
+        final setup = mode == null;
+        final keys = await loadDeviceVaultKeys(
+          keyStore: PlatformSecureKeyStore.device(),
+          create: setup,
+        );
+        // Persist the mode before creating boxes so interrupted provisioning
+        // cannot be mistaken for a legacy vault on the next startup.
+        if (setup) await store.configureDevice();
+        final controller = await _createCipherKeyController(keys);
+        _controller = Future.value(controller);
+      } catch (error, stackTrace) {
+        AppLogger.warn(
+          '[VAULT] Device unlock failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        throw const _DeviceVaultUnlockFailure();
       }
       return store;
     }
-
-    final (repository, secureKeyStore) = existingVault;
-    await _notificationsReady;
-    final roastPersistence = _roastSupported
-        ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
-        : null;
-    final controller = await _loadController(repository, roastPersistence);
-    await store.configureSystem();
-    _controller = Future.value(controller);
-    return store;
+    throw UnsupportedError('Vault storage is unsupported on this platform.');
   }
 
   SecureKeyStore _systemKeyStore() {
@@ -144,16 +138,6 @@ class _SygnatureAppState extends State<SygnatureApp> {
     return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
         ? KeyringSecureKeyStore(platformStore)
         : platformStore;
-  }
-
-  Future<(HiveWalletRepository, SecureKeyStore)?>
-  _openExistingSystemVault() async {
-    final secureKeyStore = _systemKeyStore();
-    final repository = await HiveWalletRepository.openExisting(
-      secureKeyStore: secureKeyStore,
-    );
-    if (repository == null) return null;
-    return (repository, secureKeyStore);
   }
 
   Future<WalletController> _createSystemController() async {
@@ -166,17 +150,6 @@ class _SygnatureAppState extends State<SygnatureApp> {
         ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
         : null;
     return _loadController(repository, roastPersistence);
-  }
-
-  Future<VaultKeyMaterial> _derivePasswordKeys(
-    String password,
-    VaultProtectionConfig config,
-  ) async {
-    final keys = await deriveVaultKeyMaterial(password, config);
-    if (!config.matchesVerifier(keys.verifier)) {
-      throw StateError('The vault password is incorrect.');
-    }
-    return keys;
   }
 
   Future<WalletController> _createCipherKeyController(
@@ -214,96 +187,6 @@ class _SygnatureAppState extends State<SygnatureApp> {
     );
     await controller.load();
     return controller;
-  }
-
-  Future<void> _setUpSystemVault(VaultProtectionStore store) async {
-    final controller = await _createSystemController();
-    await store.configureSystem();
-    if (!mounted) {
-      controller.dispose();
-      return;
-    }
-    setState(() {
-      _controller = Future.value(controller);
-    });
-  }
-
-  Future<void> _setUpPasswordVault(
-    VaultProtectionStore store,
-    String password,
-  ) async {
-    try {
-      var config = store.config;
-      late final VaultKeyMaterial keys;
-      if (config == null) {
-        config = store.createPasswordConfig();
-        keys = await deriveVaultKeyMaterial(password, config);
-        config = config.withVerifier(keys.verifier);
-        await store.configurePassword(config);
-      } else {
-        keys = await _derivePasswordKeys(password, config);
-      }
-      final controller = await _createCipherKeyController(keys);
-      if (!mounted) {
-        controller.dispose();
-        return;
-      }
-      setState(() {
-        _controller = Future.value(controller);
-      });
-    } catch (error, stackTrace) {
-      AppLogger.error(
-        '[VAULT] Password-protected vault setup failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      rethrow;
-    }
-  }
-
-  Future<void> _unlockPasswordVault(
-    String password,
-    VaultProtectionConfig config,
-  ) async {
-    try {
-      final keys = await _derivePasswordKeys(password, config);
-      final controller = await _createCipherKeyController(keys);
-      if (!mounted) {
-        controller.dispose();
-        return;
-      }
-      setState(() {
-        _controller = Future.value(controller);
-      });
-    } catch (error, stackTrace) {
-      AppLogger.warn(
-        '[VAULT] Password unlock failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      rethrow;
-    }
-  }
-
-  Future<void> _openDeviceVault(
-    VaultProtectionStore store, {
-    bool setup = false,
-  }) async {
-    final keys = await loadDeviceVaultKeys(
-      keyStore: PlatformSecureKeyStore.device(),
-      create: setup,
-    );
-    // Persist the mode before creating boxes so an interrupted setup can never
-    // be mistaken for a legacy system vault on the next process start.
-    if (setup) await store.configureDevice();
-    final controller = await _createCipherKeyController(keys);
-    if (!mounted) {
-      controller.dispose();
-      return;
-    }
-    setState(() {
-      _controller = Future.value(controller);
-    });
   }
 
   Future<Uint8List> _walletBip39Seed(WalletRepository repository) async {
@@ -525,6 +408,12 @@ class _SygnatureAppState extends State<SygnatureApp> {
     '',
   );
 
+  void _retryDeviceVaultUnlock() {
+    setState(() {
+      _protectionStore = _initializeVault();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -545,40 +434,23 @@ class _SygnatureAppState extends State<SygnatureApp> {
     return FutureBuilder<VaultProtectionStore>(
       future: protectionStore,
       builder: (context, snapshot) {
-        if (snapshot.hasError) return _StartupError(error: snapshot.error);
+        if (snapshot.hasError) {
+          return _StartupError(
+            error: snapshot.error,
+            onRetry: snapshot.error is _DeviceVaultUnlockFailure
+                ? _retryDeviceVaultUnlock
+                : null,
+          );
+        }
         final store = snapshot.data;
         if (store == null) return const _StartupLoading();
         final existingController = _controller;
         if (existingController != null) {
           return _buildController(existingController);
         }
-        final config = store.config;
-        if (config == null) {
-          return VaultProtectionScreen(
-            setup: true,
-            systemVaultEnabled: true,
-            onSystem: () => _setUpSystemVault(store),
-            onDevice: () => _openDeviceVault(store, setup: true),
-            onPassword: (password) => _setUpPasswordVault(store, password),
-          );
-        }
-        if (config.mode == VaultProtectionMode.device) {
-          return VaultProtectionScreen(
-            setup: false,
-            unlockMode: VaultProtectionMode.device,
-            systemVaultEnabled: false,
-            onDevice: () => _openDeviceVault(store),
-            onPassword: (_) async {},
-          );
-        }
-        if (config.mode == VaultProtectionMode.password) {
-          return VaultProtectionScreen(
-            setup: false,
-            systemVaultEnabled: false,
-            onPassword: (password) => _unlockPasswordVault(password, config),
-          );
-        }
-        return _buildController(_controller ??= _createSystemController());
+        return const _StartupError(
+          error: 'Vault initialization completed without a controller.',
+        );
       },
     );
   }
@@ -639,8 +511,9 @@ class _StartupLoading extends StatelessWidget {
 }
 
 class _StartupError extends StatelessWidget {
-  const _StartupError({required this.error});
+  const _StartupError({required this.error, this.onRetry});
   final Object? error;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -662,27 +535,39 @@ class _StartupError extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    'Unable to open vault',
+                    onRetry == null ? 'Unable to open vault' : 'Unlock failed',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'Check secure storage support on this device and restart '
-                    'the application.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
                   Text(
-                    '$error',
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+                    onRetry == null
+                        ? 'Check secure storage support on this device and '
+                              'restart the application.'
+                        : 'Device authentication was cancelled or failed.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                    ),
                   ),
+                  if (onRetry case final retry?) ...[
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      key: const Key('device-vault-retry'),
+                      onPressed: retry,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try again'),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      '$error',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.inkMuted,
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -692,3 +577,5 @@ class _StartupError extends StatelessWidget {
     ),
   );
 }
+
+class const _DeviceVaultUnlockFailure() implements Exception;

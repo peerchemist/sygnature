@@ -8,7 +8,6 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/storage/hive_storage_initializer.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
-import 'package:sygnature_ng/storage/vault_protection.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 const _walletBox = 'sygnature_private_v1';
@@ -123,48 +122,6 @@ void main() {
         5,
       ]);
       expect(keys.writes, 0);
-    },
-  );
-
-  test(
-    'uses password-derived keys without accessing system secure storage',
-    () async {
-      final material = deriveVaultKeyMaterialSync(
-        'test password',
-        const VaultProtectionConfig(
-          mode: VaultProtectionMode.password,
-          salt: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-          iterations: 1,
-          memoryPowerOfTwo: 8,
-        ),
-      );
-      final inaccessibleKeys = _MemorySecureKeyStore()..failReads = true;
-      final wallet = await HiveWalletRepository.openWithCipherKey(
-        material.walletKey,
-      );
-      final roast = await RoastPersistenceFactory(
-        secureKeyStore: inaccessibleKeys,
-        cipherKey: material.roastKey,
-      ).open();
-      await wallet.save(_vault);
-      await roast
-          .roomPersistence('setup')
-          .write('room', Uint8List.fromList([6, 7]));
-      await Hive.close();
-
-      final restoredWallet = await HiveWalletRepository.openWithCipherKey(
-        material.walletKey,
-      );
-      final restoredRoast = await RoastPersistenceFactory(
-        cipherKey: material.roastKey,
-      ).open();
-      expect((await restoredWallet.load())!.toJson(), _vault.toJson());
-      expect((await restoredRoast.roomPersistence('setup').loadAll())['room'], [
-        6,
-        7,
-      ]);
-      expect(inaccessibleKeys.reads, 0);
-      expect(inaccessibleKeys.writes, 0);
     },
   );
 

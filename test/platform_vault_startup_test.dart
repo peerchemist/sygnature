@@ -11,7 +11,6 @@ import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/storage/vault_protection.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/onboarding_screen.dart';
-import 'package:sygnature_ng/ui/vault_protection_screen.dart';
 import 'package:sygnature_ng/ui/wallet_home.dart';
 
 void main() {
@@ -38,7 +37,12 @@ void main() {
       storageCalls.add(call);
       final args = call.arguments as Map;
       final options = args['options'] as Map;
-      expect(options['enforceBiometrics'], isNot('true'));
+      final authenticated =
+          options['storageNamespace'] == 'sygnature_device_vault_v1';
+      expect(
+        options['enforceBiometrics'],
+        authenticated ? 'true' : isNot('true'),
+      );
       expect(options['accessControlFlags'], isNull);
       if (defaultTargetPlatform == TargetPlatform.macOS) {
         // Includes notification preferences as well as vault keyring calls.
@@ -46,13 +50,14 @@ void main() {
         expect(options['authenticationUIBehavior'], 'u_AuthUIF');
       }
       final key = args['key'] as String;
+      final storedKey = authenticated ? 'device:$key' : key;
       switch (call.method) {
         case 'read':
-          return keys[key];
+          return keys[storedKey];
         case 'write':
-          keys[key] = args['value'] as String;
+          keys[storedKey] = args['value'] as String;
         case 'delete':
-          keys.remove(key);
+          keys.remove(storedKey);
       }
       return null;
     });
@@ -79,8 +84,7 @@ void main() {
       }
     });
     expect(destination, findsOneWidget);
-    expect(find.byType(VaultProtectionScreen), findsNothing);
-    expect(find.byKey(const Key('vault-password')), findsNothing);
+    expect(find.text('Protect your vault'), findsNothing);
     expect(tester.takeException(), isNull);
   }
 
@@ -129,35 +133,22 @@ void main() {
     });
   }
 
-  testWidgets('Android rejects a legacy password vault without prompting', (
+  testWidgets('Android creates a device vault without a protection screen', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    await tester.runAsync(() async {
-      final store = await VaultProtectionStore.open();
-      final config = store.createPasswordConfig();
-      final keys = deriveVaultKeyMaterialSync('legacy-password', config);
-      await store.configurePassword(config.withVerifier(keys.verifier));
-      await Hive.close();
-    });
-
-    await tester.runAsync(() async {
-      await tester.pumpWidget(const SygnatureApp());
-      for (var attempt = 0; attempt < 100; attempt++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-        await tester.pump();
-        if (find.text('Unable to open vault').evaluate().isNotEmpty) break;
-      }
-    });
-
-    expect(find.text('Unable to open vault'), findsOneWidget);
+    await startApp(tester, find.byType(OnboardingScreen));
+    final store = await tester.runAsync(VaultProtectionStore.open);
+    expect(store!.config!.mode, VaultProtectionMode.device);
     expect(
-      find.textContaining('unsupported legacy protection'),
-      findsOneWidget,
+      storageCalls.where((call) {
+        final options = (call.arguments as Map)['options'] as Map;
+        return options['storageNamespace'] == 'sygnature_device_vault_v1';
+      }),
+      isNotEmpty,
     );
-    expect(find.byType(VaultProtectionScreen), findsNothing);
-    expect(find.byKey(const Key('vault-password')), findsNothing);
+    expect(find.text('Protect your vault'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     debugDefaultTargetPlatformOverride = null;
   });

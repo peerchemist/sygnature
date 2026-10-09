@@ -1,54 +1,24 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sygnature_ng/storage/secure_key_store.dart';
 import 'package:sygnature_ng/storage/vault_protection.dart';
-import 'package:sygnature_ng/ui/app_theme.dart';
-import 'package:sygnature_ng/ui/vault_protection_screen.dart';
 
 void main() {
-  group('vault password protection', () {
-    const config = VaultProtectionConfig(
-      mode: VaultProtectionMode.password,
-      salt: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-      iterations: 1,
-      memoryPowerOfTwo: 8,
+  test('uses device protection only on Android', () {
+    expect(
+      deviceVaultAvailable(web: false, platform: TargetPlatform.android),
+      isTrue,
     );
-
-    test('derives stable, domain-separated keys', () {
-      final first = deriveVaultKeyMaterialSync('correct horse', config);
-      final second = deriveVaultKeyMaterialSync('correct horse', config);
-      final different = deriveVaultKeyMaterialSync('wrong horse', config);
-
-      expect(first.walletKey, orderedEquals(second.walletKey));
-      expect(first.roastKey, orderedEquals(second.roastKey));
-      expect(first.walletKey, isNot(orderedEquals(first.roastKey)));
-      expect(first.walletKey, isNot(orderedEquals(different.walletKey)));
-      expect(first.walletKey, hasLength(32));
-      expect(first.roastKey, hasLength(32));
-      final configured = config.withVerifier(first.verifier);
-      expect(configured.matchesVerifier(second.verifier), isTrue);
-      expect(configured.matchesVerifier(different.verifier), isFalse);
-    });
-
-    test('serializes its non-secret KDF settings', () {
-      final configured = config.withVerifier(Uint8List(32));
-      final restored = VaultProtectionConfig.fromJson(configured.toJson());
-
-      expect(restored.mode, VaultProtectionMode.password);
-      expect(restored.salt, config.salt);
-      expect(restored.iterations, config.iterations);
-      expect(restored.memoryPowerOfTwo, config.memoryPowerOfTwo);
-      expect(base64Url.decode(restored.salt!), hasLength(32));
-      expect(restored.matchesVerifier(Uint8List(32)), isTrue);
-      expect(
-        restored.matchesVerifier(
-          Uint8List.fromList([1, ...List.filled(31, 0)]),
-        ),
-        isFalse,
-      );
-    });
+    for (final platform in [
+      TargetPlatform.iOS,
+      TargetPlatform.linux,
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    ]) {
+      expect(deviceVaultAvailable(web: false, platform: platform), isFalse);
+    }
   });
 
   test('trusts the system keyring on every desktop platform', () {
@@ -68,84 +38,33 @@ void main() {
     );
   });
 
-  testWidgets('offers password protection while disabling macOS system vault', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    String? password;
-    var systemSelections = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: VaultProtectionScreen(
-          setup: true,
-          systemVaultEnabled: false,
-          onSystem: () async {
-            systemSelections++;
-          },
-          onPassword: (value) async {
-            password = value;
-          },
-        ),
-      ),
-    );
+  test(
+    'derives stable domain-separated keys from the device root key',
+    () async {
+      final rootKey = List<int>.generate(32, (index) => index);
+      final store = _MemorySecureKeyStore(base64UrlEncode(rootKey));
 
-    expect(
-      find.text(
-        'Unavailable on macOS builds distributed without Keychain access.',
-      ),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const Key('system-vault-option')));
-    expect(systemSelections, 0);
+      final first = await loadDeviceVaultKeys(keyStore: store);
+      final second = await loadDeviceVaultKeys(keyStore: store);
 
-    await tester.enterText(find.byKey(const Key('vault-password')), 'eight123');
-    await tester.enterText(
-      find.byKey(const Key('vault-password-confirmation')),
-      'eight123',
-    );
-    final submit = find.byKey(const Key('vault-protection-submit'));
-    await tester.ensureVisible(submit);
-    await tester.tap(submit);
-    await tester.pump();
+      expect(first.walletKey, orderedEquals(second.walletKey));
+      expect(first.roastKey, orderedEquals(second.roastKey));
+      expect(first.walletKey, isNot(orderedEquals(first.roastKey)));
+      expect(first.walletKey, hasLength(32));
+      expect(first.roastKey, hasLength(32));
+    },
+  );
+}
 
-    expect(password, 'eight123');
-    await tester.pumpWidget(const SizedBox.shrink());
-    debugDefaultTargetPlatformOverride = null;
-  });
+class _MemorySecureKeyStore(String value) implements SecureKeyStore {
+  String? _value = value;
 
-  testWidgets('offers only device protection during Android setup', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    var deviceSelections = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: VaultProtectionScreen(
-          setup: true,
-          systemVaultEnabled: true,
-          onSystem: () async {},
-          onDevice: () async {
-            deviceSelections++;
-          },
-          onPassword: (_) async {},
-        ),
-      ),
-    );
+  @override
+  Future<String?> read(String key) async => _value;
 
-    expect(find.byKey(const Key('device-vault-option')), findsOneWidget);
-    expect(find.byKey(const Key('system-vault-option')), findsNothing);
-    expect(find.byKey(const Key('password-vault-option')), findsNothing);
-    expect(find.byKey(const Key('vault-password')), findsNothing);
+  @override
+  Future<void> write(String key, String value) async => _value = value;
 
-    await tester.tap(find.byKey(const Key('vault-protection-submit')));
-    await tester.pump();
-
-    expect(deviceSelections, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    debugDefaultTargetPlatformOverride = null;
-  });
+  @override
+  Future<void> delete(String key) async => _value = null;
 }
