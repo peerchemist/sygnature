@@ -22,15 +22,16 @@ class const UnavailableSecureKeyStore() implements SecureKeyStore {
   Future<void> delete(String key) async {}
 }
 
-class PlatformSecureKeyStore({
-  FlutterSecureStorage? storage,
-  final bool allowUnavailablePlatform = false,
-}) implements SecureKeyStore {
+class PlatformSecureKeyStore({FlutterSecureStorage? storage})
+    implements SecureKeyStore {
   final FlutterSecureStorage _storage =
       storage ??
       const FlutterSecureStorage(
         aOptions: AndroidOptions(resetOnError: false),
-        mOptions: MacOsOptions(usesDataProtectionKeychain: true),
+        mOptions: MacOsOptions(
+          usesDataProtectionKeychain: false,
+          authenticationUIBehavior: 'fail',
+        ),
       );
 
   factory PlatformSecureKeyStore.device() {
@@ -51,32 +52,15 @@ class PlatformSecureKeyStore({
     );
   }
 
-  static bool get isAvailable =>
-      kIsWeb || defaultTargetPlatform != TargetPlatform.macOS;
-
-  void _requireAvailable() {
-    if (!allowUnavailablePlatform && !isAvailable) {
-      throw UnsupportedError('System secure storage is disabled on macOS.');
-    }
-  }
+  @override
+  Future<String?> read(String key) => _storage.read(key: key);
 
   @override
-  Future<String?> read(String key) {
-    _requireAvailable();
-    return _storage.read(key: key);
-  }
+  Future<void> write(String key, String value) =>
+      _storage.write(key: key, value: value);
 
   @override
-  Future<void> write(String key, String value) {
-    _requireAvailable();
-    return _storage.write(key: key, value: value);
-  }
-
-  @override
-  Future<void> delete(String key) {
-    _requireAvailable();
-    return _storage.delete(key: key);
-  }
+  Future<void> delete(String key) => _storage.delete(key: key);
 }
 
 class KeyringSecureKeyStore(final SecureKeyStore _storage)

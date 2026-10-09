@@ -88,6 +88,19 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   Future<VaultProtectionStore> _initializeVault() async {
     final store = await VaultProtectionStore.open();
+    if (desktopVaultAvailable()) {
+      final mode = store.config?.mode;
+      if (mode != null && mode != VaultProtectionMode.system) {
+        throw StateError(
+          'This vault requires migration to the desktop system keyring. '
+          'Its existing encryption keys and data have been preserved.',
+        );
+      }
+      final controller = await _createSystemController();
+      await store.configureSystem();
+      _controller = Future.value(controller);
+      return store;
+    }
     if (store.config?.mode == VaultProtectionMode.device) return store;
     if (!await HiveWalletRepository.boxExists()) return store;
 
@@ -116,10 +129,8 @@ class _SygnatureAppState extends State<SygnatureApp> {
     return store;
   }
 
-  SecureKeyStore _systemKeyStore({bool allowMacOS = false}) {
-    final platformStore = PlatformSecureKeyStore(
-      allowUnavailablePlatform: allowMacOS,
-    );
+  SecureKeyStore _systemKeyStore() {
+    final platformStore = PlatformSecureKeyStore();
     return !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
         ? KeyringSecureKeyStore(platformStore)
         : platformStore;
@@ -127,7 +138,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   Future<(HiveWalletRepository, SecureKeyStore)?>
   _openExistingSystemVault() async {
-    final secureKeyStore = _systemKeyStore(allowMacOS: true);
+    final secureKeyStore = _systemKeyStore();
     final repository = await HiveWalletRepository.openExisting(
       secureKeyStore: secureKeyStore,
     );
@@ -141,7 +152,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
     final repository = await HiveWalletRepository.open(
       secureKeyStore: secureKeyStore,
     );
-    final roastPersistence = _roastSupported
+    final roastPersistence = _roastSupported || desktopVaultAvailable()
         ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
         : null;
     return _loadController(repository, roastPersistence);
@@ -196,9 +207,6 @@ class _SygnatureAppState extends State<SygnatureApp> {
   }
 
   Future<void> _setUpSystemVault(VaultProtectionStore store) async {
-    if (!systemVaultAvailable()) {
-      throw UnsupportedError('System vault is unavailable on macOS.');
-    }
     final controller = await _createSystemController();
     await store.configureSystem();
     if (!mounted) {
@@ -538,7 +546,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
         if (config == null) {
           return VaultProtectionScreen(
             setup: true,
-            systemVaultEnabled: systemVaultAvailable(),
+            systemVaultEnabled: true,
             onSystem: () => _setUpSystemVault(store),
             onDevice: () => _openDeviceVault(store, setup: true),
             onPassword: (password) => _setUpPasswordVault(store, password),
@@ -558,11 +566,6 @@ class _SygnatureAppState extends State<SygnatureApp> {
             setup: false,
             systemVaultEnabled: false,
             onPassword: (password) => _unlockPasswordVault(password, config),
-          );
-        }
-        if (!systemVaultAvailable()) {
-          return const _StartupError(
-            error: 'System vault access is disabled on macOS.',
           );
         }
         return _buildController(_controller ??= _createSystemController());

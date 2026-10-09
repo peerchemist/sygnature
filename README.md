@@ -101,6 +101,8 @@ authentication keys and FROST key shares are separate cryptographic roles.
 ## Security and current scope
 
 - Secret wallet material and ROAST state are stored in encrypted local vaults.
+  Desktop builds open vaults automatically through the session's system keyring,
+  retaining transaction review without app-password or biometric prompts.
 - Signing requests are validated against the expected shared key, derivation
   path, wallet scripts, known unspent outputs and supported sighash mode.
 - Transaction metadata is displayed before approval and is cryptographically

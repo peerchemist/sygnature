@@ -17,14 +17,15 @@ class AppNotifications({
   static const _soundEnabledKey = 'notifications.sound_enabled';
   static const _soundVolumeKey = 'notifications.sound_volume';
 
-  final FlutterSecureStorage? _storage =
+  final FlutterSecureStorage _storage =
       storage ??
-      (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
-          ? null
-          : const FlutterSecureStorage(
-              aOptions: AndroidOptions(resetOnError: false),
-              mOptions: MacOsOptions(usesDataProtectionKeychain: true),
-            ));
+      const FlutterSecureStorage(
+        aOptions: AndroidOptions(resetOnError: false),
+        mOptions: MacOsOptions(
+          usesDataProtectionKeychain: false,
+          authenticationUIBehavior: 'fail',
+        ),
+      );
   final UiSounds _sounds = sounds ?? UiSounds();
   final FlutterLocalNotificationsPlugin _plugin =
       plugin ?? FlutterLocalNotificationsPlugin();
@@ -67,7 +68,6 @@ class AppNotifications({
     if (_loaded) return;
     _loaded = true;
     final storage = _storage;
-    if (storage == null) return;
     try {
       final values = await Future.wait([
         storage.read(key: _systemEnabledKey),
@@ -226,7 +226,6 @@ class AppNotifications({
 
   void _save(String key, String value) {
     final storage = _storage;
-    if (storage == null) return;
     _pendingSave = _pendingSave.then((_) async {
       try {
         await storage.write(key: key, value: value);

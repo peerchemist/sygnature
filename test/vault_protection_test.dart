@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/storage/vault_protection.dart';
-import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/app_theme.dart';
 import 'package:sygnature_ng/ui/vault_protection_screen.dart';
 
@@ -52,15 +51,20 @@ void main() {
     });
   });
 
-  test('disables system secure storage on macOS', () {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-
-    expect(systemVaultAvailable(), isFalse);
-    expect(PlatformSecureKeyStore.isAvailable, isFalse);
+  test('trusts the system keyring on every desktop platform', () {
+    for (final platform in [
+      TargetPlatform.linux,
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    ]) {
+      expect(desktopVaultAvailable(web: false, platform: platform), isTrue);
+    }
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      expect(desktopVaultAvailable(web: false, platform: platform), isFalse);
+    }
     expect(
-      () => PlatformSecureKeyStore().read('test'),
-      throwsA(isA<UnsupportedError>()),
+      desktopVaultAvailable(web: true, platform: TargetPlatform.linux),
+      isFalse,
     );
   });
 
@@ -94,10 +98,7 @@ void main() {
     await tester.tap(find.byKey(const Key('system-vault-option')));
     expect(systemSelections, 0);
 
-    await tester.enterText(
-      find.byKey(const Key('vault-password')),
-      'eight123',
-    );
+    await tester.enterText(find.byKey(const Key('vault-password')), 'eight123');
     await tester.enterText(
       find.byKey(const Key('vault-password-confirmation')),
       'eight123',

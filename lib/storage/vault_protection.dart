@@ -168,11 +168,14 @@ Future<VaultKeyMaterial> loadDeviceVaultKeys({
   }
 }
 
-bool systemVaultAvailable({bool? web, TargetPlatform? platform}) {
-  final isWeb = web ?? kIsWeb;
-  final currentPlatform = platform ?? defaultTargetPlatform;
-  return isWeb || currentPlatform != TargetPlatform.macOS;
-}
+bool desktopVaultAvailable({bool? web, TargetPlatform? platform}) =>
+    !(web ?? kIsWeb) &&
+    switch (platform ?? defaultTargetPlatform) {
+      TargetPlatform.linux ||
+      TargetPlatform.windows ||
+      TargetPlatform.macOS => true,
+      _ => false,
+    };
 
 Future<VaultKeyMaterial> deriveVaultKeyMaterial(
   String password,

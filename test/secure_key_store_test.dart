@@ -1,9 +1,81 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+
+  tearDown(() {
+    debugDefaultTargetPlatformOverride = null;
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+  });
+
+  test(
+    'macOS login Keychain access never requests authentication UI',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final calls = <MethodCall>[];
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+        return call.method == 'read' ? 'cipher-key' : null;
+      });
+
+      final store = PlatformSecureKeyStore();
+      expect(await store.read('wallet-key'), 'cipher-key');
+      await store.write('wallet-key', 'cipher-key');
+      for (final call in calls) {
+        final options = (call.arguments as Map)['options'] as Map;
+        expect(options['usesDataProtectionKeychain'], 'false');
+        expect(options['authenticationUIBehavior'], 'fail');
+        expect(options['accessControlFlags'], isNull);
+      }
+    },
+  );
+
+  test(
+    'Android device and automatic storage use isolated namespaces',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final records = <String, String>{};
+      final calls = <MethodCall>[];
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+        final args = call.arguments as Map;
+        final options = args['options'] as Map;
+        final id = '${options['storageNamespace']}:${args['key']}';
+        if (call.method == 'write') records[id] = args['value'] as String;
+        return call.method == 'read' ? records[id] : null;
+      });
+
+      final system = PlatformSecureKeyStore();
+      final device = PlatformSecureKeyStore.device();
+      await system.write('same-key', 'automatic');
+      await device.write('same-key', 'authenticated');
+      expect(await system.read('same-key'), 'automatic');
+      expect(await device.read('same-key'), 'authenticated');
+      for (final call in calls) {
+        final options = (call.arguments as Map)['options'] as Map;
+        expect(options['resetOnError'], 'false');
+        final authenticated =
+            options['storageNamespace'] == 'sygnature_device_vault_v1';
+        expect(options['enforceBiometrics'], '$authenticated');
+        expect(options['requireBiometricsPerOperation'], '$authenticated');
+        if (authenticated) {
+          expect(options['biometricType'], 'biometricOrDeviceCredential');
+          expect(options['biometricPromptTitle'], 'Unlock Sygnature');
+        }
+      }
+    },
+  );
+
   test('consolidates legacy secrets into one secure keyring record', () async {
     final backingStore = _MemorySecureKeyStore({
       'wallet-key': 'wallet-secret',
