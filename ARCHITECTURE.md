@@ -57,9 +57,9 @@ derived from the validated wallet BIP-39 seed using the domain-separated path
 `m/83696968'/128169'/32'/index'`. The non-secret per-setup index and expected
 endpoint ID are persisted, but the derived secret is not. A valid legacy secret
 is still read for an existing setup so an upgrade preserves its pinned endpoint.
-The invitation supplies address hints. Before connecting, the client requires
-the ID embedded in the bootstrap address to equal the pinned ID and checks the
-remote endpoint ID again after Iroh establishes the connection.
+The invitation supplies only the pinned coordinator endpoint ID. Iroh discovery
+finds the route, and the client verifies the remote endpoint identity while
+establishing the connection.
 
 The Iroh endpoint identity and the ROAST participant authentication key have
 different roles:

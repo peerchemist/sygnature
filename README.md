@@ -39,8 +39,8 @@ service and no participant ever holding the complete private key.
    It is only used to identify them—no private keys or wallet shares are sent.
 3. The creator adds those public keys and makes a separate invite for each
    signer. An invite only works for the person it was made for.
-4. Each signer pastes their invite into Sygnature and joins over an encrypted
-   Iroh connection.
+4. Each signer opens their clickable Sygnature invite and joins over an
+   encrypted Iroh connection.
 5. Once everyone is in, the signers start
    [distributed key generation (DKG)](https://en.wikipedia.org/wiki/Distributed_key_generation).
    This creates the shared wallet address, while every signer keeps their own
@@ -91,8 +91,8 @@ Signer C ───────────────┘                    ├
 
 Every signer establishes its own authenticated connection to the coordinator.
 The coordinator may also run a separate local signer, but hosting does not
-count as an approval by itself. Invitations pin the coordinator's Iroh endpoint
-identity and contain direct-address or relay hints.
+count as an approval by itself. Invitations pin only the coordinator's Iroh
+endpoint identity; Iroh discovery finds a direct or relayed route.
 
 For new setups, Sygnature derives that endpoint identity from the wallet's
 validated BIP-39 seed through Noosphere's domain-separated BIP-85 path. Each
