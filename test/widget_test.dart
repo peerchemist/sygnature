@@ -413,7 +413,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(AppBar, 'Settings'), findsOneWidget);
-    expect(find.text('Desktop notifications'), findsOneWidget);
+    expect(find.text('System notifications'), findsOneWidget);
     expect(find.text('Electrum endpoints'), findsOneWidget);
     expect(find.text('Notification sound'), findsOneWidget);
     expect(find.text('Volume'), findsOneWidget);

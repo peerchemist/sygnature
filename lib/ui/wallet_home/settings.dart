@@ -21,8 +21,8 @@ class const _SettingsScreen({
     select: () => [
       controller.archivedAccounts.length,
       controller.roastSetups.isEmpty,
-      notifications.supportsDesktopNotifications,
-      notifications.desktopEnabled,
+      notifications.supportsSystemNotifications,
+      notifications.systemEnabled,
       notifications.soundEnabled,
       notifications.soundVolume,
     ],
@@ -85,27 +85,27 @@ class const _SettingsScreen({
                     ),
                   ),
                   SwitchListTile.adaptive(
-                    key: const Key('desktop-notifications-toggle'),
+                    key: const Key('system-notifications-toggle'),
                     contentPadding: EdgeInsets.zero,
                     secondary: const Icon(Icons.notifications_outlined),
-                    title: const Text('Desktop notifications'),
+                    title: const Text('System notifications'),
                     subtitle: Text(
-                      notifications.supportsDesktopNotifications
+                      notifications.supportsSystemNotifications
                           ? 'Show wallet events in the system notification center.'
-                          : 'Available on Linux, macOS, and Windows.',
+                          : 'Available on Android, Linux, macOS, and Windows.',
                     ),
                     value:
-                        notifications.supportsDesktopNotifications &&
-                        notifications.desktopEnabled,
-                    onChanged: notifications.supportsDesktopNotifications
+                        notifications.supportsSystemNotifications &&
+                        notifications.systemEnabled,
+                    onChanged: notifications.supportsSystemNotifications
                         ? (enabled) async {
                             final accepted = await notifications
-                                .setDesktopEnabled(enabled);
+                                .setSystemEnabled(enabled);
                             if (!accepted && context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                    'Desktop notifications could not be enabled.',
+                                    'System notifications could not be enabled.',
                                   ),
                                 ),
                               );
@@ -155,8 +155,8 @@ class const _SettingsScreen({
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
                       onPressed:
-                          notifications.supportsDesktopNotifications &&
-                              notifications.desktopEnabled
+                          notifications.supportsSystemNotifications &&
+                              notifications.systemEnabled
                           ? () async {
                               final shown = await notifications.sendTest();
                               if (!shown && context.mounted) {

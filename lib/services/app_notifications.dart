@@ -6,13 +6,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'ui_sounds.dart';
 
-/// User-configurable wallet event sounds and desktop notifications.
+/// User-configurable wallet event sounds and system notifications.
 class AppNotifications({
   FlutterSecureStorage? storage,
   UiSounds? sounds,
   FlutterLocalNotificationsPlugin? plugin,
 }) extends ChangeNotifier {
-  static const _desktopEnabledKey = 'notifications.desktop_enabled';
+  // Keep the original key so existing notification preferences migrate.
+  static const _systemEnabledKey = 'notifications.desktop_enabled';
   static const _soundEnabledKey = 'notifications.sound_enabled';
   static const _soundVolumeKey = 'notifications.sound_volume';
 
@@ -27,7 +28,7 @@ class AppNotifications({
   final FlutterLocalNotificationsPlugin _plugin =
       plugin ?? FlutterLocalNotificationsPlugin();
 
-  bool _desktopEnabled = true;
+  bool _systemEnabled = true;
   bool _soundEnabled = true;
   double _soundVolume = 0.5;
   bool _loaded = false;
@@ -36,24 +37,27 @@ class AppNotifications({
   int _notificationId = 0;
   Future<void> _pendingSave = Future<void>.value();
 
-  bool get desktopEnabled => _desktopEnabled;
+  bool get systemEnabled => _systemEnabled;
   bool get soundEnabled => _soundEnabled;
   double get soundVolume => _soundVolume;
 
-  bool get supportsDesktopNotifications =>
+  bool get supportsSystemNotifications =>
       !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.linux ||
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.linux ||
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.windows);
 
   Future<void> initialize() async {
     await _load();
-    if (_desktopEnabled && supportsDesktopNotifications) {
+    if (_systemEnabled && supportsSystemNotifications) {
       final ready = await _ensurePluginInitialized(requestPermission: true);
-      if (!ready && defaultTargetPlatform == TargetPlatform.macOS) {
-        _desktopEnabled = false;
+      if (!ready &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.macOS)) {
+        _systemEnabled = false;
         notifyListeners();
-        _save(_desktopEnabledKey, 'false');
+        _save(_systemEnabledKey, 'false');
       }
     }
   }
@@ -65,11 +69,11 @@ class AppNotifications({
     if (storage == null) return;
     try {
       final values = await Future.wait([
-        storage.read(key: _desktopEnabledKey),
+        storage.read(key: _systemEnabledKey),
         storage.read(key: _soundEnabledKey),
         storage.read(key: _soundVolumeKey),
       ]);
-      _desktopEnabled = _parseBool(values[0], fallback: true);
+      _systemEnabled = _parseBool(values[0], fallback: true);
       _soundEnabled = _parseBool(values[1], fallback: true);
       _soundVolume = (double.tryParse(values[2] ?? '') ?? 0.5).clamp(0.0, 1.0);
     } catch (error, stackTrace) {
@@ -77,16 +81,16 @@ class AppNotifications({
     }
   }
 
-  Future<bool> setDesktopEnabled(bool enabled) async {
-    if (enabled && !supportsDesktopNotifications) return false;
+  Future<bool> setSystemEnabled(bool enabled) async {
+    if (enabled && !supportsSystemNotifications) return false;
     if (enabled) {
       final ready = await _ensurePluginInitialized(requestPermission: true);
       if (!ready) return false;
     }
-    if (_desktopEnabled == enabled) return true;
-    _desktopEnabled = enabled;
+    if (_systemEnabled == enabled) return true;
+    _systemEnabled = enabled;
     notifyListeners();
-    _save(_desktopEnabledKey, '$enabled');
+    _save(_systemEnabledKey, '$enabled');
     return true;
   }
 
@@ -117,16 +121,16 @@ class AppNotifications({
 
   Future<bool> sendTest() async {
     if (_soundEnabled) _sounds.message(volume: _soundVolume);
-    if (!_desktopEnabled || !supportsDesktopNotifications) return false;
+    if (!_systemEnabled || !supportsSystemNotifications) return false;
     return _show(
       title: 'Sygnature notifications',
-      body: 'Desktop notifications are configured correctly.',
+      body: 'System notifications are configured correctly.',
     );
   }
 
   void _deliver({required String title, required String body}) {
     if (_soundEnabled) _sounds.message(volume: _soundVolume);
-    if (_desktopEnabled && supportsDesktopNotifications) {
+    if (_systemEnabled && supportsSystemNotifications) {
       unawaited(_show(title: title, body: body));
     }
   }
@@ -139,6 +143,15 @@ class AppNotifications({
         title: title,
         body: body,
         notificationDetails: NotificationDetails(
+          android: const AndroidNotificationDetails(
+            'sygnature_wallet_events',
+            'Wallet events',
+            channelDescription:
+                'Incoming funds and ROAST requests requiring attention.',
+            importance: Importance.high,
+            priority: Priority.high,
+            playSound: false,
+          ),
           macOS: const DarwinNotificationDetails(
             presentSound: false,
             threadIdentifier: 'sygnature-wallet-events',
@@ -151,7 +164,7 @@ class AppNotifications({
       );
       return true;
     } catch (error, stackTrace) {
-      debugPrint('Unable to show desktop notification: $error\n$stackTrace');
+      debugPrint('Unable to show system notification: $error\n$stackTrace');
       return false;
     }
   }
@@ -159,11 +172,12 @@ class AppNotifications({
   Future<bool> _ensurePluginInitialized({
     bool requestPermission = false,
   }) async {
-    if (!supportsDesktopNotifications) return false;
+    if (!supportsSystemNotifications) return false;
     try {
       if (!_pluginInitialized) {
         final initialized = await _plugin.initialize(
           settings: const InitializationSettings(
+            android: AndroidInitializationSettings('ic_notification'),
             macOS: DarwinInitializationSettings(
               requestAlertPermission: false,
               requestBadgePermission: false,
@@ -184,17 +198,27 @@ class AppNotifications({
         _pluginInitialized = initialized ?? false;
       }
       if (!_pluginInitialized) return false;
-      if (requestPermission && defaultTargetPlatform == TargetPlatform.macOS) {
-        return await _plugin
-                .resolvePlatformSpecificImplementation<
-                  MacOSFlutterLocalNotificationsPlugin
-                >()
-                ?.requestPermissions(alert: true) ??
-            false;
+      if (requestPermission) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          return await _plugin
+                  .resolvePlatformSpecificImplementation<
+                    AndroidFlutterLocalNotificationsPlugin
+                  >()
+                  ?.requestNotificationsPermission() ??
+              false;
+        }
+        if (defaultTargetPlatform == TargetPlatform.macOS) {
+          return await _plugin
+                  .resolvePlatformSpecificImplementation<
+                    MacOSFlutterLocalNotificationsPlugin
+                  >()
+                  ?.requestPermissions(alert: true) ??
+              false;
+        }
       }
       return true;
     } catch (error, stackTrace) {
-      debugPrint('Desktop notifications unavailable: $error\n$stackTrace');
+      debugPrint('System notifications unavailable: $error\n$stackTrace');
       return false;
     }
   }
