@@ -19,7 +19,6 @@ class const _SettingsScreen({
   Widget build(BuildContext context) => SelectorBuilder(
     listenable: Listenable.merge([notifications, controller]),
     select: () => [
-      controller.vault?.mnemonic != null,
       controller.archivedAccounts.length,
       controller.roastSetups.isEmpty,
       notifications.supportsSystemNotifications,
@@ -42,18 +41,18 @@ class const _SettingsScreen({
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (controller.vault?.mnemonic != null)
-                    ListTile(
-                      key: const Key('recovery-phrase-button'),
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.key_outlined),
-                      title: const Text('Back up recovery phrase'),
-                      subtitle: const Text(
-                        'Show or copy the recovery words for your personal wallets.',
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                      onTap: () => _showRecoveryPhrase(context, controller),
+                  const ListTile(
+                    key: Key('backup-button'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.backup_outlined),
+                    title: Text('Backup'),
+                    subtitle: Text(
+                      'ROAST group and key backup is coming later.',
                     ),
+                    // TODO: Implement ROAST group and key backup once its
+                    // format is defined.
+                    onTap: null,
+                  ),
                   ListTile(
                     key: const Key('archived-wallets-button'),
                     contentPadding: EdgeInsets.zero,
@@ -258,81 +257,6 @@ class const _SettingsScreen({
           ),
         ),
       ),
-    ),
-  );
-}
-
-Future<void> _showRecoveryPhrase(
-  BuildContext context,
-  WalletController controller,
-) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Back up recovery phrase'),
-      content: const Text(
-        'Anyone with these words can spend from your personal wallets. '
-        'Make sure nobody can see your screen. Never share the words.\n\n'
-        'This phrase does not back up ROAST signing shares.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Show recovery phrase'),
-        ),
-      ],
-    ),
-  );
-  if (confirmed != true || !context.mounted) return;
-  final mnemonic = controller.vault?.mnemonic;
-  if (mnemonic == null) return;
-
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Recovery phrase'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SelectableText(mnemonic),
-            const SizedBox(height: 20),
-            const Text(
-              'Keep these words in order in a secure offline backup. '
-              'Copying exposes them to the system clipboard, which may be '
-              'read by other apps or synced to other devices. '
-              'Writing them down is safer.',
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Close'),
-        ),
-        FilledButton.icon(
-          onPressed: () async {
-            var message =
-                'Recovery phrase copied. Clear your clipboard after use.';
-            try {
-              await Clipboard.setData(ClipboardData(text: mnemonic));
-            } on Object {
-              message = 'Could not copy the recovery phrase. Try again.';
-            }
-            if (!dialogContext.mounted) return;
-            ScaffoldMessenger.of(dialogContext)
-                .showSnackBar(SnackBar(content: Text(message)));
-          },
-          icon: const Icon(Icons.copy_outlined),
-          label: const Text('Copy recovery phrase'),
-        ),
-      ],
     ),
   );
 }

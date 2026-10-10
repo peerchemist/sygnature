@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
@@ -393,84 +392,7 @@ void main() {
     expect(controller.selectedAccount?.id, savingsId);
   });
 
-  for (final clipboardFails in [false, true]) {
-    testWidgets(
-      'backs up the stored recovery phrase with clipboard failure=$clipboardFails',
-      (tester) async {
-        final clipboardWrites = <String>[];
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          (call) async {
-            if (call.method == 'Clipboard.setData') {
-              if (clipboardFails) throw PlatformException(code: 'unavailable');
-              clipboardWrites.add((call.arguments as Map)['text'] as String);
-            }
-            return null;
-          },
-        );
-        addTearDown(
-          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform,
-            null,
-          ),
-        );
-        final controller = await createController();
-        await controller.createWallet(
-          _mnemonic,
-          network: PeercoinNetworks.mainnet,
-        );
-        await tester.pumpWidget(
-          SygnatureApp(controllerFactory: () async => controller),
-        );
-        await tester.pumpAndSettle();
-        await tester.tap(find.byTooltip('Settings'));
-        await tester.pumpAndSettle();
-        final backupButton = find.byKey(const Key('recovery-phrase-button'));
-        expect(find.text(_mnemonic.phrase), findsNothing);
-        await tester.tap(backupButton);
-        await tester.pumpAndSettle();
-        expect(find.textContaining('ROAST signing shares'), findsOneWidget);
-        expect(find.text(_mnemonic.phrase), findsNothing);
-        expect(clipboardWrites, isEmpty);
-        await tester.tap(find.text('Cancel'));
-        await tester.pumpAndSettle();
-        expect(find.text(_mnemonic.phrase), findsNothing);
-        expect(clipboardWrites, isEmpty);
-
-        await tester.tap(backupButton);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Show recovery phrase'));
-        await tester.pumpAndSettle();
-        expect(find.text(_mnemonic.phrase), findsOneWidget);
-        expect(find.textContaining('system clipboard'), findsOneWidget);
-        expect(clipboardWrites, isEmpty);
-        await tester.tap(find.text('Copy recovery phrase'));
-        await tester.pumpAndSettle();
-        expect(clipboardWrites, clipboardFails ? isEmpty : [_mnemonic.phrase]);
-        expect(
-          find.text(
-            clipboardFails
-                ? 'Could not copy the recovery phrase. Try again.'
-                : 'Recovery phrase copied. Clear your clipboard after use.',
-          ),
-          findsOneWidget,
-        );
-        expect(tester.takeException(), isNull);
-        await tester.tap(find.text('Close'));
-        await tester.pumpAndSettle();
-        expect(find.text(_mnemonic.phrase), findsNothing);
-        await tester.tap(backupButton);
-        await tester.pumpAndSettle();
-        expect(find.text('Show recovery phrase'), findsOneWidget);
-        expect(find.text(_mnemonic.phrase), findsNothing);
-        expect(controller.vault?.mnemonic, _mnemonic.phrase);
-      },
-    );
-  }
-
-  testWidgets('does not offer recovery phrase backup without a mnemonic', (
-    tester,
-  ) async {
+  testWidgets('shows the pending ROAST backup setting', (tester) async {
     final controller = await createController();
     await controller.addWatchOnlyAccount(
       'Watch only',
@@ -483,8 +405,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
-    expect(controller.vault?.mnemonic, isNull);
-    expect(find.byKey(const Key('recovery-phrase-button')), findsNothing);
+
+    expect(find.text('Backup'), findsOneWidget);
+    expect(
+      find.text('ROAST group and key backup is coming later.'),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<ListTile>(find.byKey(const Key('backup-button'))).onTap,
+      isNull,
+    );
   });
 
   testWidgets('configures notifications and opens the about screen', (
