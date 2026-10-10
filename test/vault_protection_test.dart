@@ -52,6 +52,14 @@ void main() {
       expect(first.walletKey, isNot(orderedEquals(first.roastKey)));
       expect(first.walletKey, hasLength(32));
       expect(first.roastKey, hasLength(32));
+      expect(
+        base64UrlEncode(first.walletKey),
+        'nuP2tgmGDZ3m8D1FpGzIRy9QT14IWsrcmuLVcdIxrgc=',
+      );
+      expect(
+        base64UrlEncode(first.roastKey),
+        '4bDwBm-g8H4Hop6xAYKw8nt9nbNr_SQR7PFJm7ByB8M=',
+      );
     },
   );
 }

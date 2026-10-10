@@ -1,8 +1,8 @@
 import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
-import 'package:pointycastle/export.dart';
 
 import 'hive_storage_initializer.dart';
 import 'secure_key_store.dart';
@@ -81,13 +81,14 @@ Future<VaultKeyMaterial> loadDeviceVaultKeys({
     throw StateError('The device vault encryption key is unavailable.');
   }
   final rootKey = base64Url.decode(encoded);
+  final secretKey = SecretKeyData(rootKey, overwriteWhenDestroyed: true);
   try {
     if (rootKey.length != 32) {
       throw StateError('Invalid device vault key length.');
     }
-    return _expandVaultKeyMaterial(rootKey);
+    return await _expandVaultKeyMaterial(secretKey);
   } finally {
-    rootKey.fillRange(0, rootKey.length, 0);
+    secretKey.destroy();
   }
 }
 
@@ -100,12 +101,16 @@ bool desktopVaultAvailable({bool? web, TargetPlatform? platform}) =>
       _ => false,
     };
 
-VaultKeyMaterial _expandVaultKeyMaterial(Uint8List rootKey) => VaultKeyMaterial(
-  walletKey: _deriveDomainKey(rootKey, 'wallet-v1'),
-  roastKey: _deriveDomainKey(rootKey, 'roast-v1'),
-);
+Future<VaultKeyMaterial> _expandVaultKeyMaterial(SecretKey rootKey) async =>
+    VaultKeyMaterial(
+      walletKey: await _deriveDomainKey(rootKey, 'wallet-v1'),
+      roastKey: await _deriveDomainKey(rootKey, 'roast-v1'),
+    );
 
-Uint8List _deriveDomainKey(Uint8List rootKey, String domain) {
-  final hmac = HMac(SHA256Digest(), 64)..init(KeyParameter(rootKey));
-  return hmac.process(Uint8List.fromList(utf8.encode('sygnature:$domain')));
+Future<Uint8List> _deriveDomainKey(SecretKey rootKey, String domain) async {
+  final mac = await Hmac.sha256().calculateMac(
+    utf8.encode('sygnature:$domain'),
+    secretKey: rootKey,
+  );
+  return Uint8List.fromList(mac.bytes);
 }
