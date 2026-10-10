@@ -2953,6 +2953,9 @@ class _FakeRoastRuntime implements RoastRuntime {
   Future<void> stopSetup(String setupId) async {}
 
   @override
+  Future<T> withPausedForBackup<T>(Future<T> Function() snapshot) => snapshot();
+
+  @override
   Future<void> deleteSetup(String setupId) async {
     deletedSetupIds.add(setupId);
   }
@@ -3239,6 +3242,9 @@ final class _SigningRoastRuntime(
 
   @override
   Future<void> stopSetup(String setupId) async {}
+
+  @override
+  Future<T> withPausedForBackup<T>(Future<T> Function() snapshot) => snapshot();
 
   @override
   Future<void> deleteSetup(String setupId) async {}

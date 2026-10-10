@@ -881,6 +881,11 @@ extension WalletRoastSetupController on WalletController {
 
   Future<void> resumeRoastSetup(String setupId) async {
     final setup = _setupById(setupId);
+    if (setup.requiresBackupReconciliation) {
+      throw StateError(
+        'Compare the restored group with authenticated live participants before reconnecting.',
+      );
+    }
     if (!setup.isFinalized || _roastOperations.contains(setupId)) return;
     await _startRoastRuntime(
       setup.copyWith(status: RoastSetupStatus.connecting),
@@ -1116,6 +1121,10 @@ extension WalletRoastSetupController on WalletController {
     String setupId,
     Future<void> Function() operation,
   ) async {
+    if (_busy) throw const WalletBusyFailure();
+    if (_setupById(setupId).requiresBackupReconciliation) {
+      throw StateError('Restored group requires live reconciliation.');
+    }
     if (!_roastOperations.add(setupId)) return;
     _notifyListeners();
     try {
@@ -1137,7 +1146,21 @@ extension WalletRoastSetupController on WalletController {
     }
   }
 
-  Future<void> _startRoastRuntime(RoastSetup setup) async {
+  Future<void> _startRoastRuntime(RoastSetup setup) {
+    final pending = _roastStarts[setup.id];
+    if (pending != null) return pending;
+    final starting = _startRoastRuntimeNow(setup).whenComplete(() {
+      _roastStarts.remove(setup.id);
+    });
+    _roastStarts[setup.id] = starting;
+    return starting;
+  }
+
+  Future<void> _startRoastRuntimeNow(RoastSetup setup) async {
+    if (_busy) throw const WalletBusyFailure();
+    if (setup.requiresBackupReconciliation) {
+      throw StateError('Restored group requires live reconciliation.');
+    }
     final runtime = _roastRuntime;
     if (runtime == null || !_roastOperations.add(setup.id)) return;
     _notifyListeners();

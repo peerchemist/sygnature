@@ -68,7 +68,10 @@ extension WalletAccountsController on WalletController {
           .nonNulls
           .toSet();
       for (final setup in roastSetups.where(
-        (item) => item.isFinalized && activeSetupIds.contains(item.id),
+        (item) =>
+            item.isFinalized &&
+            !item.requiresBackupReconciliation &&
+            activeSetupIds.contains(item.id),
       )) {
         unawaited(resumeRoastSetup(setup.id));
       }

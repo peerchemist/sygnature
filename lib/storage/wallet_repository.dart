@@ -51,10 +51,16 @@ class HiveWalletRepository._(final Box<dynamic> _box)
   }
 
   @override
-  Future<void> save(WalletVault vault) => _box.put(_vaultKey, vault.toJson());
+  Future<void> save(WalletVault vault) async {
+    await _box.put(_vaultKey, vault.toJson());
+    await _box.flush();
+  }
 
   @override
-  Future<void> delete() => _box.delete(_vaultKey);
+  Future<void> delete() async {
+    await _box.delete(_vaultKey);
+    await _box.flush();
+  }
 }
 
 class MemoryWalletRepository implements WalletRepository {

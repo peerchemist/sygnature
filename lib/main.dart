@@ -16,6 +16,7 @@ import 'services/peercoin_network_service.dart';
 import 'services/roast_runtime_manager.dart';
 import 'services/wallet_key_service.dart';
 import 'storage/wallet_repository.dart';
+import 'services/wallet_backup_service.dart';
 import 'storage/roast_storage.dart';
 import 'storage/vault_protection.dart';
 import 'ui/app_theme.dart';
@@ -169,8 +170,10 @@ class _SygnatureAppState extends State<SygnatureApp> {
     WalletRepository repository,
     RoastPersistenceFactory? roastPersistence,
   ) async {
+    await roastPersistence?.recoverBackupImport(repository);
     final controller = WalletController(
       repository,
+      backupService: WalletBackupService(repository, roastPersistence),
       roastRuntime: _roastSupported
           ? RoastRuntimeManager(
               roastPersistence!,

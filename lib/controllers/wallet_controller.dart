@@ -40,11 +40,13 @@ import '../services/roast_key_service.dart';
 import '../services/roast_runtime_manager.dart';
 import '../services/wallet_key_service.dart';
 import '../services/wallet_transaction_service.dart';
+import '../services/wallet_backup_service.dart';
 import '../storage/wallet_repository.dart';
 import '../storage/roast_storage.dart';
 
 // Functional slices stay in this library so they can share private state.
 part 'wallet_controller_accounts.dart';
+part 'wallet_controller_backup.dart';
 part 'wallet_controller_activity.dart';
 part 'wallet_controller_roast_events.dart';
 part 'wallet_controller_roast_setup.dart';
@@ -111,12 +113,15 @@ class WalletController extends ChangeNotifier {
     RoastKeyService? roastKeyService,
     RoastSigningOperationRepository? roastSigningOperations,
     List<WalletNetwork>? supportedNetworks,
+    WalletBackupService? backupService,
   }) : _keyService = keyService ?? CoinlibWalletKeyService(),
        _transactionService =
            transactionService ?? const CoinlibWalletTransactionService(),
        // ignore: prefer_initializing_formals
        _roastRuntime = roastRuntime,
        _roastKeyService = roastKeyService ?? const RoastKeyService(),
+       // ignore: prefer_initializing_formals
+       _backupService = backupService,
        _roastSigningOperations =
            roastSigningOperations ?? MemoryRoastSigningOperationRepository(),
        supportedNetworks = List.unmodifiable(
@@ -132,6 +137,7 @@ class WalletController extends ChangeNotifier {
   }
 
   final WalletRepository _repository;
+  final WalletBackupService? _backupService;
   final WalletNetworkServiceFactory? networkServiceFactory;
   final VoidCallback? onCoinsReceived;
   final VoidCallback? onRoastActionRequired;
@@ -147,6 +153,7 @@ class WalletController extends ChangeNotifier {
   bool _vaultNeedsReload = false;
   String? _selectedAccountId;
   bool _busy = false;
+  bool _backupInProgress = false;
   bool _disposed = false;
   int _syncGeneration = 0;
   final Map<String, StreamSubscription<PeercoinElectrumxUtxoSnapshot>>
@@ -162,6 +169,7 @@ class WalletController extends ChangeNotifier {
   Future<void> _roastEventQueue = Future.value();
   Future<void> _utxoReconciliationQueue = Future.value();
   final Set<String> _roastOperations = {};
+  final Map<String, Future<void>> _roastStarts = {};
   final Set<String> _roastCoordinatorSwitches = {};
   final Map<String, RoastCoordinatorSwitchFailure> _roastCoordinatorRecovery =
       {};

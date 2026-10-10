@@ -146,15 +146,16 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       );
 
   void _scheduleRoomSignerConnection(RoastSetup setup) {
+    if (_backupPaused) return;
     if (_roomSignerTimers.containsKey(setup.id)) return;
     AppLogger.info(
       '${RoastRuntimeManager._roastScope(setup.id)} Waiting for the frozen room; signer connection '
       'will retry in the background',
     );
-    unawaited(_connectRoomSigner(setup));
+    _runBackground(_connectRoomSigner(setup));
     _roomSignerTimers[setup.id] = Timer.periodic(
       const Duration(seconds: 2),
-      (_) => unawaited(_connectRoomSigner(setup)),
+      (_) => _runBackground(_connectRoomSigner(setup)),
     );
   }
 
@@ -183,7 +184,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     );
     await NoosphereFlutter.initialize();
     final persistence = await _persistenceFactory.open();
-    final secretKey = await _irohSecretKey(setup, persistence);
+    final secretKey = await _irohSecretKey(setup);
     final rooms = await RoomManager.open(
       coordinatorEndpointId: secretKey.publicKey.asBytes(),
       persistence: persistence.roomPersistence(setup.id),
@@ -234,7 +235,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     AppLogger.info(
       '${RoastRuntimeManager._roastScope(setupId)} Room is full; freezing roster',
     );
-    unawaited(_freezeRoomAndStartSigner(setupId));
+    _runBackground(_freezeRoomAndStartSigner(setupId));
   }
 
   void _emitRoomEnrollmentValues(String setupId, RoomSnapshot room) {

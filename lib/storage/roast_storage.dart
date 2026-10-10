@@ -2,17 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:coinlib/coinlib.dart' show bytesToHex;
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
 import '../models/roast_signing_operation.dart';
+import '../models/roast_setup.dart';
+import '../models/wallet_backup.dart';
+import '../models/wallet_vault.dart';
+import 'wallet_repository.dart';
 import 'encrypted_hive_box.dart';
-import 'secure_key_store.dart';
 
-class RoastPersistence._(
-  final Box<dynamic> _box,
-  final SecureKeyStore _keyStore,
-) {
+class RoastPersistence._(final Box<dynamic> _box) {
   final Map<String, ClientStorageInterface> _clientStores = {};
   final Map<String, ServerPersistence> _serverStores = {};
   final Map<String, RoomPersistence> _roomStores = {};
@@ -48,6 +49,7 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   );
   static const _signingOperationsKey = 'wallet-signing-operations-v1';
   static const _serverStateStorageVersion = 1;
+  static const _backupJournalKey = 'backup-import-journal-v1';
 
   final SecureKeyStore _keyStore;
   final Uint8List? _cipherKey;
@@ -58,7 +60,7 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
 
   Future<RoastPersistence> _open() async {
     final box = await _storage.open(keyStore: _keyStore, cipherKey: _cipherKey);
-    return RoastPersistence._(box, _keyStore);
+    return RoastPersistence._(box);
   }
 
   Future<T> _mutateOperations<T>(
@@ -144,10 +146,155 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
       'server-v$_serverStateStorageVersion:$setupId',
       'rooms:$setupId',
     ]);
-    await _keyStore.delete('sygnature_iroh_identity_$setupId');
     persistence._clientStores.remove(setupId);
     persistence._serverStores.remove(setupId);
     persistence._roomStores.remove(setupId);
+  }
+
+  /// Call only with ROAST runtimes stopped and wallet mutations serialized.
+  Future<List<BackupGroup>> backupGroups(WalletVault vault) async {
+    await _operationWrites;
+    final p = await open();
+    for (final store in p._clientStores.values) {
+      await (store as _HiveRoastClientStorage)._pendingWrite;
+    }
+    for (final store in p._roomStores.values) {
+      await (store as _HiveRoomPersistence)._pendingWrite;
+    }
+    final setupIds = vault.roastSetups.map((s) => s.id).toSet();
+    for (final key in p._box.keys.whereType<String>().where(
+      (k) => k.startsWith('client:'),
+    )) {
+      final raw = p._box.get(key) as Map?;
+      if (!setupIds.contains(key.substring(7)) &&
+          ((raw?['keys'] as List?)?.isNotEmpty ?? false)) {
+        backupInvalid(
+          'Orphaned ROAST signing shares have no group recovery metadata.',
+        );
+      }
+    }
+    final groups = <BackupGroup>[];
+    for (final s in vault.roastSetups) {
+      // Read only keys: nonce/session decoders must never feed the backup DTO.
+      final raw = p._box.get('client:${s.id}') as Map?;
+      final keys = ((raw?['keys'] as List?) ?? const [])
+          .cast<String>()
+          .map(
+            (v) => BackupSigningKey.fromKey(
+              FrostKeyWithDetails.fromBytes(base64Url.decode(v)),
+            ),
+          )
+          .toList();
+      BackupRoom? room;
+      if (s.role == RoastSetupRole.host && s.usesRoomEnrollment) {
+        final rooms = await p.roomPersistence(s.id).loadAll();
+        final bytes = rooms[s.groupId];
+        if (bytes == null) backupInvalid('Frozen coordinator room is missing.');
+        final snapshot = RoomSnapshot.fromBytes(bytes);
+        if (snapshot.groupConfig?.id != s.groupId ||
+            snapshot.groupFingerprint == null ||
+            bytesToHex(snapshot.groupFingerprint!) != s.groupFingerprintHex ||
+            snapshot.threshold != s.threshold ||
+            snapshot.expectedParticipants != s.participantCount) {
+          backupInvalid('Stored frozen room does not match the ROAST group.');
+        }
+        room = BackupRoom.fromSnapshot(snapshot);
+      }
+      groups.add(BackupGroup(setup: s, keys: keys, room: room));
+    }
+    return groups;
+  }
+
+  Future<void> checkBackupImportTarget(WalletRepository repository) async {
+    if (await repository.load() != null) {
+      backupInvalid(
+        'Restore requires an empty wallet. Existing wallets and group IDs are never overwritten.',
+      );
+    }
+    final box = (await open())._box;
+    if (box.isNotEmpty) {
+      backupInvalid(
+        'Restore requires empty ROAST storage; existing signer state must be reconciled separately.',
+      );
+    }
+  }
+
+  /// A flushed intent precedes every cross-box write. The wallet's atomic
+  /// restoreId write is the commit point. Startup resolves this journal before
+  /// starting any runtime or exposing the wallet.
+  Future<void> commitBackupImport(
+    WalletRepository repository,
+    WalletBackupV1 backup,
+    String restoreId,
+  ) async {
+    await checkBackupImportTarget(repository);
+    final p = await open();
+    final records = <String, Object?>{};
+    for (final g in backup.groups) {
+      records['client:${g.setup.id}'] = {
+        'keys': g.keys
+            .map((k) => base64UrlEncode(k.toKey().toBytes()))
+            .toList(),
+        'nonces': <String, Object?>{},
+        'prepared': <String, Object?>{},
+        'rejected': <String, Object?>{},
+      };
+      if (g.room != null) {
+        records['rooms:${g.setup.id}'] = {
+          g.setup.groupId: base64UrlEncode(g.room!.toSnapshot(g).toBytes()),
+        };
+      }
+    }
+    await p._box.put(_backupJournalKey, {
+      'restoreId': restoreId,
+      'keys': records.keys.toList(),
+    });
+    await p._box.flush();
+    try {
+      await p._box.putAll(records);
+      await p._box.flush();
+      final vault = backup.toVault(restoreId: restoreId);
+      if (vault != null) {
+        await repository.save(vault);
+      }
+    } catch (_) {
+      // Keep the journal if rollback itself fails. Startup will retry it and
+      // refuse to expose any state until recovery completes.
+      await repository.delete();
+      await p._box.deleteAll(records.keys);
+      await p._box.flush();
+      await p._box.delete(_backupJournalKey);
+      await p._box.flush();
+      rethrow;
+    }
+    // Once committed, journal cleanup is recoverable and cannot turn a fully
+    // restored wallet into a misleading failure reported to the user.
+    try {
+      await p._box.delete(_backupJournalKey);
+      await p._box.flush();
+    } catch (_) {
+      /* Startup completes journal cleanup. */
+    }
+  }
+
+  Future<void> recoverBackupImport(WalletRepository repository) async {
+    final p = await open();
+    final raw = p._box.get(_backupJournalKey);
+    if (raw == null) return;
+    final journal = Map<String, dynamic>.from(raw as Map);
+    final id = journal['restoreId'] as String;
+    if ((await repository.load())?.backupRestoreId != id) {
+      final keys = (journal['keys'] as List).cast<String>();
+      if (keys.any(
+        (k) => !k.startsWith('client:') && !k.startsWith('rooms:'),
+      )) {
+        throw StateError('Invalid backup recovery journal.');
+      }
+      await p._box.deleteAll(keys);
+      await p._box.flush();
+    }
+    await p._box.delete(_backupJournalKey);
+    await p._box.flush();
   }
 }
 
@@ -196,16 +343,6 @@ extension RoastPersistenceAccess on RoastPersistence {
         setupId,
         () => _HiveRoastClientStorage(_box, 'client:$setupId'),
       );
-
-  Future<SecretKey?> legacyIrohSecretKey(String setupId) async {
-    final encoded = await _keyStore.read('sygnature_iroh_identity_$setupId');
-    if (encoded == null) return null;
-    final bytes = base64Url.decode(encoded);
-    if (bytes.length != SecretKey.lengthBytes) {
-      throw StateError('Invalid legacy Iroh identity length.');
-    }
-    return SecretKey.fromBytes(bytes);
-  }
 
   ServerPersistence serverPersistence(String setupId) =>
       _serverStores.putIfAbsent(

@@ -318,6 +318,10 @@ abstract interface class RoastRuntime {
   Future<void> acceptSignatures(String setupId, String requestIdHex);
   Future<void> rejectSignatures(String setupId, String requestIdHex);
   Future<void> stopSetup(String setupId);
+
+  /// Quiesces all local roles and closes the worker before taking a snapshot.
+  /// Reconnects only previously started groups, even if [snapshot] fails.
+  Future<T> withPausedForBackup<T>(Future<T> Function() snapshot);
   Future<void> deleteSetup(String setupId);
   Future<void> close();
 }

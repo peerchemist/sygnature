@@ -25,9 +25,11 @@ typedef WalletBip39SeedProvider = FutureOr<Uint8List> Function();
 final class RoastRuntimeManager(
   RoastPersistenceFactory persistenceFactory, {
   required WalletBip39SeedProvider getWalletBip39Seed,
+  Future<NoosphereWorker> Function() startWorker = NoosphereWorker.start,
 }) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
   final WalletBip39SeedProvider _getWalletBip39Seed = getWalletBip39Seed;
+  final Future<NoosphereWorker> Function() _startWorker = startWorker;
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final Map<String, WorkerDkgStatus> _dkgProposals = {};
@@ -36,6 +38,10 @@ final class RoastRuntimeManager(
   final Map<String, String> _emittedGroupKeys = {};
   final Set<String> _serverSetups = {};
   final Set<String> _signerSetups = {};
+  // Ownership differs from health: failed starts/switches can leave roles that
+  // still need an acknowledged stop even when no signer reports running.
+  final Set<String> _workerSetups = {};
+  final Map<String, Future<RoastRuntimeSnapshot>> _setupStarts = {};
   final Map<String, RoastCoordinatorAddress> _signerCoordinators = {};
   final Map<String, IrohServer> _roomServers = {};
   final Map<String, StreamSubscription<RoomSnapshot>> _roomSubscriptions = {};
@@ -48,7 +54,10 @@ final class RoastRuntimeManager(
   final Map<String, Future<void>> _refreshes = {};
   final Set<String> _refreshAgain = {};
   NoosphereWorker? _worker;
+  Future<NoosphereWorker>? _workerStarting;
   StreamSubscription<NoosphereWorkerEvent>? _workerEvents;
+  final Set<Future<void>> _backgroundTasks = {};
+  bool _backupPaused = false;
 
   static String _scope(String subsystem, String setupId) {
     final shortId = setupId.length <= 8 ? setupId : setupId.substring(0, 8);
@@ -65,15 +74,22 @@ final class RoastRuntimeManager(
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
 
-  Future<NoosphereWorker> _ensureWorker() async {
+  Future<NoosphereWorker> _ensureWorker() {
     final existing = _worker;
-    if (existing != null && !existing.isClosed) return existing;
+    if (existing != null && !existing.isClosed) return Future.value(existing);
+    return _workerStarting ??= _openWorker().whenComplete(() {
+      _workerStarting = null;
+    });
+  }
+
+  Future<NoosphereWorker> _openWorker() async {
     AppLogger.info('[NOOSPHERE] Starting worker');
     await _workerEvents?.cancel();
     _workerEvents = null;
-    final worker = await NoosphereWorker.start();
+    final worker = await _startWorker();
     _serverSetups.clear();
     _signerSetups.clear();
+    _workerSetups.clear();
     _dkgProposals.clear();
     _signingRequests.clear();
     for (final timer in _keyReadinessTimers.values) {
@@ -100,6 +116,11 @@ final class RoastRuntimeManager(
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+    if (setup.requiresBackupReconciliation) {
+      throw StateError(
+        'Restored group requires reconciliation with live participants.',
+      );
+    }
     final scope = _roastScope(setup.id);
     AppLogger.info(
       '$scope Starting setup (${setup.role.name}, '
@@ -127,6 +148,28 @@ final class RoastRuntimeManager(
     RoastSetup setup, {
     required bool scheduleRoomRetry,
     bool publishDkgs = true,
+  }) {
+    if (_backupPaused) {
+      return Future.error(StateError('ROAST is paused for wallet backup.'));
+    }
+    final pending = _setupStarts[setup.id];
+    if (pending != null) return pending;
+    final starting = _startSetupNow(
+      setup,
+      scheduleRoomRetry: scheduleRoomRetry,
+      publishDkgs: publishDkgs,
+    );
+    final result = starting.whenComplete(() {
+      _setupStarts.remove(setup.id);
+    });
+    _setupStarts[setup.id] = result;
+    return result;
+  }
+
+  Future<RoastRuntimeSnapshot> _startSetupNow(
+    RoastSetup setup, {
+    required bool scheduleRoomRetry,
+    required bool publishDkgs,
   }) async {
     if (!setup.isFinalized) {
       throw StateError('Finalize the participant roster before connecting.');
@@ -166,11 +209,12 @@ final class RoastRuntimeManager(
     if (setup.role == RoastSetupRole.host &&
         !setup.usesRoomEnrollment &&
         !_serverSetups.contains(setup.id)) {
-      serverSnapshot = await worker.startSetup(
+      serverSnapshot = await _startWorkerSetup(
+        worker,
         setupId: setup.id,
         server: EmbeddedServerOptions(
           serverConfig: ServerConfig(group: group),
-          getIrohSecretKey: () => _irohSecretKey(setup, persistence),
+          getIrohSecretKey: () => _irohSecretKey(setup),
           serverPersistence: persistence.serverPersistence(setup.id),
         ),
       );
@@ -224,7 +268,8 @@ final class RoastRuntimeManager(
     try {
       snapshot = _signerSetups.contains(setup.id)
           ? await worker.snapshot(setup.id)
-          : await worker.startSetup(
+          : await _startWorkerSetup(
+              worker,
               setupId: setup.id,
               client: clientOptions.withCoordinator(address),
             );
@@ -244,6 +289,30 @@ final class RoastRuntimeManager(
     _signerSetups.add(setup.id);
     AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
     return _snapshot(snapshot, setup, publishDkgs: publishDkgs);
+  }
+
+  Future<NoosphereWorkerSnapshot> _startWorkerSetup(
+    NoosphereWorker worker, {
+    required String setupId,
+    EmbeddedServerOptions? server,
+    ClientNodeOptions? client,
+  }) async {
+    try {
+      final snapshot = await worker.startSetup(
+        setupId: setupId,
+        server: server,
+        client: client,
+      );
+      _workerSetups.add(setupId);
+      return snapshot;
+    } on NoosphereWorkerException catch (error) {
+      // These are the documented failures where startup has retained roles.
+      if (error.code == 'start_result_too_large' ||
+          error.code == 'startup_cleanup_failed') {
+        _workerSetups.add(setupId);
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -483,25 +552,129 @@ final class RoastRuntimeManager(
   @override
   Future<void> stopSetup(String setupId) async {
     AppLogger.info('${_roastScope(setupId)} Stopping setup');
+    _roomSignerTimers.remove(setupId)?.cancel();
+    _keyReadinessTimers.remove(setupId)?.cancel();
+    // A background connection may still be creating roles. Let it settle
+    // before stopping them; otherwise it could restart a signer mid-backup.
+    try {
+      await _setupStarts[setupId];
+    } catch (_) {
+      // Retained partial starts are recorded in _workerSetups for cleanup.
+    }
+    _roomSignerTimers.remove(setupId)?.cancel();
+    _keyReadinessTimers.remove(setupId)?.cancel();
     _setups.remove(setupId);
     _emittedGroupKeys.remove(setupId);
-    _serverSetups.remove(setupId);
-    _signerSetups.remove(setupId);
     _signerCoordinators.remove(setupId);
     _dkgProposals.removeWhere((key, _) => key.startsWith('$setupId:'));
     _signingRequests.removeWhere((key, _) => key.startsWith('$setupId:'));
     _refreshAgain.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
-    await _roomServers.remove(setupId)?.close();
+    await _roomServers[setupId]?.close();
+    _roomServers.remove(setupId);
     _freezingRooms.remove(setupId);
     _roomSignerTimers.remove(setupId)?.cancel();
     _connectingRoomSigners.remove(setupId);
     final worker = _worker;
-    if (worker != null && !worker.isClosed) {
+    if (worker != null && !worker.isClosed && _workerSetups.contains(setupId)) {
       await worker.stopSetup(setupId);
     }
+    // Only release ownership after the worker acknowledges shutdown. A failed
+    // stop must be retried, not mistaken for an already-stopped setup.
+    _workerSetups.remove(setupId);
+    _serverSetups.remove(setupId);
+    _signerSetups.remove(setupId);
+    await _refreshes[setupId];
     AppLogger.info('${_roastScope(setupId)} Setup stopped');
+  }
+
+  void _runBackground(Future<void> task) {
+    late final Future<void> pending;
+    pending = task.whenComplete(() {
+      _backgroundTasks.remove(pending);
+    });
+    _backgroundTasks.add(pending);
+    unawaited(pending);
+  }
+
+  Future<void> _drainBackgroundTasks() async {
+    while (_backgroundTasks.isNotEmpty) {
+      await Future.wait(_backgroundTasks.toList());
+    }
+  }
+
+  @override
+  Future<T> withPausedForBackup<T>(Future<T> Function() snapshot) async {
+    if (_backupPaused || _events.isClosed) {
+      throw StateError('ROAST runtime cannot be paused for backup.');
+    }
+    _backupPaused = true;
+    final restart = <RoastSetup>[];
+    try {
+      for (final timer in _roomSignerTimers.values) {
+        timer.cancel();
+      }
+      _roomSignerTimers.clear();
+      for (final timer in _keyReadinessTimers.values) {
+        timer.cancel();
+      }
+      _keyReadinessTimers.clear();
+      // Starts already underway may still register roles. New starts and
+      // timer retries are blocked until the snapshot is complete.
+      for (final starting in _setupStarts.values.toList()) {
+        try {
+          await starting;
+        } catch (_) {
+          // stopSetup also cleans up retained roles from failed starts.
+        }
+      }
+      await _workerStarting;
+      await _drainBackgroundTasks();
+      final setupIds = {
+        ..._setups.keys,
+        ..._workerSetups,
+        ..._roomServers.keys,
+      };
+      for (final setupId in setupIds) {
+        final setup = _setups[setupId];
+        // Failed earlier stops can retain worker roles even after their
+        // active configuration was removed. Those still require an ACK.
+        await stopSetup(setupId);
+        if (setup != null) restart.add(setup);
+      }
+      // Do not use close() as a substitute for acknowledged role shutdown:
+      // the dependency may force-kill a worker when graceful close fails.
+      await _worker?.close();
+      await _workerEvents?.cancel();
+      _workerEvents = null;
+      _worker = null;
+      await _drainBackgroundTasks();
+      return await snapshot();
+    } finally {
+      _backupPaused = false;
+      for (final setup in restart) {
+        if (_events.isClosed || setup.requiresBackupReconciliation) continue;
+        try {
+          final resumed = await _startSetup(setup, scheduleRoomRetry: true);
+          _emitSnapshotValues(setup.id, resumed);
+        } catch (error) {
+          // A reconnect failure must not mask an export error or discard a
+          // valid encrypted file. Report it separately without secret data.
+          if (!_events.isClosed) {
+            _events.add(
+              RoastRuntimeFailureEvent(
+                setup.id,
+                message:
+                    'ROAST reconnect after backup failed (${error.runtimeType}). Reconnect this group manually.',
+                interrupted: true,
+                operation: RoastRuntimeOperation.connection,
+              ),
+            );
+          }
+        }
+      }
+    }
   }
 
   @override
@@ -520,7 +693,7 @@ final class RoastRuntimeManager(
         }
         _rememberSigningRequests(event.snapshot);
         _emitSnapshot(event.snapshot);
-        unawaited(_rememberExpectedKeySafely(event.snapshot));
+        _runBackground(_rememberExpectedKeySafely(event.snapshot));
       case WorkerDkgEvent():
         final proposalHex = bytesToHex(event.status.proposalBytes);
         AppLogger.info(
@@ -546,7 +719,7 @@ final class RoastRuntimeManager(
         );
       case WorkerKeyUpdatedEvent():
         AppLogger.info('${_roastScope(event.setupId)} Group key updated');
-        unawaited(_refresh(event.setupId));
+        _runBackground(_refresh(event.setupId));
       case WorkerFailureEvent():
         AppLogger.error(
           '${_noosphereScope(event.setupId)} Worker operation '
@@ -569,18 +742,18 @@ final class RoastRuntimeManager(
             },
           ),
         );
-        unawaited(_refresh(event.setupId));
+        _runBackground(_refresh(event.setupId));
       case WorkerParticipantEvent():
         AppLogger.info(
           '${_irohScope(event.setupId)} Participant is '
           '${event.online ? 'online' : 'offline'}',
         );
-        unawaited(_refresh(event.setupId));
+        _runBackground(_refresh(event.setupId));
       case WorkerSessionReplacedEvent():
         AppLogger.warn(
           '${_noosphereScope(event.setupId)} Worker session replaced',
         );
-        unawaited(_refresh(event.setupId));
+        _runBackground(_refresh(event.setupId));
       case WorkerSigningRequestEvent():
         AppLogger.info(
           '${_roastScope(event.setupId)} Signing request '
@@ -597,7 +770,7 @@ final class RoastRuntimeManager(
           '${_shortId(bytesToHex(event.requestId))}; '
           '${event.signatures.length} signatures',
         );
-        unawaited(_persistAndEmitSigningResult(event));
+        _runBackground(_persistAndEmitSigningResult(event));
     }
   }
 
@@ -814,10 +987,11 @@ final class RoastRuntimeManager(
   }
 
   void _scheduleKeyReadinessPoll(String setupId) {
+    if (_backupPaused) return;
     if (_keyReadinessTimers.containsKey(setupId)) return;
     _keyReadinessTimers[setupId] = Timer.periodic(
       const Duration(milliseconds: 500),
-      (_) => unawaited(_refresh(setupId)),
+      (_) => _runBackground(_refresh(setupId)),
     );
   }
 
@@ -1018,13 +1192,7 @@ final class RoastRuntimeManager(
     },
   );
 
-  Future<SecretKey> _irohSecretKey(
-    RoastSetup setup,
-    RoastPersistence persistence,
-  ) async {
-    final legacy = await persistence.legacyIrohSecretKey(setup.id);
-    if (legacy != null) return legacy;
-
+  Future<SecretKey> _irohSecretKey(RoastSetup setup) async {
     final seed = await _getWalletBip39Seed();
     try {
       return deriveIrohSecretKeyFromBip39Seed(
@@ -1057,6 +1225,7 @@ final class RoastRuntimeManager(
     _emittedGroupKeys.clear();
     _serverSetups.clear();
     _signerSetups.clear();
+    _workerSetups.clear();
     _signerCoordinators.clear();
     _dkgProposals.clear();
     _signingRequests.clear();

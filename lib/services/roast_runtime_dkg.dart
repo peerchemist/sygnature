@@ -95,6 +95,7 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
     try {
       await worker.stopSetup(setup.id, roles: NoosphereWorkerRoles.signer);
       _signerSetups.remove(setup.id);
+      if (!_serverSetups.contains(setup.id)) _workerSetups.remove(setup.id);
       await _startSetup(setup, scheduleRoomRetry: false, publishDkgs: false);
       final snapshot = await worker.snapshot(setup.id);
       AppLogger.info(

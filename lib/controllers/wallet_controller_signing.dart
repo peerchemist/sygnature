@@ -131,6 +131,7 @@ extension WalletSigningController on WalletController {
     String message = '',
     Duration requestTimeout = defaultRoastSigningRequestTimeout,
   }) async {
+    if (_backupInProgress) throw const WalletBusyFailure();
     if (account.derivationState != WalletDerivationState.ready) {
       throw const WalletSigningUnavailable();
     }
@@ -198,6 +199,7 @@ extension WalletSigningController on WalletController {
     WalletTransactionPreview preview, {
     Duration signatureRequestTimeout = defaultRoastSigningRequestTimeout,
   }) async {
+    if (_backupInProgress) throw const WalletBusyFailure();
     if (_sending) {
       throw const WalletTransactionRejected(
         'Another transaction is already being submitted.',
@@ -579,6 +581,12 @@ extension WalletSigningController on WalletController {
   };
 
   void _requireRoastCoordinator(RoastSetup setup) {
+    if (setup.requiresBackupReconciliation) {
+      throw const WalletSigningFailure(
+        WalletSigningFailureKind.interrupted,
+        'Verify the restored group with the live participants before signing.',
+      );
+    }
     if (setup.isActive &&
         roastCoordinatorState(setup.id) ==
             RoastCoordinatorLocalState.connected) {
@@ -592,6 +600,7 @@ extension WalletSigningController on WalletController {
   }
 
   Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
+    if (_backupInProgress) throw const WalletBusyFailure();
     final setup = _setupById(item.setupId);
     _validateRoastSigningRequest(setup, item.request);
     await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
@@ -614,6 +623,7 @@ extension WalletSigningController on WalletController {
   }
 
   Future<void> rejectRoastSigningRequest(RoastSigningInboxItem item) async {
+    if (_backupInProgress) throw const WalletBusyFailure();
     final setup = _setupById(item.setupId);
     await _roastRuntime!.rejectSignatures(item.setupId, item.request.idHex);
     final requestKey = '${item.setupId}:${item.request.idHex}';
