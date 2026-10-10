@@ -14,6 +14,7 @@ class WalletVault {
     this.languageId,
     this.mnemonicWordCount,
     this.selectedAccountId,
+    this.backupRestoreId,
   });
 
   static const schemaVersion = 1;
@@ -23,6 +24,9 @@ class WalletVault {
   final String? languageId;
   final int? mnemonicWordCount;
   final String? selectedAccountId;
+
+  /// Atomic commit marker for cross-box backup recovery. Never exported.
+  final String? backupRestoreId;
   final List<WalletAccount> accounts;
   final int nextAccountIndex;
   final List<RoastSetup> roastSetups;
@@ -38,6 +42,7 @@ class WalletVault {
     String? selectedAccountId,
     bool clearSelectedAccountId = false,
   }) => WalletVault(
+    backupRestoreId: backupRestoreId,
     mnemonic: mnemonic,
     languageId: languageId,
     mnemonicWordCount: mnemonicWordCount,
@@ -53,6 +58,7 @@ class WalletVault {
 
   Map<String, Object?> toJson() => {
     'schemaVersion': schemaVersion,
+    'backupRestoreId': backupRestoreId,
     'mnemonic': mnemonic,
     'languageId': languageId,
     'mnemonicWordCount': mnemonicWordCount,
@@ -72,6 +78,7 @@ class WalletVault {
       throw StateError('Unsupported wallet vault schema: $version');
     }
     return WalletVault(
+      backupRestoreId: json['backupRestoreId'] as String?,
       mnemonic: json['mnemonic'] as String?,
       languageId: json['languageId'] as String?,
       mnemonicWordCount: json['mnemonicWordCount'] as int?,

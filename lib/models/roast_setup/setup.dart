@@ -35,6 +35,7 @@ class RoastSetup({
   required final DateTime createdAt,
   final int irohIdentityIndex = 0,
   final bool usesRoomEnrollment = false,
+  final bool requiresBackupReconciliation = false,
   final String? hostParticipantId,
   final String? coordinatorId,
   final List<String> coordinatorRelayUrls = const [],
@@ -62,6 +63,7 @@ class RoastSetup({
 
   RoastSetup copyWith({
     RoastSetupStatus? status,
+    bool? requiresBackupReconciliation,
     List<RoastParticipant>? participants,
     String? keyName,
     int? irohIdentityIndex,
@@ -100,6 +102,8 @@ class RoastSetup({
       createdAt: createdAt,
       irohIdentityIndex: irohIdentityIndex ?? this.irohIdentityIndex,
       usesRoomEnrollment: usesRoomEnrollment,
+      requiresBackupReconciliation:
+          requiresBackupReconciliation ?? this.requiresBackupReconciliation,
       hostParticipantId: hostParticipantId ?? this.hostParticipantId,
       coordinatorId: coordinatorId ?? this.coordinatorId,
       coordinatorRelayUrls: coordinatorRelayUrls ?? this.coordinatorRelayUrls,
@@ -132,6 +136,8 @@ class RoastSetup({
       invitations: invitations ?? this.invitations,
     );
     return next.status == this.status &&
+            next.requiresBackupReconciliation ==
+                this.requiresBackupReconciliation &&
             next.keyName == this.keyName &&
             next.irohIdentityIndex == this.irohIdentityIndex &&
             next.hostParticipantId == this.hostParticipantId &&
@@ -174,6 +180,7 @@ class RoastSetup({
     'createdAt': createdAt.toUtc().toIso8601String(),
     'irohIdentityIndex': irohIdentityIndex,
     'usesRoomEnrollment': usesRoomEnrollment,
+    'requiresBackupReconciliation': requiresBackupReconciliation,
     'hostParticipantId': hostParticipantId,
     'coordinatorId': coordinatorId,
     'coordinatorRelayUrls': coordinatorRelayUrls,
@@ -216,6 +223,8 @@ class RoastSetup({
       irohIdentityIndex:
           json['irohIdentityIndex'] as int? ?? irohIdentityIndexForSetup(id),
       usesRoomEnrollment: json['usesRoomEnrollment'] as bool? ?? false,
+      requiresBackupReconciliation:
+          json['requiresBackupReconciliation'] as bool? ?? false,
       hostParticipantId:
           json['hostParticipantId'] as String? ??
           participants.firstOrNull?.identifierHex,
