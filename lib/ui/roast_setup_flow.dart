@@ -314,6 +314,51 @@ class const RoastSetupPanel({
   }
 
   List<Widget> _actions(BuildContext context, RoastSetup setup, bool busy) {
+    if (setup.requiresBackupReconciliation) {
+      return [
+        FilledButton(
+          onPressed: busy
+              ? null
+              : () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Reconcile restored group'),
+                      content: SingleChildScrollView(
+                        child: Text(
+                          'Compare these values with authenticated live participants before continuing. '
+                          'A backup cannot prove that this is the latest group. If any value differs, '
+                          'cancel and reconcile with the live group. Stop other copies of this signer.\n\n'
+                          'Group: ${setup.groupId}\nFingerprint: ${setup.groupFingerprintHex}\n'
+                          'Threshold: ${setup.threshold} of ${setup.participantCount}\n'
+                          'Group key: ${setup.groupKeyHex}\nCoordinator: ${setup.coordinatorId}\n\n'
+                          '${setup.participants.map((p) => '${p.name}: ${p.identifierHex} / ${p.publicKeyHex}').join('\n')}',
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Live group matches'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true && context.mounted) {
+                    await _perform(
+                      context,
+                      () =>
+                          controller.confirmBackupGroupReconciliation(setup.id),
+                    );
+                  }
+                },
+          child: const Text('Verify restored group'),
+        ),
+      ];
+    }
     final coordinatorRecovery = controller.roastCoordinatorRecovery(setup.id);
     if (coordinatorRecovery != null) {
       return [

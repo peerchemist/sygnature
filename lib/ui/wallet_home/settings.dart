@@ -41,17 +41,22 @@ class const _SettingsScreen({
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const ListTile(
-                    key: Key('backup-button'),
+                  ListTile(
+                    key: const Key('backup-button'),
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.backup_outlined),
-                    title: Text('Backup'),
-                    subtitle: Text(
-                      'ROAST group and key backup is coming later.',
+                    leading: const Icon(Icons.backup_outlined),
+                    title: const Text('Encrypted backup and restore'),
+                    subtitle: const Text(
+                      'Save mnemonics, ROAST groups and local signing shares.',
                     ),
-                    // TODO: Implement ROAST group and key backup once its
-                    // format is defined.
-                    onTap: null,
+                    onTap: controller.backupAvailable
+                        ? () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  WalletBackupScreen(controller: controller),
+                            ),
+                          )
+                        : null,
                   ),
                   ListTile(
                     key: const Key('archived-wallets-button'),

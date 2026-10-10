@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/wallet_controller.dart';
 import '../models/mnemonic_seed.dart';
 import 'app_theme.dart';
+import 'wallet_backup_screen.dart';
 import 'widgets/brand_mark.dart';
 
 enum _SetupStep { mnemonic, backup }
@@ -144,6 +145,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      if (widget.controller.backupAvailable &&
+                          _step == _SetupStep.mnemonic)
+                        OutlinedButton.icon(
+                          key: const Key('onboarding-import-backup'),
+                          onPressed: widget.controller.busy
+                              ? null
+                              : () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => WalletBackupScreen(
+                                      controller: widget.controller,
+                                    ),
+                                  ),
+                                ),
+                          icon: const Icon(Icons.restore),
+                          label: const Text(
+                            'Import encrypted backup (.sygnaturebkp)',
+                          ),
+                        ),
                       LinearProgressIndicator(
                         value: stepNumber / 2,
                         minHeight: 3,

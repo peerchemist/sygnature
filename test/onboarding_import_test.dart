@@ -4,10 +4,55 @@ import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
+import 'package:sygnature_ng/services/wallet_backup_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
+import 'package:sygnature_ng/ui/wallet_backup_screen.dart';
 
 void main() {
+  testWidgets(
+    'first setup screen opens encrypted backup import before wallet creation',
+    (tester) async {
+      final repository = MemoryWalletRepository();
+      final controller = WalletController(
+        repository,
+        keyService: _ImportWalletKeyService(),
+        backupService: WalletBackupService(repository, null),
+      );
+      await controller.load();
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('SETUP 1 OF 2'), findsOneWidget);
+      final importButton = find.byKey(const Key('onboarding-import-backup'));
+      expect(importButton, findsOneWidget);
+      expect(
+        tester
+            .getRect(importButton)
+            .overlaps(tester.getRect(find.byType(Scaffold))),
+        isTrue,
+      );
+      await tester.tap(importButton);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WalletBackupScreen), findsOneWidget);
+      expect(find.byKey(const Key('import-backup')), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('export-backup')))
+            .onPressed,
+        isNull,
+      );
+      expect(controller.hasWallet, isFalse);
+      expect(repository.value, isNull);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('SETUP 1 OF 2'), findsOneWidget);
+    },
+  );
+
   testWidgets('imports an existing recovery phrase', (tester) async {
     final controller = WalletController(
       MemoryWalletRepository(),

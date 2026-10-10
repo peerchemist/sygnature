@@ -392,30 +392,34 @@ void main() {
     expect(controller.selectedAccount?.id, savingsId);
   });
 
-  testWidgets('shows the pending ROAST backup setting', (tester) async {
-    final controller = await createController();
-    await controller.addWatchOnlyAccount(
-      'Watch only',
-      address: 'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm',
-      network: PeercoinNetworks.mainnet,
-    );
-    await tester.pumpWidget(
-      SygnatureApp(controllerFactory: () async => controller),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'shows encrypted backup settings without persistence configured',
+    (tester) async {
+      final controller = await createController();
+      await controller.addWatchOnlyAccount(
+        'Watch only',
+        address:
+            'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm',
+        network: PeercoinNetworks.mainnet,
+      );
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Settings'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Backup'), findsOneWidget);
-    expect(
-      find.text('ROAST group and key backup is coming later.'),
-      findsOneWidget,
-    );
-    expect(
-      tester.widget<ListTile>(find.byKey(const Key('backup-button'))).onTap,
-      isNull,
-    );
-  });
+      expect(find.text('Encrypted backup and restore'), findsOneWidget);
+      expect(
+        find.text('Save mnemonics, ROAST groups and local signing shares.'),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<ListTile>(find.byKey(const Key('backup-button'))).onTap,
+        isNull,
+      );
+    },
+  );
 
   testWidgets('configures notifications and opens the about screen', (
     tester,

@@ -20,6 +20,7 @@ import 'app_theme.dart';
 import 'onboarding_screen.dart';
 import 'roast_setup_flow.dart';
 import 'watch_only_wallet_dialog.dart';
+import 'wallet_backup_screen.dart';
 import 'widgets/brand_mark.dart';
 import 'widgets/middle_ellipsis_text.dart';
 import 'widgets/selector_builder.dart';
