@@ -233,6 +233,7 @@ final class PublicFeedPoller(
     Duration Function() timeLeft,
     String owner,
   ) async {
+    final notificationWindow = await store.notificationWindow();
     for (final entry in (feed['outbox'] as Map).entries) {
       await store.checkPollingLease(owner, key);
       final item = entry.value as Map;
@@ -240,7 +241,7 @@ final class PublicFeedPoller(
       final expiry = item['expiresAt'] as String?;
       final stale =
           DateTime.parse(item['observedAt'] as String)
-              .isBefore(now.subtract(const Duration(minutes: 5))) ||
+              .isBefore(now.subtract(notificationWindow)) ||
           (expiry != null && !DateTime.parse(expiry).isAfter(now));
       if (!stale &&
           !await notify(

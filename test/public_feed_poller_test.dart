@@ -312,6 +312,91 @@ void main() {
     expect(shown, isEmpty);
   });
 
+  test(
+    'notification window defaults to one hour and persists up to 24 hours',
+    () async {
+      expect(await store.notificationWindow(), const Duration(hours: 1));
+      await store.setNotificationWindow(const Duration(hours: 24));
+      await store.close();
+      store = await PublicFeedStore.open(directory.path);
+      expect(await store.notificationWindow(), const Duration(hours: 24));
+      await expectLater(
+        store.setNotificationWindow(const Duration(hours: 24, minutes: 1)),
+        throwsFormatException,
+      );
+      await expectLater(
+        store.setNotificationWindow(Duration.zero),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test(
+    'configured window includes recent catch-up and excludes older requests',
+    () async {
+      await baseline();
+      await store.setNotificationWindow(const Duration(hours: 24));
+      await poller(
+        FakeConnection(
+          (_) async => page(
+            0,
+            1,
+            entries: [
+              entry(
+                1,
+                observedAt: DateTime.now().subtract(const Duration(hours: 23)),
+              ),
+            ],
+          ),
+        ),
+      ).run();
+      expect(shown, hasLength(1));
+      await poller(
+        FakeConnection(
+          (_) async => page(
+            1,
+            2,
+            entries: [
+              entry(
+                2,
+                event: PublicFeedId('02' * 32),
+                observedAt: DateTime.now().subtract(const Duration(hours: 25)),
+              ),
+            ],
+          ),
+        ),
+      ).run();
+      expect(shown, hasLength(1));
+      expect((await feed())['cursor'], 2);
+    },
+  );
+
+  test(
+    'delivery uses the latest configured window for a durable outbox',
+    () async {
+      await baseline();
+      await store.commitPage(
+        key,
+        page(
+          0,
+          1,
+          entries: [
+            entry(
+              1,
+              observedAt: DateTime.now().subtract(const Duration(minutes: 30)),
+            ),
+          ],
+        ),
+        DateTime.now(),
+      );
+      expect(((await feed())['outbox'] as Map), hasLength(1));
+      await store.setNotificationWindow(const Duration(minutes: 15));
+      await poller(FakeConnection((cursor) async => page(cursor, 1))).run();
+      expect(shown, isEmpty);
+      expect((await feed())['outbox'], isEmpty);
+    },
+  );
+
   test('network errors retain cursor, persist backoff and do not reconnect immediately', () async {
     await baseline();
     var connections = 0;

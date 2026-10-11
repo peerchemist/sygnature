@@ -19,6 +19,16 @@ class const PublicFeedDialog({
 }
 
 class _PublicFeedDialogState extends State<PublicFeedDialog> {
+  static const _notificationWindows = {
+    15: '15 minutes',
+    30: '30 minutes',
+    60: '1 hour',
+    180: '3 hours',
+    360: '6 hours',
+    720: '12 hours',
+    1440: '24 hours',
+  };
+
   Map<String, dynamic>? _data;
   String? _error;
   bool _busy = false;
@@ -122,6 +132,9 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
     final host = (data?['hosts'] as Map?)?[group] as Map?;
     final key = (data?['bindings'] as Map?)?[group] as String?;
     final feed = (data?['feeds'] as Map?)?[key] as Map?;
+    final notificationWindow =
+        data?['notificationWindowMinutes'] as int? ??
+        publicFeedDefaultNotificationWindow.inMinutes;
     final events = ((feed?['events'] as Map?) ?? {}).entries.toList()
       ..sort(
         (a, b) =>
@@ -141,7 +154,34 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Public events contain no transaction/message details, signer counts or approval actions. Open the wallet’s authenticated requests to review current state. Initial retained history is silent; only new requests observed within five minutes can notify.',
+                'Public events contain no transaction/message details, signer counts or approval actions. Open the wallet’s authenticated requests to review current state. Initial retained history is silent.',
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                key: const Key('public-feed-notification-window'),
+                initialValue: notificationWindow,
+                decoration: const InputDecoration(
+                  labelText: 'Notify about requests observed within',
+                  helperText:
+                      'Applies to this device. Expired requests never notify.',
+                ),
+                items: [
+                  for (final option in _notificationWindows.entries)
+                    DropdownMenuItem(
+                      value: option.key,
+                      child: Text(option.value),
+                    ),
+                ],
+                onChanged: _busy || data == null
+                    ? null
+                    : (minutes) {
+                        if (minutes == null) return;
+                        _perform(
+                          () => widget.store.setNotificationWindow(
+                            Duration(minutes: minutes),
+                          ),
+                        );
+                      },
               ),
               if (widget.setup.role == RoastSetupRole.host) ...[
                 SwitchListTile(

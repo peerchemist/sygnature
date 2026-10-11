@@ -101,6 +101,13 @@ final class _FeedState(final Map<String, dynamic> data) {
     // Keep scoped cursor/outbox bookkeeping for a later re-subscription.
   });
 
+  Future<void> setNotificationWindow(int minutes) => _mutate((data) {
+    if (minutes < 1 || minutes > publicFeedMaxNotificationWindow.inMinutes) {
+      throw const FormatException('Invalid notification window');
+    }
+    data['notificationWindowMinutes'] = minutes;
+  });
+
   Future<void> commitPage(
     String key,
     PublicFeedPage page,
@@ -140,7 +147,7 @@ final class _FeedState(final Map<String, dynamic> data) {
         }
         if (entry.cursor <= (feed['initialThrough'] as int) ||
             entry.observedAt.isBefore(
-              now.subtract(const Duration(minutes: 5)),
+              now.subtract(_notificationWindow(data)),
             ) ||
             entry.observedAt.isAfter(now.add(const Duration(minutes: 1))) ||
             (entry.expiresAt != null && !entry.expiresAt!.isAfter(now))) {
