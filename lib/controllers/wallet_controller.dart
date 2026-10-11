@@ -43,6 +43,7 @@ import '../services/wallet_transaction_service.dart';
 import '../services/wallet_backup_service.dart';
 import '../storage/wallet_repository.dart';
 import '../storage/roast_storage.dart';
+import '../storage/public_feed_store.dart';
 
 // Functional slices stay in this library so they can share private state.
 part 'wallet_controller_accounts.dart';
@@ -107,6 +108,7 @@ class WalletController extends ChangeNotifier {
     this._repository, {
     this.networkServiceFactory,
     this.onCoinsReceived,
+    this.publicFeedStore,
     this.onRoastActionRequired,
     WalletKeyService? keyService,
     WalletTransactionService? transactionService,
@@ -137,6 +139,7 @@ class WalletController extends ChangeNotifier {
     }
   }
 
+  final Future<PublicFeedStore>? publicFeedStore;
   final WalletRepository _repository;
   final WalletBackupService? _backupService;
   final WalletNetworkServiceFactory? networkServiceFactory;

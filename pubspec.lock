@@ -486,7 +486,7 @@ packages:
     source: hosted
     version: "1.0.3"
   iroh_quic:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: iroh_quic
       sha256: e262a88f4f02a287197d691851b6e0418fd168280a59f581cbe41d8c6b29aa13
@@ -633,17 +633,17 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere"
-      ref: "0.1.1"
-      resolved-ref: "38f1f9d75d1f6259ba6673715130b81063a9d179"
+      ref: "3c91105b222f34483f35971b23c1caab0a97604a"
+      resolved-ref: "3c91105b222f34483f35971b23c1caab0a97604a"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.1"
   noosphere_client:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       path: "packages/noosphere_client"
-      ref: "0.1.1"
-      resolved-ref: "38f1f9d75d1f6259ba6673715130b81063a9d179"
+      ref: "3c91105b222f34483f35971b23c1caab0a97604a"
+      resolved-ref: "3c91105b222f34483f35971b23c1caab0a97604a"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "4.0.0"
@@ -651,17 +651,17 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "0.1.1"
-      resolved-ref: "38f1f9d75d1f6259ba6673715130b81063a9d179"
+      ref: "3c91105b222f34483f35971b23c1caab0a97604a"
+      resolved-ref: "3c91105b222f34483f35971b23c1caab0a97604a"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.1"
   noosphere_server:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       path: "packages/noosphere_server"
-      ref: "0.1.1"
-      resolved-ref: "38f1f9d75d1f6259ba6673715130b81063a9d179"
+      ref: "3c91105b222f34483f35971b23c1caab0a97604a"
+      resolved-ref: "3c91105b222f34483f35971b23c1caab0a97604a"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "3.0.0"

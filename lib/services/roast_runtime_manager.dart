@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart'
     show TaprootKeySignDetails, bytesEqual, bytesToHex;
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
+import 'package:noosphere_server/noosphere_server.dart'
+    show PublicFeedConfig, PublicFeedId;
 
 import '../models/roast_setup.dart';
 import '../storage/roast_storage.dart';
+import '../storage/public_feed_store.dart';
 import 'app_logger.dart';
 import 'roast_runtime.dart';
 import 'wallet_transaction_service.dart';
@@ -25,6 +29,7 @@ typedef WalletBip39SeedProvider = FutureOr<Uint8List> Function();
 final class RoastRuntimeManager(
   RoastPersistenceFactory persistenceFactory, {
   required WalletBip39SeedProvider getWalletBip39Seed,
+  final Future<PublicFeedStore>? publicFeedStore,
   Future<NoosphereWorker> Function() startWorker = NoosphereWorker.start,
 }) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
@@ -213,7 +218,10 @@ final class RoastRuntimeManager(
         worker,
         setupId: setup.id,
         server: EmbeddedServerOptions(
-          serverConfig: ServerConfig(group: group),
+          serverConfig: ServerConfig(
+            group: group,
+            publicFeed: await _publicFeedConfig(setup.groupId),
+          ),
           getIrohSecretKey: () => _irohSecretKey(setup),
           serverPersistence: persistence.serverPersistence(setup.id),
         ),
@@ -250,6 +258,9 @@ final class RoastRuntimeManager(
     }
     final address = _endpointAddress(selectedCoordinator);
     final pinnedId = address.id;
+    if (setup.role == RoastSetupRole.host) {
+      await _subscribeHostedFeed(setup.groupId, address);
+    }
     _signerCoordinators[setup.id] = selectedCoordinator;
     final privateKey = ECPrivateKey.fromHex(
       setup.localParticipantPrivateKeyHex,
@@ -406,6 +417,41 @@ final class RoastRuntimeManager(
         ],
         ipAddrs: address.ipAddrs,
       );
+
+  Future<PublicFeedConfig?> _publicFeedConfig(String groupId) async {
+    final id = await (await publicFeedStore)?.enabledHostId(groupId);
+    return id == null
+        ? null
+        : PublicFeedConfig(
+            feedId: PublicFeedId(id),
+            maxEntries: 10000,
+            maxAge: const Duration(days: 30),
+          );
+  }
+
+  Future<void> _subscribeHostedFeed(
+    String groupId,
+    EndpointAddr address,
+  ) async {
+    final store = await publicFeedStore;
+    final id = await store?.enabledHostId(groupId);
+    if (store == null ||
+        id == null ||
+        !await store.hostPollingEnabled(groupId)) {
+      return;
+    }
+    try {
+      await store.subscribe(
+        groupId: groupId,
+        address: base64UrlEncode(address.encode()),
+        pin: address.id.toZ32(),
+        feedId: id,
+      );
+    } on Object {
+      // Notification bookkeeping cannot interrupt a started coordinator.
+      AppLogger.warn('Unable to save public feed notification settings.');
+    }
+  }
 
   @override
   Future<void> requestDkg(

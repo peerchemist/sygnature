@@ -126,6 +126,18 @@ class AppNotifications({
     body: 'A ROAST signing request is waiting for your approval.',
   );
 
+  /// Public metadata never identifies a transaction or an approval action.
+  Future<bool> publicFeedRequested(int id, String category) async {
+    if (!_systemEnabled || !supportsSystemNotifications) return true;
+    return _show(
+      id: id,
+      title: category == 'dkg'
+          ? 'New key generation request'
+          : 'New signing request',
+      body: 'Open Sygnature and unlock your wallet to review current requests.',
+    );
+  }
+
   Future<bool> sendTest() async {
     if (_soundEnabled) _sounds.message(volume: _soundVolume);
     if (!_systemEnabled || !supportsSystemNotifications) return false;
@@ -142,11 +154,15 @@ class AppNotifications({
     }
   }
 
-  Future<bool> _show({required String title, required String body}) async {
+  Future<bool> _show({
+    required String title,
+    required String body,
+    int? id,
+  }) async {
     if (!await _ensurePluginInitialized()) return false;
     try {
       await _plugin.show(
-        id: _notificationId++ & 0x7fffffff,
+        id: id ?? (_notificationId++ & 0x3fffffff),
         title: title,
         body: body,
         notificationDetails: NotificationDetails(
@@ -158,6 +174,7 @@ class AppNotifications({
             importance: Importance.high,
             priority: Priority.high,
             playSound: false,
+            onlyAlertOnce: true,
           ),
           macOS: const DarwinNotificationDetails(
             presentSound: false,

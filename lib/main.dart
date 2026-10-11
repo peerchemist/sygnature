@@ -6,17 +6,20 @@ import 'package:coinlib/coinlib.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'controllers/wallet_controller.dart';
 import 'models/mnemonic_seed.dart';
 import 'models/roast_setup.dart';
 import 'services/app_logger.dart';
 import 'services/app_notifications.dart';
+import 'services/public_feed_poller.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
 import 'services/roast_runtime_manager.dart';
 import 'services/wallet_key_service.dart';
 import 'storage/wallet_repository.dart';
+import 'storage/public_feed_store.dart';
 import 'services/wallet_backup_service.dart';
 import 'storage/roast_storage.dart';
 import 'storage/vault_protection.dart';
@@ -78,6 +81,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
   Future<VaultProtectionStore>? _protectionStore;
   Future<WalletController>? _controller;
   StreamSubscription<Uri>? _incomingLinkSubscription;
+  Future<PublicFeedStore>? _publicFeedStore;
+  PublicFeedPoller? _publicFeedPoller;
+  bool _disposed = false;
   Future<void> _incomingLinkWork = Future.value();
 
   @override
@@ -85,6 +91,12 @@ class _SygnatureAppState extends State<SygnatureApp> {
     super.initState();
     final controllerFactory = widget.controllerFactory;
     if (controllerFactory == null) {
+      if (_roastSupported) {
+        _publicFeedStore = getApplicationSupportDirectory().then(
+          (directory) => PublicFeedStore.open(directory.path),
+        );
+        unawaited(_startPublicFeedPolling());
+      }
       _protectionStore = _initializeVault();
     } else {
       _protectionStore = null;
@@ -98,6 +110,20 @@ class _SygnatureAppState extends State<SygnatureApp> {
         stackTrace: stackTrace,
       ),
     );
+  }
+
+  Future<void> _startPublicFeedPolling() async {
+    try {
+      final store = await _publicFeedStore!;
+      await _notificationsReady;
+      if (_disposed) return;
+      _publicFeedPoller = PublicFeedPoller(
+        store,
+        notify: _notifications.publicFeedRequested,
+      )..start();
+    } on Object {
+      AppLogger.warn('Public feed notification storage unavailable.');
+    }
   }
 
   Future<VaultProtectionStore> _initializeVault() async {
@@ -187,10 +213,12 @@ class _SygnatureAppState extends State<SygnatureApp> {
     await roastPersistence?.recoverBackupImport(repository);
     final controller = WalletController(
       repository,
+      publicFeedStore: _publicFeedStore,
       backupService: WalletBackupService(repository, roastPersistence),
       roastRuntime: _roastSupported
           ? RoastRuntimeManager(
               roastPersistence!,
+              publicFeedStore: _publicFeedStore,
               getWalletBip39Seed: () => _walletBip39Seed(repository),
             )
           : null,
@@ -226,6 +254,8 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   @override
   void dispose() {
+    _disposed = true;
+    unawaited(_publicFeedPoller?.stop());
     unawaited(_incomingLinkSubscription?.cancel());
     final controller = _controller;
     if (controller != null) {

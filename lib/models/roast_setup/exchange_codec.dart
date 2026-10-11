@@ -28,6 +28,31 @@ abstract final class RoastExchangeCodec {
     );
   }
 
+  // Shared through the same explicitly trusted clipboard channel as enrollment.
+  // No group identifiers or participant information are included.
+  static String encodePublicFeed({
+    required String address,
+    required String pin,
+    required String feedId,
+  }) => _encode({
+    'version': version,
+    'type': 'public-feed',
+    'address': address,
+    'pin': pin,
+    'feedId': feedId,
+  });
+
+  static ({String address, String pin, String feedId}) decodePublicFeed(
+    String encoded,
+  ) {
+    final json = _decode(encoded, expectedType: 'public-feed');
+    return (
+      address: _requiredString(json, 'address'),
+      pin: _requiredString(json, 'pin'),
+      feedId: _requiredString(json, 'feedId'),
+    );
+  }
+
   static String _encode(Map<String, Object?> value) => _checkEncodedLength(
     '$_prefix${base64Url.encode(utf8.encode(jsonEncode(value)))}',
   );

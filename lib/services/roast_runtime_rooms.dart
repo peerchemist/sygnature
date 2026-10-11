@@ -189,11 +189,13 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       coordinatorEndpointId: secretKey.publicKey.asBytes(),
       persistence: persistence.roomPersistence(setup.id),
     );
+    final publicFeed = await _publicFeedConfig(setup.groupId);
     final server = await IrohServer.start(
       IrohConfig(
         server: ServerConfig(
           group: RoastRuntimeManager._bootstrapGroup(setup.groupId),
         ),
+        roomPublicFeeds: {setup.groupId: ?publicFeed},
         maxStreamsPerConnection: defaultServerMaxStreamsPerConnection,
       ),
       secretKey: secretKey,
@@ -201,6 +203,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       rooms: rooms,
     );
     _roomServers[setup.id] = server;
+    await _subscribeHostedFeed(setup.groupId, server.address);
     unawaited(_serveRoomServer(setup.id, server));
     _roomSubscriptions[setup.id] = rooms.snapshots.listen(
       (room) => _onRoomSnapshot(setup.id, room),
