@@ -13,6 +13,7 @@ import 'models/mnemonic_seed.dart';
 import 'models/roast_setup.dart';
 import 'services/app_logger.dart';
 import 'services/app_notifications.dart';
+import 'services/android_public_feed_work.dart';
 import 'services/public_feed_poller.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
@@ -59,6 +60,11 @@ Future<void> main() async {
       );
       rethrow;
     }
+  }
+  try {
+    await initializeAndroidPublicFeedWork();
+  } on Object {
+    AppLogger.warn('Unable to schedule Android public feed background work');
   }
   runApp(SygnatureApp(incomingLinks: incomingLinks));
 }

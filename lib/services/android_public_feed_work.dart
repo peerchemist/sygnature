@@ -1,0 +1,107 @@
+import 'dart:io';
+import 'dart:ui';
+
+import 'package:coinlib/coinlib.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:workmanager/workmanager.dart';
+
+import '../storage/public_feed_store.dart';
+import 'app_notifications.dart';
+import 'public_feed_poller.dart';
+
+const publicFeedWorkUniqueName = 'network.noosphere.sygnature.public-feed';
+const publicFeedWorkTaskName = 'publicFeedPoll';
+
+/// This callback is also retained in release AOT builds. No app bootstrap runs
+/// in this engine, and WorkManager carries no subscription/capability inputData.
+@pragma('vm:entry-point')
+void publicFeedWorkDispatcher() {
+  WidgetsFlutterBinding.ensureInitialized();
+  Workmanager().executeTask(
+    (task, _) => PublicFeedBackgroundTask().execute(task),
+  );
+}
+
+Future<void> _initializePlugins() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+}
+
+Future<void> _initializeNative() async {
+  await loadCoinlib();
+  await initializePublicFeedNative();
+}
+
+typedef PublicFeedBackgroundPoll = Future<void> Function(
+  PublicFeedStore store,
+  Future<bool> Function(int, String) notify,
+);
+
+Future<void> _pollOnce(
+  PublicFeedStore store,
+  Future<bool> Function(int, String) notify,
+) => PublicFeedPoller(store, notify: notify).run();
+
+/// Injectable boundaries keep execution tests independent of an Android job.
+/// Expected feed failures are handled by the poller's durable per-feed backoff;
+/// only task infrastructure failures return false (WorkManager retry).
+final class PublicFeedBackgroundTask({
+  final Future<void> Function() initializePlugins = _initializePlugins,
+  final Future<void> Function() initializeNative = _initializeNative,
+  final Future<Directory> Function() supportDirectory =
+      getApplicationSupportDirectory,
+  final Future<PublicFeedStore> Function(String) openStore =
+      PublicFeedStore.open,
+  final AppNotifications Function() notifications = AppNotifications.new,
+  final PublicFeedBackgroundPoll poll = _pollOnce,
+}) {
+  Future<bool> execute(String task) async {
+    if (task != publicFeedWorkTaskName) return true;
+    PublicFeedStore? store;
+    AppNotifications? delivery;
+    try {
+      try {
+        await initializePlugins();
+        await initializeNative();
+        store = await openStore((await supportDirectory()).path);
+        delivery = notifications();
+        await delivery.initialize(requestPermission: false);
+        await poll(store, delivery.publicFeedRequested);
+      } finally {
+        try {
+          delivery?.dispose();
+        } finally {
+          await store?.close();
+        }
+      }
+      return true;
+    } on Object {
+      // Never log exceptions: native/transport errors may contain capabilities.
+      return false;
+    }
+  }
+}
+
+/// The OS may defer this periodic work (Doze, battery policy, force-stop).
+/// Re-registering updates the existing work without cancelling it.
+Future<void> initializeAndroidPublicFeedWork({
+  TargetPlatform? platform,
+  bool? isWeb,
+  Workmanager? workmanager,
+}) async {
+  if ((isWeb ?? kIsWeb) ||
+      (platform ?? defaultTargetPlatform) != TargetPlatform.android) {
+    return;
+  }
+  final manager = workmanager ?? Workmanager();
+  await manager.initialize(publicFeedWorkDispatcher);
+  await manager.registerPeriodicTask(
+    publicFeedWorkUniqueName,
+    publicFeedWorkTaskName,
+    frequency: const Duration(minutes: 15),
+    constraints: Constraints(networkType: NetworkType.connected),
+    existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
+  );
+}

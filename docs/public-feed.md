@@ -66,11 +66,25 @@ durable commits are allowed to finish. Runs share a durable global lease; feed o
 to avoid starving other subscriptions during catch-up. A connection completing
 after its deadline is closed without fetching.
 
-There is no existing OS scheduler/foreground service in this wallet. This change
-does not add one. Polling works while the wallet is locked and the process is
-running; a suspended/terminated mobile process cannot promise delivery. A future
-OS worker can open the same public database and invoke `run()` with Iroh
-available in that isolate, without bootstrapping the signer.
+## Android background execution
+
+Before `runApp`, Android initializes Workmanager and updates one unique periodic
+work request, `network.noosphere.sygnature.public-feed` / `publicFeedPoll`, with
+`ExistingPeriodicWorkPolicy.update`. Its minimum interval is 15 minutes and its
+only constraint is a connected network. This is **best-effort periodic work, not
+an exact timer**. No expedited work, foreground service, custom receiver, or iOS
+background scheduling is configured. Other platforms retain foreground polling.
+
+The retained top-level dispatcher initializes Flutter/plugin registration,
+coinlib for verification, and only `initializePublicFeedNative()` for Iroh. It
+opens the public store, initializes `AppNotifications` with
+`requestPermission: false`, calls exactly one bounded `PublicFeedPoller.run()`,
+and closes resources in `finally`. It never constructs the wallet controller or
+ROAST runtime, opens the vault, reads wallet/signer keys, requests biometrics,
+starts a signer/coordinator, invokes `NoosphereFlutter.initialize()`, or plays UI
+sounds. WorkManager inputData contains no subscription credentials. Notification
+permissions are requested only by the foreground app. Public notifications stay
+generic; opening the app and unlocking are required to review actual requests.
 
 Foreground and headless engines share one Hive owner. Each queued mutation reads
 the latest state, applies the complete change, and writes and flushes one JSON
@@ -88,13 +102,24 @@ after expiry; a late old owner cannot commit or release a replacement lease.
 Stable OS notification IDs cover interruption after display but before outbox ack.
 The local `_running` guard remains a cheap optimization, not synchronization.
 
-Validate notification delivery, app opening, native library packaging and
-suspension/resume behavior on each shipping platform.
+No subscriptions or a busy lease is success. Offline coordinators and expected
+feed/security failures persist the existing per-feed state and return success,
+so WorkManager does not add another retry loop. Plugin/native/store failures
+return false to request the plugin's ordinary WorkManager retry.
+
+Swiping the app from Recents normally leaves scheduled work intact. Android
+**force-stop** prevents background execution until the user opens the app again;
+Doze, battery restrictions and vendor policies may delay work. Retained events
+are caught up by cursor when execution resumes, subject to coordinator retention.
+Expired/older-than-five-minute requests remain silent, so a deferred run can
+update status without showing a notification. No background delivery deadline
+is promised. Keep the coordinator running independently if the wallet hosting
+it is also stopped.
 
 ## Processing and presentation
 
 - Fetch is exclusive after the saved cursor. Page processing, event lifecycle
-  updates and outbox intent commit as one flushed Hive record with the new
+  updates and outbox intent commit in one atomic Hive state mutation with the new
   cursor. Committed cursors deduplicate `(pin, feedId, cursor)`.
 - The initial page fixes a retained-history baseline. All entries through that
   baseline remain silent even if catch-up spans multiple runs. Later requests

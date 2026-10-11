@@ -28,7 +28,8 @@ class AppNotifications({
           authenticationUIBehavior: 'u_AuthUIF',
         ),
       );
-  final UiSounds _sounds = sounds ?? UiSounds();
+  UiSounds? _sounds = sounds;
+  UiSounds get _uiSounds => _sounds ??= UiSounds();
   final FlutterLocalNotificationsPlugin _plugin =
       plugin ?? FlutterLocalNotificationsPlugin();
 
@@ -52,10 +53,15 @@ class AppNotifications({
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.windows);
 
-  Future<void> initialize() async {
-    await _load();
+  Future<void> initialize({bool requestPermission = true}) async {
+    await _load(failOnError: !requestPermission);
     if (_systemEnabled && supportsSystemNotifications) {
-      final ready = await _ensurePluginInitialized(requestPermission: true);
+      final ready = await _ensurePluginInitialized(
+        requestPermission: requestPermission,
+      );
+      if (!ready && !requestPermission) {
+        throw StateError('Notification plugin initialization failed');
+      }
       if (!ready &&
           (defaultTargetPlatform == TargetPlatform.android ||
               defaultTargetPlatform == TargetPlatform.macOS)) {
@@ -66,7 +72,7 @@ class AppNotifications({
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool failOnError = false}) async {
     if (_loaded) return;
     _loaded = true;
     final storage = _storage;
@@ -80,6 +86,10 @@ class AppNotifications({
       _soundEnabled = _parseBool(values[1], fallback: true);
       _soundVolume = (double.tryParse(values[2] ?? '') ?? 0.5).clamp(0.0, 1.0);
     } catch (error, stackTrace) {
+      if (failOnError) {
+        _loaded = false;
+        rethrow;
+      }
       AppLogger.warn(
         'Unable to load notification settings',
         error: error,
@@ -139,7 +149,7 @@ class AppNotifications({
   }
 
   Future<bool> sendTest() async {
-    if (_soundEnabled) _sounds.message(volume: _soundVolume);
+    if (_soundEnabled) _uiSounds.message(volume: _soundVolume);
     if (!_systemEnabled || !supportsSystemNotifications) return false;
     return _show(
       title: 'Sygnature notifications',
@@ -148,7 +158,7 @@ class AppNotifications({
   }
 
   void _deliver({required String title, required String body}) {
-    if (_soundEnabled) _sounds.message(volume: _soundVolume);
+    if (_soundEnabled) _uiSounds.message(volume: _soundVolume);
     if (_systemEnabled && supportsSystemNotifications) {
       unawaited(_show(title: title, body: body));
     }
@@ -281,7 +291,7 @@ class AppNotifications({
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    unawaited(_sounds.dispose());
+    unawaited(_sounds?.dispose());
     super.dispose();
   }
 }

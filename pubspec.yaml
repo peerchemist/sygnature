@@ -35,6 +35,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   hive_ce: ^2.20.0
   hive_ce_flutter: ^2.3.4
+  workmanager: ^0.10.10
   path: ^1.9.1
   path_provider: ^2.1.6
   coinlib: ^6.0.1
