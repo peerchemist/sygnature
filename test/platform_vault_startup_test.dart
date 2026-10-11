@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
+import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/storage/vault_protection.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
@@ -75,7 +76,10 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  Future<void> startApp(WidgetTester tester, Finder destination) async {
+  Future<WalletController> startApp(
+    WidgetTester tester,
+    Finder destination,
+  ) async {
     await tester.runAsync(() async {
       await tester.pumpWidget(const SygnatureApp());
       for (var attempt = 0; attempt < 100; attempt++) {
@@ -93,6 +97,7 @@ void main() {
     expect(controller.roastAvailable, isTrue);
     expect(find.text('Protect your vault'), findsNothing);
     expect(tester.takeException(), isNull);
+    return controller;
   }
 
   for (final platform in [
@@ -140,21 +145,66 @@ void main() {
     });
   }
 
-  testWidgets('Android creates a device vault without a protection screen', (
+  testWidgets('Android unlocks only when the first vault is saved', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    await startApp(tester, find.byType(OnboardingScreen));
+    final controller = await startApp(tester, find.byType(OnboardingScreen));
     final store = await tester.runAsync(VaultProtectionStore.open);
-    expect(store!.config!.mode, VaultProtectionMode.device);
+    expect(store!.config, isNull);
+    bool authenticated(MethodCall call) =>
+        ((call.arguments as Map)['options'] as Map)['storageNamespace'] ==
+        'sygnature_device_vault_v1';
     expect(
-      storageCalls.where((call) {
-        final options = (call.arguments as Map)['options'] as Map;
-        return options['storageNamespace'] == 'sygnature_device_vault_v1';
-      }),
-      isNotEmpty,
+      storageCalls.where(
+        (call) => authenticated(call) && call.method == 'read',
+      ),
+      isEmpty,
     );
+    expect(
+      storageCalls.where(
+        (call) => authenticated(call) && call.method == 'write',
+      ),
+      isEmpty,
+    );
+    expect(Hive.isBoxOpen('sygnature_private_v1'), isFalse);
+    expect(Hive.isBoxOpen('sygnature_roast_private_v1'), isFalse);
+    expect(
+      await tester.runAsync(() => Hive.boxExists('sygnature_private_v1')),
+      isFalse,
+    );
+    expect(
+      await tester.runAsync(() => Hive.boxExists('sygnature_roast_private_v1')),
+      isFalse,
+    );
+
+    await tester.runAsync(
+      () => controller.createVault(
+        MnemonicSession(
+          words: List.filled(12, 'abandon'),
+          language: MnemonicLanguage.english,
+          createdInApp: true,
+        ),
+      ),
+    );
+    expect(
+      storageCalls.where(
+        (call) => authenticated(call) && call.method == 'read',
+      ),
+      hasLength(1),
+    );
+    expect(
+      storageCalls.where(
+        (call) => authenticated(call) && call.method == 'write',
+      ),
+      hasLength(1),
+    );
+    expect(
+      (await tester.runAsync(VaultProtectionStore.open))!.config!.mode,
+      VaultProtectionMode.device,
+    );
+    expect(Hive.isBoxOpen('sygnature_private_v1'), isTrue);
     expect(find.text('Protect your vault'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     debugDefaultTargetPlatformOverride = null;

@@ -38,7 +38,7 @@ extension WalletAccountsController on WalletController {
     return account == null ? null : networkForAccount(account);
   }
 
-  Future<void> load() async {
+  Future<void> load({bool restoreSigningOperations = true}) async {
     _vault = await _repository.load();
     _announcedRoastActions.addAll(_vault?.announcedRoastActionIds ?? const []);
     final storedAccountId = _vault?.selectedAccountId;
@@ -46,7 +46,7 @@ extension WalletAccountsController on WalletController {
         accounts.any((account) => account.id == storedAccountId)
         ? storedAccountId
         : accounts.firstOrNull?.id;
-    await _restoreRoastSigningOperations();
+    if (restoreSigningOperations) await _restoreRoastSigningOperations();
     final runtime = _roastRuntime;
     if (runtime != null) {
       _roastEvents = runtime.events.listen(

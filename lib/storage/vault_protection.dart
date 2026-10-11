@@ -66,21 +66,31 @@ bool deviceVaultAvailable({bool? web, TargetPlatform? platform}) =>
 
 /// Reads one authenticated root key before either encrypted box is opened.
 /// Derived keys stay in memory for this process; background work needs no prompt.
+const _deviceVaultKeyName = 'sygnature_device_vault_key_v1';
+
+Future<VaultKeyMaterial> createDeviceVaultKeys({
+  required SecureKeyStore keyStore,
+}) async {
+  await keyStore.write(
+    _deviceVaultKeyName,
+    base64UrlEncode(Hive.generateSecureKey()),
+  );
+  // Verify the newly stored key through the authenticated read path. This is
+  // deliberately called only when onboarding first persists the mnemonic.
+  return loadDeviceVaultKeys(keyStore: keyStore);
+}
+
 Future<VaultKeyMaterial> loadDeviceVaultKeys({
   required SecureKeyStore keyStore,
-  bool create = false,
 }) async {
-  const keyName = 'sygnature_device_vault_key_v1';
-  var encoded = await keyStore.read(keyName);
-  if (encoded == null && create) {
-    await keyStore.write(keyName, base64UrlEncode(Hive.generateSecureKey()));
-    // Require an authenticated read even when provisioning a new vault.
-    encoded = await keyStore.read(keyName);
-  }
+  final encoded = await keyStore.read(_deviceVaultKeyName);
   if (encoded == null) {
     throw StateError('The device vault encryption key is unavailable.');
   }
-  final rootKey = base64Url.decode(encoded);
+  return _expandRootKey(base64Url.decode(encoded));
+}
+
+Future<VaultKeyMaterial> _expandRootKey(Uint8List rootKey) async {
   final secretKey = SecretKeyData(rootKey, overwriteWhenDestroyed: true);
   try {
     if (rootKey.length != 32) {

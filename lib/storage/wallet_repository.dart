@@ -14,6 +14,36 @@ abstract interface class WalletRepository {
   Future<void> delete();
 }
 
+final class DeferredWalletRepository(
+  final Future<WalletRepository> Function() _open,
+) implements WalletRepository {
+  Future<WalletRepository>? _inner;
+
+  @override
+  Future<WalletVault?> load() async {
+    final inner = _inner;
+    return inner == null ? null : (await inner).load();
+  }
+
+  @override
+  Future<void> save(WalletVault vault) async {
+    late final WalletRepository inner;
+    try {
+      inner = await (_inner ??= _open());
+    } catch (_) {
+      _inner = null;
+      rethrow;
+    }
+    await inner.save(vault);
+  }
+
+  @override
+  Future<void> delete() async {
+    final inner = _inner;
+    if (inner != null) await (await inner).delete();
+  }
+}
+
 class HiveWalletRepository._(final Box<dynamic> _box)
     implements WalletRepository {
   static const _storage = EncryptedHiveBox(

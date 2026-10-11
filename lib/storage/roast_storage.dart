@@ -35,12 +35,15 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   RoastPersistenceFactory({
     SecureKeyStore? secureKeyStore,
     Uint8List? cipherKey,
+    Future<Uint8List> Function()? cipherKeyLoader,
   }) : _keyStore =
            secureKeyStore ??
-           (cipherKey == null
+           (cipherKey == null && cipherKeyLoader == null
                ? PlatformSecureKeyStore()
                : const UnavailableSecureKeyStore()),
-       _cipherKey = cipherKey;
+       _cipherKey = cipherKey,
+       _cipherKeyLoader = cipherKeyLoader,
+       assert(cipherKey == null || cipherKeyLoader == null);
 
   static const _storage = EncryptedHiveBox(
     name: 'sygnature_roast_private_v1',
@@ -53,13 +56,15 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
 
   final SecureKeyStore _keyStore;
   final Uint8List? _cipherKey;
+  final Future<Uint8List> Function()? _cipherKeyLoader;
   Future<RoastPersistence>? _opening;
   Future<void> _operationWrites = Future.value();
 
   Future<RoastPersistence> open() => _opening ??= _open();
 
   Future<RoastPersistence> _open() async {
-    final box = await _storage.open(keyStore: _keyStore, cipherKey: _cipherKey);
+    final cipherKey = _cipherKey ?? await _cipherKeyLoader?.call();
+    final box = await _storage.open(keyStore: _keyStore, cipherKey: cipherKey);
     return RoastPersistence._(box);
   }
 

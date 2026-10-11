@@ -153,15 +153,14 @@ class _SygnatureAppState extends State<SygnatureApp> {
         );
       }
       try {
-        final setup = mode == null;
-        final keys = await loadDeviceVaultKeys(
-          keyStore: PlatformSecureKeyStore.device(),
-          create: setup,
-        );
-        // Persist the mode before creating boxes so interrupted provisioning
-        // cannot be mistaken for a legacy vault on the next startup.
-        if (setup) await store.configureDevice();
-        final controller = await _createCipherKeyController(keys);
+        final keyStore = PlatformSecureKeyStore.device();
+        late final WalletController controller;
+        if (mode == VaultProtectionMode.device) {
+          final keys = await loadDeviceVaultKeys(keyStore: keyStore);
+          controller = await _createCipherKeyController(keys);
+        } else {
+          controller = await _createDeferredDeviceController(store, keyStore);
+        }
         _controller = Future.value(controller);
       } catch (error, stackTrace) {
         AppLogger.warn(
@@ -206,11 +205,34 @@ class _SygnatureAppState extends State<SygnatureApp> {
     return _loadController(repository, roastPersistence);
   }
 
+  Future<WalletController> _createDeferredDeviceController(
+    VaultProtectionStore protectionStore,
+    SecureKeyStore keyStore,
+  ) async {
+    await _notificationsReady;
+    final deviceVault = _DeferredDeviceVault(protectionStore, keyStore);
+    final repository = DeferredWalletRepository(() async {
+      final keys = await deviceVault.initialize();
+      return HiveWalletRepository.openWithCipherKey(keys.walletKey);
+    });
+    final roastPersistence = RoastPersistenceFactory(
+      cipherKeyLoader: () async => (await deviceVault.initialize()).roastKey,
+    );
+    return _loadController(
+      repository,
+      roastPersistence,
+      restorePrivateState: false,
+    );
+  }
+
   Future<WalletController> _loadController(
     WalletRepository repository,
-    RoastPersistenceFactory roastPersistence,
-  ) async {
-    await roastPersistence.recoverBackupImport(repository);
+    RoastPersistenceFactory roastPersistence, {
+    bool restorePrivateState = true,
+  }) async {
+    if (restorePrivateState) {
+      await roastPersistence.recoverBackupImport(repository);
+    }
     final controller = WalletController(
       repository,
       publicFeedStore: _publicFeedStore,
@@ -228,7 +250,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
       onCoinsReceived: _notifications.coinsReceived,
       onRoastActionRequired: _notifications.roastActionRequired,
     );
-    await controller.load();
+    await controller.load(restoreSigningOperations: restorePrivateState);
     return controller;
   }
 
@@ -589,5 +611,24 @@ class _StartupError extends StatelessWidget {
 }
 
 class const _DeviceVaultUnlockFailure() implements Exception;
+
+final class _DeferredDeviceVault(this._protectionStore, this._keyStore) {
+  final VaultProtectionStore _protectionStore;
+  final SecureKeyStore _keyStore;
+  Future<VaultKeyMaterial>? _initializing;
+
+  Future<VaultKeyMaterial> initialize() => _initializing ??= _initialize();
+
+  Future<VaultKeyMaterial> _initialize() async {
+    try {
+      final keys = await createDeviceVaultKeys(keyStore: _keyStore);
+      await _protectionStore.configureDevice();
+      return keys;
+    } catch (_) {
+      _initializing = null;
+      rethrow;
+    }
+  }
+}
 
 enum _InvitationFailure { vaultLocked, unsupported, signerMismatch }
