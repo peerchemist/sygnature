@@ -1,5 +1,7 @@
 part of 'wallet_controller.dart';
 
+enum _RoastJoinPhase { invitation, enrollment, localSetup, signerStartup }
+
 extension WalletRoastSetupController on WalletController {
   List<RoastSetup> get roastSetups => _vault?.roastSetups ?? const [];
   List<WalletGroupTransition> get groupTransitions =>
@@ -687,6 +689,7 @@ extension WalletRoastSetupController on WalletController {
     if (draft.role != RoastSetupRole.member) {
       throw StateError('This setup is not waiting for an invitation.');
     }
+    var phase = _RoastJoinPhase.invitation;
     try {
       // This validates the bound identity key before the runtime opens Iroh.
       final invite = NoosphereRoomInvite.decode(
@@ -694,7 +697,9 @@ extension WalletRoastSetupController on WalletController {
         prefix: sygnatureRoomInvitePrefix,
       );
       _roastKeyService.validateRoomInvite(draft, invite);
+      phase = _RoastJoinPhase.enrollment;
       final enrollment = await _roastRuntime!.joinRoom(draft, invite);
+      phase = _RoastJoinPhase.localSetup;
       final enrolled = _roastKeyService.applyRoomEnrollment(
         draft,
         invite.invite,
@@ -730,6 +735,7 @@ extension WalletRoastSetupController on WalletController {
           ],
         );
       });
+      phase = _RoastJoinPhase.signerStartup;
       final snapshot = await _roastRuntime.startSetup(enrolled);
       _setRoastPresence(
         enrolled.id,
@@ -751,11 +757,17 @@ extension WalletRoastSetupController on WalletController {
         ),
       );
     } catch (error) {
+      AppLogger.error(
+        '${_roastLogScope(draft.id)} Join failed during ${phase.name}',
+        error: error,
+      );
       await _updateSetup(
         draft.id,
         (setup) => setup.copyWith(
-          status: RoastSetupStatus.error,
-          errorMessage: _cleanRoastError(error),
+          status: setup.isFinalized
+              ? RoastSetupStatus.error
+              : RoastSetupStatus.draft,
+          errorMessage: _cleanRoastJoinError(error, phase),
         ),
       );
       rethrow;
@@ -1380,15 +1392,17 @@ extension WalletRoastSetupController on WalletController {
               '(room code $roomFailureCode).',
       },
     RoastEnrollmentFailure(kind: RoastEnrollmentFailureKind.timeout) =>
-      'Room enrollment timed out. Check coordinator state before retrying.',
+      'Room enrollment timed out. The invitation may already be used; check '
+          'the coordinator before retrying.',
     RoastEnrollmentFailure(
       kind: RoastEnrollmentFailureKind.malformedResponse,
     ) =>
-      'The coordinator returned an invalid enrollment response. Check '
-          'coordinator state before retrying.',
+      'The coordinator returned an invalid enrollment response. The '
+          'invitation may already be used; check the coordinator before '
+          'retrying.',
     RoastEnrollmentFailure(kind: RoastEnrollmentFailureKind.connection) =>
-      'The enrollment connection was interrupted. Check coordinator state '
-          'before retrying.',
+      'The enrollment connection was interrupted. The invitation may already '
+          'be used; check the coordinator before retrying.',
     NoosphereWorkerException(:final code) => switch (code) {
       'invalid_state' =>
         'The ROAST operation is not valid in the current state.',
@@ -1399,6 +1413,22 @@ extension WalletRoastSetupController on WalletController {
       _ => 'The ROAST operation failed.',
     },
     _ => 'Unable to connect to the ROAST coordinator.',
+  };
+
+  static String _cleanRoastJoinError(
+    Object error,
+    _RoastJoinPhase phase,
+  ) => switch (phase) {
+    _RoastJoinPhase.invitation =>
+      'This ROAST invitation is invalid, expired, or belongs to another '
+          'signer.',
+    _RoastJoinPhase.enrollment => _cleanRoastError(error),
+    _RoastJoinPhase.localSetup =>
+      'Room enrollment succeeded, but this device could not configure the '
+          'shared wallet. The invitation has already been used.',
+    _RoastJoinPhase.signerStartup =>
+      'Room enrollment was saved, but the signer could not finish starting. '
+          'Use Reconnect after the coordinator is ready.',
   };
 
   static String _roastLogScope(String setupId) {

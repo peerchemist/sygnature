@@ -1251,6 +1251,13 @@ void main() {
           controller.roastSetups.single.errorMessage,
           contains(testCase.message),
         );
+        expect(
+          controller.roastSetups.single.errorMessage,
+          testCase.failure.outcomeMayBePersisted
+              ? contains('may already be used')
+              : isNot(contains('may already be used')),
+        );
+        expect(controller.roastSetups.single.status, RoastSetupStatus.draft);
         controller.dispose();
       }
     },

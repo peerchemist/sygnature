@@ -233,7 +233,7 @@ class RoastKeyService {
           RoastParticipant(
             cardId: draft.localParticipant.cardId,
             name: draft.localParticipant.name,
-            identifierHex: (index + 1).toRadixString(16).padLeft(2, '0'),
+            identifierHex: Identifier.fromUint16(index + 1).toString(),
             publicKeyHex: publicKeys[index],
           )
         else
@@ -242,7 +242,7 @@ class RoastKeyService {
             name: publicKeys[index] == hostParticipantPublicKeyHex
                 ? 'Coordinator'
                 : 'Signer ${index + 1}',
-            identifierHex: (index + 1).toRadixString(16).padLeft(2, '0'),
+            identifierHex: Identifier.fromUint16(index + 1).toString(),
             publicKeyHex: publicKeys[index],
           ),
     ];

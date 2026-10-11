@@ -2,8 +2,6 @@ import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
-// ignore: depend_on_referenced_packages
-import 'package:iroh_flutter/iroh_flutter.dart' show Iroh;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
@@ -12,10 +10,7 @@ import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 
 void main() {
-  setUpAll(() async {
-    await loadCoinlib();
-    await Iroh.init();
-  });
+  setUpAll(NoosphereFlutter.initializeNative);
 
   test('reads schema 1 vaults without changing personal account data', () {
     final vault = WalletVault.fromJson({
@@ -157,6 +152,10 @@ void main() {
     expect(setup.coordinatorIpAddrs, isEmpty);
     expect(setup.coordinatorRelayUrls, isEmpty);
     expect(setup.keyName, '$groupId-g1');
+    expect(
+      setup.participants.map((participant) => participant.identifierHex),
+      ['00' * 31 + '01', '00' * 31 + '02'],
+    );
     expect(() => PublicKey.fromZ32(setup.coordinatorId!), returnsNormally);
   });
 
