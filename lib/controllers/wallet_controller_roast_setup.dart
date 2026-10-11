@@ -130,7 +130,7 @@ extension WalletRoastSetupController on WalletController {
   }) async {
     if (_roastRuntime == null) {
       throw UnsupportedError(
-        'ROAST is available on supported desktop platforms only.',
+        'ROAST is unavailable in this application session.',
       );
     }
     final cleanParticipantName = participantName.trim();
@@ -237,7 +237,7 @@ extension WalletRoastSetupController on WalletController {
     final current = _vault;
     if (runtime == null) {
       throw UnsupportedError(
-        'ROAST is available on supported desktop platforms only.',
+        'ROAST is unavailable in this application session.',
       );
     }
     if (current == null) {

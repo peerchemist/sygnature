@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/storage/vault_protection.dart';
@@ -84,6 +85,12 @@ void main() {
       }
     });
     expect(destination, findsOneWidget);
+    final controller = switch (tester.widget(destination)) {
+      OnboardingScreen(:final controller) => controller,
+      WalletHome(:final controller) => controller,
+      _ => throw StateError('Unexpected startup destination.'),
+    };
+    expect(controller.roastAvailable, isTrue);
     expect(find.text('Protect your vault'), findsNothing);
     expect(tester.takeException(), isNull);
   }

@@ -7,7 +7,7 @@ Future<void> showRoastSetupCreation(
   if (!controller.roastAvailable) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('ROAST is currently available on Linux and macOS.'),
+        content: Text('ROAST is unavailable in this application session.'),
       ),
     );
     return;

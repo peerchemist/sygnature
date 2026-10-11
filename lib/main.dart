@@ -47,19 +47,17 @@ Future<void> main() async {
   };
   final incomingLinks = AppLinks().uriLinkStream;
   await loadCoinlib();
-  if (_roastSupported) {
-    AppLogger.info('[NOOSPHERE] Initializing native runtime');
-    try {
-      await NoosphereFlutter.initialize();
-      AppLogger.info('[NOOSPHERE] Native runtime initialized');
-    } catch (error, stackTrace) {
-      AppLogger.fatal(
-        '[NOOSPHERE] Native runtime initialization failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      rethrow;
-    }
+  AppLogger.info('[NOOSPHERE] Initializing native runtime');
+  try {
+    await NoosphereFlutter.initialize();
+    AppLogger.info('[NOOSPHERE] Native runtime initialized');
+  } catch (error, stackTrace) {
+    AppLogger.fatal(
+      '[NOOSPHERE] Native runtime initialization failed',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    rethrow;
   }
   try {
     await initializeAndroidPublicFeedWork();
@@ -97,12 +95,10 @@ class _SygnatureAppState extends State<SygnatureApp> {
     super.initState();
     final controllerFactory = widget.controllerFactory;
     if (controllerFactory == null) {
-      if (_roastSupported) {
-        _publicFeedStore = getApplicationSupportDirectory().then(
-          (directory) => PublicFeedStore.open(directory.path),
-        );
-        unawaited(_startPublicFeedPolling());
-      }
+      _publicFeedStore = getApplicationSupportDirectory().then(
+        (directory) => PublicFeedStore.open(directory.path),
+      );
+      unawaited(_startPublicFeedPolling());
       _protectionStore = _initializeVault();
     } else {
       _protectionStore = null;
@@ -193,9 +189,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
     final repository = await HiveWalletRepository.open(
       secureKeyStore: secureKeyStore,
     );
-    final roastPersistence = _roastSupported || desktopVaultAvailable()
-        ? RoastPersistenceFactory(secureKeyStore: secureKeyStore)
-        : null;
+    final roastPersistence = RoastPersistenceFactory(
+      secureKeyStore: secureKeyStore,
+    );
     return _loadController(repository, roastPersistence);
   }
 
@@ -206,28 +202,24 @@ class _SygnatureAppState extends State<SygnatureApp> {
     final repository = await HiveWalletRepository.openWithCipherKey(
       keys.walletKey,
     );
-    final roastPersistence = _roastSupported
-        ? RoastPersistenceFactory(cipherKey: keys.roastKey)
-        : null;
+    final roastPersistence = RoastPersistenceFactory(cipherKey: keys.roastKey);
     return _loadController(repository, roastPersistence);
   }
 
   Future<WalletController> _loadController(
     WalletRepository repository,
-    RoastPersistenceFactory? roastPersistence,
+    RoastPersistenceFactory roastPersistence,
   ) async {
-    await roastPersistence?.recoverBackupImport(repository);
+    await roastPersistence.recoverBackupImport(repository);
     final controller = WalletController(
       repository,
       publicFeedStore: _publicFeedStore,
       backupService: WalletBackupService(repository, roastPersistence),
-      roastRuntime: _roastSupported
-          ? RoastRuntimeManager(
-              roastPersistence!,
-              publicFeedStore: _publicFeedStore,
-              getWalletBip39Seed: () => _walletBip39Seed(repository),
-            )
-          : null,
+      roastRuntime: RoastRuntimeManager(
+        roastPersistence,
+        publicFeedStore: _publicFeedStore,
+        getWalletBip39Seed: () => _walletBip39Seed(repository),
+      ),
       roastSigningOperations: roastPersistence,
       networkServiceFactory: (network) =>
           PeercoinElectrumxService.createForPreset(
@@ -423,7 +415,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   static String _displayError(Object error) => switch (error) {
     _InvitationFailure.unsupported =>
-      'ROAST invitations are unsupported on this device.',
+      'ROAST invitations are unavailable in this application session.',
     _InvitationFailure.vaultLocked =>
       'Unlock the matching wallet before opening this invitation.',
     _InvitationFailure.signerMismatch =>
@@ -505,12 +497,6 @@ class _SygnatureAppState extends State<SygnatureApp> {
         },
       );
 }
-
-bool get _roastSupported =>
-    !kIsWeb &&
-    (defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.linux ||
-        defaultTargetPlatform == TargetPlatform.macOS);
 
 class _StartupLoading extends StatelessWidget {
   const _StartupLoading();
