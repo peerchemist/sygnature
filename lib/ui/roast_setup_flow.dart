@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:unique_names_generator/unique_names_generator.dart';
@@ -19,6 +20,11 @@ part 'roast_setup_flow/invitations_dialog.dart';
 part 'roast_setup_flow/message_dialog.dart';
 
 const _maxRoastParticipants = 32;
+
+bool get _isMobilePlatform =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
 
 final _participantAliasGenerator = UniqueNamesGenerator(
   config: Config(

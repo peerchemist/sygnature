@@ -167,6 +167,42 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                 _error = null;
               }),
             ),
+            if (_role == RoastSetupRole.host && _isMobilePlatform) ...[
+              const SizedBox(height: 12),
+              Container(
+                key: const Key('mobile-coordinator-warning'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppColors.warningDark,
+                      size: 20,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Mobile operating systems may suspend this app in the '
+                        'background, making the coordinator unavailable. For '
+                        'reliable ROAST coordination, run the coordinator on '
+                        'a desktop or server.',
+                        style: TextStyle(
+                          color: AppColors.warningDark,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
             TextField(
               key: const Key('roast-wallet-name'),

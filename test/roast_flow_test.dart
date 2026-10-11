@@ -9,6 +9,7 @@ import 'package:coinlib/coinlib.dart'
         Taproot,
         bytesToHex,
         loadCoinlib;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +36,7 @@ import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/app_theme.dart';
+import 'package:sygnature_ng/ui/roast_setup_flow.dart';
 
 void main() {
   setUpAll(loadCoinlib);
@@ -149,6 +151,52 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('warns against hosting a coordinator on mobile platforms', (
+    tester,
+  ) async {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      roastRuntime: _FakeRoastRuntime(),
+      networkServiceFactory: (_) async => null,
+    );
+    addTearDown(controller.dispose);
+
+    for (final platform in [
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+    ]) {
+      debugDefaultTargetPlatformOverride = platform;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showRoastSetupCreation(context, controller),
+              child: const Text('Open setup'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open setup'));
+      await tester.pumpAndSettle();
+
+      final warning = find.byKey(const Key('mobile-coordinator-warning'));
+      expect(
+        warning,
+        platform == TargetPlatform.macOS ? findsNothing : findsOneWidget,
+      );
+      if (platform != TargetPlatform.macOS) {
+        expect(find.textContaining('desktop or server'), findsOneWidget);
+      }
+
+      await tester.tap(find.byKey(const Key('roast-setup-back')));
+      await tester.pumpAndSettle();
+    }
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('allows an m-of-n setup with more than five participants', (
