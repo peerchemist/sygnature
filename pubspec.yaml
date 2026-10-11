@@ -48,22 +48,22 @@ dependencies:
   noosphere_flutter:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
   noosphere:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
       path: packages/noosphere
   iroh_quic: 1.0.3
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
       path: packages/noosphere_server
   flutter_local_notifications: ^22.3.1
   app_links: ^7.2.1
@@ -72,17 +72,17 @@ dependency_overrides:
   noosphere:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
       path: packages/noosphere
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 3c91105b222f34483f35971b23c1caab0a97604a
+      ref: 0.1.2
       path: packages/noosphere_server
 
 hooks:

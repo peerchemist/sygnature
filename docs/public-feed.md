@@ -1,7 +1,7 @@
 # Noosphere public operation feed
 
-The wallet targets Noosphere commit
-`3c91105b222f34483f35971b23c1caab0a97604a`. See the upstream
+The wallet pins Noosphere tag `0.1.2`, resolved in the lockfile to commit
+`30d934b3e57ee797cdf2c3d5119ab15d04f33cc4`. See the upstream
 `architecture/public-feed.md`. The coordinator remains responsible for all
 ROAST/DKG business logic. This integration uses the existing protobuf public
 client and `noosphere/public-feed/1` ALPN; the wallet does not implement a
@@ -109,12 +109,9 @@ and existing signing/DKG/controller/storage flows. On Linux the subprocess also
 checks that neither FROST nor coinlib native libraries were loaded and that no
 signer sessions, challenges, presence or coordinator snapshot changed.
 
-At implementation time this SHA existed in the local Noosphere checkout but
-GitHub's `peerchemist/noosphere` repository returned “No commit found”. Publish
-that exact commit before expecting clean `flutter pub get` / CI to resolve it.
-Validation used a temporary local path override against the exact SHA; no local
-path override is part of the committed dependency configuration. Both pubspec
-and lockfile pin all Noosphere packages to the requested Git revision.
+All Noosphere Git dependencies and overrides use the published `0.1.2` tag.
+The lockfile records its resolved commit, and `flutter pub get` resolves it
+without local path overrides.
 
 Keep the host configuration, coordinator identity and complete existing atomic
 snapshot together. Do not downgrade an enabled coordinator or replace its live
