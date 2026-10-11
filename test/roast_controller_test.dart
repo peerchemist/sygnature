@@ -505,11 +505,12 @@ void main() {
   });
 
   test('creates a separate room invite bound to each remote signer', () async {
-    final memberPublicKey = ECCompressedPublicKey.fromPubkey(
-      ECPrivateKey.generate().pubkey,
-    );
+    const memberPublicKeyHex =
+        '03458e1f11de2c060570fbfd8a163a22ef28a55bb9180d9fe38cf24f82647bc077';
+    final memberPublicKey = ECCompressedPublicKey.fromHex(memberPublicKeyHex);
+    final hostPrivateKey = ECPrivateKey.fromHex('11' * 32);
     final hostPublicKey = ECCompressedPublicKey.fromPubkey(
-      ECPrivateKey.generate().pubkey,
+      hostPrivateKey.pubkey,
     );
     final participants = [
       RoastParticipant(
@@ -562,7 +563,7 @@ void main() {
             blockchainId: 'peercoin',
             networkId: 'mainnet',
             localCardId: 'host-card',
-            localParticipantPrivateKeyHex: '11' * 32,
+            localParticipantPrivateKeyHex: bytesToHex(hostPrivateKey.data),
             participants: [participants.last],
             keyName: 'group:generation:1',
             createdAt: DateTime.utc(2026),
@@ -570,11 +571,7 @@ void main() {
           ),
         ],
       );
-    final controller = WalletController(
-      repository,
-      roastRuntime: runtime,
-      roastKeyService: _RoomRoastKeyService(participants),
-    );
+    final controller = WalletController(repository, roastRuntime: runtime);
     await controller.load();
 
     final invitations = await controller.createHostedRoastInvitations('setup', [
@@ -591,7 +588,12 @@ void main() {
       payload.invite.expectedParticipantPublicKey.hex,
       participants.first.publicKeyHex,
     );
-    expect(runtime.createdRoomSetup?.hostParticipantId, '02');
+    expect(
+      runtime.createdRoomSetup?.participants
+          .singleWhere((participant) => participant.name == 'Member')
+          .publicKeyHex,
+      memberPublicKeyHex,
+    );
     expect(controller.issuedRoastInvitations('setup'), invitations);
     expect(repository.value!.roastSetups.single.invitations, invitations);
 
@@ -2782,21 +2784,6 @@ final class _FakeRoastKeyService extends RoastKeyService {
 
   @override
   String addressForScript(network, String scriptHex) => 'pc1pdestination';
-}
-
-final class _RoomRoastKeyService(final List<RoastParticipant> roster)
-    extends RoastKeyService {
-  @override
-  String participantCardFromPublicKey({
-    required String name,
-    required String publicKeyHex,
-  }) => 'participant-card';
-
-  @override
-  List<RoastParticipant> finalizeRoster(setup, encodedCards) => roster;
-
-  @override
-  String groupFingerprint(setup) => 'fingerprint';
 }
 
 NoosphereRoomInvite _roomInvite(

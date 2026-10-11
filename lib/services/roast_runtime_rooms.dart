@@ -14,7 +14,8 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     );
     _setups[setup.id] = setup;
     final server = await _ensureRoomServer(setup);
-    await server.createRoom(
+    final rooms = server.rooms!;
+    await rooms.createRoom(
       roomId: setup.groupId,
       expectedParticipants: setup.participantCount,
       threshold: setup.threshold,
@@ -33,7 +34,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     );
     final issued = <NoosphereRoomInvite>[];
     for (final participant in setup.participants) {
-      final invite = await server.issueRoomInvite(
+      final invite = await rooms.issueRoomInvite(
         roomId: setup.groupId,
         expectedParticipantPublicKey: ECCompressedPublicKey.fromHex(
           participant.publicKeyHex,
@@ -41,7 +42,10 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         expiresAt: DateTime.now().toUtc().add(const Duration(days: 7)),
       );
       if (participant.cardId == setup.localCardId) {
-        await _joinRoomInvite(invite, privateKey);
+        // The new endpoint may not have discoverable addresses yet. The host
+        // can enroll directly through the room state machine it owns.
+        await RoomEnrollmentClient(rooms)
+            .joinRoom(invite, (_) async => privateKey);
       } else {
         issued.add(
           NoosphereRoomInvite(
