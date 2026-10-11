@@ -39,14 +39,6 @@ Future<void> main(List<String> arguments) async {
     persistence: handler.persistence,
   );
   unawaited(server.serve());
-  final challenge = await handler.login(
-    groupFingerprint: config.group.fingerprint,
-    participantId: id,
-  );
-  final session = await handler.respondToChallenge(
-    Signed.sign(obj: challenge.challenge, key: key),
-  );
-  unawaited(session.events.drain<void>());
   await server.endpoint
       .watchAddr()
       .firstWhere((address) => address.relayUrls.isNotEmpty)
@@ -68,6 +60,14 @@ Future<void> main(List<String> arguments) async {
       in stdin.transform(utf8.decoder).transform(const LineSplitter())) {
     if (command == 'quit') break;
     if (command != 'event') continue;
+    final challenge = await handler.login(
+      groupFingerprint: config.group.fingerprint,
+      participantId: id,
+    );
+    final session = await handler.respondToChallenge(
+      Signed.sign(obj: challenge.challenge, key: key),
+    );
+    unawaited(session.events.drain<void>());
     await handler.requestNewDkg(
       sid: session.id,
       signedDetails: Signed.sign(

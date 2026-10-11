@@ -10,6 +10,10 @@ import 'package:sygnature_ng/services/android_public_feed_work.dart';
 import 'package:sygnature_ng/services/app_notifications.dart';
 import 'package:sygnature_ng/services/public_feed_poller.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
+import 'package:workmanager/workmanager.dart';
+
+const _manualWorkName =
+    'network.noosphere.sygnature.public-feed.device-verification';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,22 +46,44 @@ Future<void> main() async {
       home: Scaffold(
         appBar: AppBar(title: const Text('Public feed device verification')),
         body: Center(
-          child: FilledButton(
-            onPressed: () async {
-              final state = await store.snapshot();
-              final feeds = (state['feeds'] as Map).values;
-              final cursor = feeds.isEmpty ? 0 : (feeds.first as Map)['cursor'];
-              final issue = feeds.isEmpty
-                  ? null
-                  : (feeds.first as Map)['issue'];
-              // Only status is displayed. Never expose a capability or request detail.
-              status.value =
-                  'No wallet loaded. Cursor: $cursor. Issue: ${issue == null ? "none" : "present"}';
-            },
-            child: ValueListenableBuilder<String>(
-              valueListenable: status,
-              builder: (_, value, _) => Text(value),
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilledButton(
+                onPressed: () async {
+                  final state = await store.snapshot();
+                  final key = (state['bindings'] as Map)['device-check'];
+                  final feed = key == null
+                      ? null
+                      : (state['feeds'] as Map)[key] as Map?;
+                  final cursor = feed?['cursor'] ?? 0;
+                  final issue = feed?['issue'];
+                  // Only status is displayed. Never expose a capability or request detail.
+                  status.value =
+                      'No wallet loaded. Cursor: $cursor. Issue: ${issue == null ? "none" : "present"}';
+                },
+                child: ValueListenableBuilder<String>(
+                  valueListenable: status,
+                  builder: (_, value, _) => Text(value),
+                ),
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton(
+                onPressed: () async {
+                  await Workmanager().registerOneOffTask(
+                    _manualWorkName,
+                    publicFeedWorkTaskName,
+                    initialDelay: const Duration(seconds: 30),
+                    constraints: Constraints(
+                      networkType: NetworkType.connected,
+                    ),
+                    existingWorkPolicy: ExistingWorkPolicy.replace,
+                  );
+                  status.value = 'No wallet loaded. One-off worker scheduled in 30 seconds.';
+                },
+                child: const Text('Schedule one-off worker'),
+              ),
+            ],
           ),
         ),
       ),
