@@ -102,8 +102,8 @@ Result: pass. Force-stop prevents background execution, but a later user launch 
 3. The original verification status selected the first retained feed rather than the active binding. It now follows `bindings['device-check']`; production code was not affected.
 4. Flutter warns that the current `workmanager_android` plugin applies legacy KGP and will need a future Built-in Kotlin-compatible release.
 5. Emulator Iroh startup emits SELinux denials for optional `/proc` and `/sys` network inspection, but transport, polling, commit, and notification all succeeded.
-6. Production periodic timing was verified at registration/JobScheduler level, while immediate headless execution used a verification-only one-off task with the identical callback. Android's natural inexact 15-minute cadence was not claimed as tested in this cycle.
-7. Product-level timing risk: background periodic work has a 15-minute minimum and may be delayed, while notification freshness is five minutes. Retained events will still be fetched and shown in app state, but an event first observed more than five minutes later is intentionally silent. Background notifications are therefore best-effort, not comprehensive.
+6. The first phase verified registration/JobScheduler state and used a verification-only one-off task for immediate headless execution. The later 2-of-3 phase below also observed an unforced natural periodic run.
+7. The original five-minute notification policy conflicted with WorkManager's minimum interval. It was subsequently replaced by a user-configurable 15-minute-to-24-hour window, defaulting to one hour; the later phase below validates a request first observed after more than 15 minutes.
 
 ## Current result
 
@@ -119,6 +119,114 @@ Result: pass. Force-stop prevents background execution, but a later user launch 
 - `git diff --check`: clean.
 - Synthetic coordinator shut down normally after the test.
 - Android 14 emulator remains running for the next E2E phase.
+
+## Real 2-of-3 message-signing E2E phase
+
+### Scope and topology
+
+- Linux process: one real Noosphere coordinator plus desktop participants 1 and 2.
+- Android 14 emulator: real participant 3, with its FROST share in the app's durable encrypted client storage.
+- Threshold: 2-of-3. Desktop participant 1 requested the signature; Android participant 3 supplied the second signing share. Desktop participant 2 remained online but did not sign.
+- Payload: a synthetic text message only; no coins, wallet mnemonic, production key, or production application data was used.
+- Public-feed and signer transports were pinned to the same ephemeral coordinator identity. Capability values and private material are intentionally omitted from this log.
+
+The test-only files are `test/support/roast_2of3_device_coordinator.dart` and `test/support/android_public_feed_device_app.dart`. They are reachable only through the dedicated test entrypoint/application ID.
+
+### 17:31–17:39 — Harness validation and DKG
+
+- Static analysis of both test harnesses completed with no issues.
+- Built and installed the dedicated `network.noosphere.sygnature.publicfeedtest` APK.
+- Started a real coordinator and two authenticated desktop clients on Linux.
+- Android connected as participant 3 and reported two online peers.
+- Desktop participant 1 requested a 2-of-3 DKG; desktop participant 2 and Android participant 3 accepted it.
+- Android reported one completed key, and both desktop stores reported one key.
+- The Android test entrypoint then polled the public feed while foregrounded to establish a clean post-DKG baseline. The cursor was `2`, with no issue.
+
+Result: pass. All three clients completed the real DKG, and Android durably stored its share.
+
+Observed harness correction: the first attempted run did not advance the public cursor after DKG, so a later worker would have seen both the old DKG event and the new signing event. That run was discarded before its job became due. The test-only DKG action now waits for key completion and establishes the foreground cursor baseline. No production behavior changed.
+
+### 17:39–17:55 — Process death and natural WorkManager pickup
+
+- At `17:39:33+02:00`, sent the Android activity to Home and killed only its process with `am kill`; the package was not force-stopped.
+- Confirmed no Android application process remained.
+- The desktop requester committed a one-hour message-signing request immediately afterward.
+- Did not use `cmd jobscheduler run`, expedited work, the one-off test action, or a foreground service for this pickup.
+- JobScheduler initially reported the registered periodic job with approximately 13 minutes 36 seconds until its earliest run, later transitioning to `Ready: true` and `RUNNABLE`.
+- Turned the emulator screen off to model a sleeping phone. Android naturally started the package at `17:55:27` for `SystemJobService`.
+- WorkManager loaded a headless Flutter engine and completed successfully at `17:55:29`.
+
+Relevant log:
+
+```text
+ActivityManager: Start proc ... network.noosphere.sygnature.publicfeedtest ... for SystemJobService
+WM-WorkerWrapper: Starting work for dev.fluttercommunity.workmanager.BackgroundWorker
+FlutterJNI: Beginning load of flutter...
+WM-WorkerWrapper: Worker result SUCCESS
+```
+
+Timing result:
+
+- Signing request age at worker start: approximately 15 minutes 53 seconds.
+- Worker start was approximately two minutes after JobScheduler's earliest-run threshold, demonstrating expected inexact batching.
+- This is beyond the former five-minute cutoff and inside the configured/default one-hour notification window.
+
+Notification Manager contained exactly one active notification for the isolated package:
+
+```text
+id=1073741824
+android.title=New signing request
+android.text=Open Sygnature and unlock your wallet to review current requests.
+```
+
+No message body, signer identity, coordinator capability, or operation detail appeared in the notification.
+
+Result: pass. A natural periodic WorkManager cycle found and notified about a request created while the app process did not exist.
+
+### 17:56–17:58 — User catch-up, approval, signature, and dedup
+
+- Reopened the Android app manually.
+- Android restored its persisted FROST key (`Keys: 1`), reconnected to two peers, and displayed one pending signing request.
+- Public-feed cursor was durably advanced from the post-DKG baseline `2` to `3`, with no issue.
+- Approved the synthetic text-message request on Android.
+- The coordinator completed the ceremony using desktop participant 1 plus Android participant 3 and cryptographically verified the signed-message envelope.
+
+```text
+SIGNATURE VERIFIED: true
+Desktop keys: 1, 1; pending signatures: 0.
+```
+
+- Scheduled one verification-only repeat invocation of the identical callback, backgrounded the app, and killed its process again.
+- The repeat headless worker returned `SUCCESS`.
+- Notification Manager still contained one package notification and one `New signing request` title; no duplicate was added or updated.
+
+Result: pass. Android recovered its durable share after process death, participated in the real 2-of-3 signature, and persistent notification deduplication survived another process restart.
+
+### Platform warnings and errors
+
+The following emulator SELinux denials recurred during native Iroh initialization:
+
+```text
+avc: denied { read } for name="max_map_count"
+avc: denied { nlmsg_readpriv } ... netlink_route_socket
+avc: denied { search } for name="net" ... sysfs_net
+```
+
+They did not prevent coordinator connectivity, feed polling, DKG, durable share recovery, message signing, notification delivery, or signature verification.
+
+WorkManager logged `Application was force-stopped, rescheduling` during its startup bookkeeping even though this clean phase used package clear/install followed by `am kill`, not `am force-stop`. Android still dispatched and completed the due work in the same startup. This appears to be WorkManager's internal force-stop/reschedule detection after package/test-state initialization, not evidence that the package was in Android's stopped state.
+
+The existing Kotlin Gradle Plugin migration warning for `workmanager_android` also remains unchanged and non-blocking.
+
+### E2E conclusion
+
+- Real 2-of-3 DKG across Linux and Android: pass.
+- Android share persistence across process death: pass.
+- Natural Android 14 periodic WorkManager pickup after more than 15 minutes: pass.
+- One-hour notification window behavior: pass.
+- Manual app catch-up and pending-request recovery: pass.
+- Android plus desktop message signature and Schnorr/signed-message verification: pass.
+- Persistent notification deduplication after another headless process restart: pass.
 
 ### 16:55 — First foreground launch and scheduler registration
 
