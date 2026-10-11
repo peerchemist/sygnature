@@ -1209,7 +1209,9 @@ extension WalletRoastSetupController on WalletController {
       final pendingDkgProposalHex = connected.pendingDkgProposalHex;
       if (connected.status == RoastSetupStatus.awaitingDkgApproval &&
           pendingDkgProposalHex != null) {
-        _announceRoastAction('dkg:${connected.id}:$pendingDkgProposalHex');
+        await _announceRoastAction(
+          'dkg:${connected.id}:$pendingDkgProposalHex',
+        );
       }
       if (snapshot.groupKeyHex != null) {
         await _activateRoastAccount(connected, snapshot.groupKeyHex!);

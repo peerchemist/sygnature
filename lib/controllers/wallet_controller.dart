@@ -101,6 +101,7 @@ final class const WalletBusyFailure() implements Exception {
 
 class WalletController extends ChangeNotifier {
   static const _maxActivityEntries = 100;
+  static const _maxAnnouncedRoastActions = 512;
 
   WalletController(
     this._repository, {

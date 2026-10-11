@@ -10,6 +10,7 @@ class WalletVault {
     this.roastSetups = const [],
     this.groupTransitions = const [],
     this.activities = const [],
+    this.announcedRoastActionIds = const [],
     this.mnemonic,
     this.languageId,
     this.mnemonicWordCount,
@@ -32,6 +33,7 @@ class WalletVault {
   final List<RoastSetup> roastSetups;
   final List<WalletGroupTransition> groupTransitions;
   final List<WalletActivity> activities;
+  final List<String> announcedRoastActionIds;
 
   WalletVault copyWith({
     List<WalletAccount>? accounts,
@@ -39,6 +41,7 @@ class WalletVault {
     List<RoastSetup>? roastSetups,
     List<WalletGroupTransition>? groupTransitions,
     List<WalletActivity>? activities,
+    List<String>? announcedRoastActionIds,
     String? selectedAccountId,
     bool clearSelectedAccountId = false,
   }) => WalletVault(
@@ -54,6 +57,8 @@ class WalletVault {
     roastSetups: roastSetups ?? this.roastSetups,
     groupTransitions: groupTransitions ?? this.groupTransitions,
     activities: activities ?? this.activities,
+    announcedRoastActionIds:
+        announcedRoastActionIds ?? this.announcedRoastActionIds,
   );
 
   Map<String, Object?> toJson() => {
@@ -70,6 +75,7 @@ class WalletVault {
         .map((transition) => transition.toJson())
         .toList(),
     'activities': activities.map((activity) => activity.toJson()).toList(),
+    'announcedRoastActionIds': announcedRoastActionIds,
   };
 
   factory WalletVault.fromJson(Map<Object?, Object?> json) {
@@ -96,6 +102,10 @@ class WalletVault {
       activities: ((json['activities'] as List?) ?? const [])
           .map((activity) => WalletActivity.fromJson(activity as Map))
           .toList(growable: false),
+      announcedRoastActionIds:
+          ((json['announcedRoastActionIds'] as List?) ?? const [])
+              .cast<String>()
+              .toList(growable: false),
     );
   }
 }

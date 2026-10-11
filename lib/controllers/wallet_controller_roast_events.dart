@@ -180,7 +180,7 @@ extension WalletRoastEventController on WalletController {
           ),
         );
         if (event.failure == null && event.stage == 'waiting') {
-          _announceRoastAction('dkg:${setup.id}:${event.proposalHex}');
+          await _announceRoastAction('dkg:${setup.id}:${event.proposalHex}');
         }
         await _recordSetupActivity(
           setup,
@@ -302,7 +302,7 @@ extension WalletRoastEventController on WalletController {
           );
           _roastSigningRequests[requestKey] = inboxItem;
           if (isNew && event.request.status == 'waiting') {
-            _announceRoastAction('signatures:$requestKey');
+            await _announceRoastAction('signatures:$requestKey');
             final transactionRecipients = [
               if (event.request.kind == RoastSigningRequestKind.transaction)
                 for (final output in event.request.outputs)

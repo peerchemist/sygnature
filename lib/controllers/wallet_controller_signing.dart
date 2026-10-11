@@ -734,7 +734,26 @@ extension WalletSigningController on WalletController {
     return true;
   }
 
-  void _announceRoastAction(String id) {
-    if (_announcedRoastActions.add(id)) onRoastActionRequired?.call();
+  Future<void> _announceRoastAction(String id) async {
+    if (!_announcedRoastActions.add(id)) return;
+    try {
+      await _updateVault((current) {
+        if (current == null || current.announcedRoastActionIds.contains(id)) {
+          return current;
+        }
+        return current.copyWith(
+          announcedRoastActionIds: [id, ...current.announcedRoastActionIds]
+              .take(WalletController._maxAnnouncedRoastActions)
+              .toList(growable: false),
+        );
+      });
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'Unable to persist ROAST notification state',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    onRoastActionRequired?.call();
   }
 }

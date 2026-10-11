@@ -30,6 +30,7 @@ void main() {
           blockHeight: 123,
         ),
       ],
+      announcedRoastActionIds: const ['signatures:setup:request'],
     );
 
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
@@ -56,6 +57,7 @@ void main() {
       restored.activities.single.occurredAt,
       DateTime.utc(2026, 1, 2, 3, 4),
     );
+    expect(restored.announcedRoastActionIds, ['signatures:setup:request']);
   });
 
   test('round trips a completed signed message activity', () {
@@ -98,6 +100,7 @@ void main() {
     final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson();
 
     expect(WalletVault.fromJson(json).activities, isEmpty);
+    expect(WalletVault.fromJson(json).announcedRoastActionIds, isEmpty);
   });
 
   test('migrates legacy nullable derivation data to explicit states', () {

@@ -40,6 +40,7 @@ extension WalletAccountsController on WalletController {
 
   Future<void> load() async {
     _vault = await _repository.load();
+    _announcedRoastActions.addAll(_vault?.announcedRoastActionIds ?? const []);
     final storedAccountId = _vault?.selectedAccountId;
     _selectedAccountId =
         accounts.any((account) => account.id == storedAccountId)

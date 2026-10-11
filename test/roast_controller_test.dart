@@ -1599,6 +1599,51 @@ void main() {
     controller.dispose();
   });
 
+  test('persists ROAST notification deduplication across restarts', () async {
+    var notificationCount = 0;
+    final repository = MemoryWalletRepository();
+    final request = _messageSigningRequest('ab' * 16);
+
+    final firstRuntime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final first = _controller(
+      repository: repository,
+      runtime: firstRuntime,
+      active: true,
+      onRoastActionRequired: () => notificationCount++,
+    );
+    await first.load();
+    await _flushEvents();
+    firstRuntime.emit(
+      RoastRuntimeSigningRequestEvent('setup', request: request),
+    );
+    await _flushEvents();
+
+    expect(notificationCount, 1);
+    expect(repository.value!.announcedRoastActionIds, [
+      'signatures:setup:${request.idHex}',
+    ]);
+    first.dispose();
+    await _flushEvents();
+
+    final secondRuntime = _FakeRoastRuntime()
+      ..snapshotGroupKey = 'expected-key';
+    final second = _controller(
+      repository: repository,
+      runtime: secondRuntime,
+      active: true,
+      onRoastActionRequired: () => notificationCount++,
+    );
+    await second.load();
+    await _flushEvents();
+    secondRuntime.emit(
+      RoastRuntimeSigningRequestEvent('setup', request: request),
+    );
+    await _flushEvents();
+
+    expect(notificationCount, 1);
+    second.dispose();
+  });
+
   test('reserves UTXOs selected by an incoming signing request', () async {
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
     final electrumx = _FakeElectrumxService();
@@ -2553,6 +2598,7 @@ WalletController _activeController({
 
 WalletController _controller({
   required _FakeRoastRuntime runtime,
+  MemoryWalletRepository? repository,
   RoastSetupRole role = RoastSetupRole.member,
   _FakeRoastKeyService? keyService,
   RoastSigningOperationRepository? operationRepository,
@@ -2561,32 +2607,32 @@ WalletController _controller({
   List<WalletActivity> activities = const [],
   void Function()? onRoastActionRequired,
 }) {
-  final repository = MemoryWalletRepository()
-    ..value = WalletVault(
-      accounts: [
-        WalletAccount(
-          id: 'shared',
-          name: 'Shared wallet',
-          accountIndex: 0,
-          blockchainId: 'peercoin',
-          networkId: 'mainnet',
-          derivationState: active
-              ? WalletDerivationState.ready
-              : WalletDerivationState.pending,
-          keySource: WalletKeySource.roast,
-          sourceId: 'setup',
-          keyId: 'setup:generation:1',
-          derivationPath: active ? 'R/0/6/0/0/0/0' : null,
-          address: active ? 'pc1pshared' : null,
-          createdAt: DateTime.utc(2026),
-        ),
-      ],
-      nextAccountIndex: 0,
-      roastSetups: [_setup(role, active: active)],
-      activities: activities,
-    );
+  final walletRepository = repository ?? MemoryWalletRepository();
+  walletRepository.value ??= WalletVault(
+    accounts: [
+      WalletAccount(
+        id: 'shared',
+        name: 'Shared wallet',
+        accountIndex: 0,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        derivationState: active
+            ? WalletDerivationState.ready
+            : WalletDerivationState.pending,
+        keySource: WalletKeySource.roast,
+        sourceId: 'setup',
+        keyId: 'setup:generation:1',
+        derivationPath: active ? 'R/0/6/0/0/0/0' : null,
+        address: active ? 'pc1pshared' : null,
+        createdAt: DateTime.utc(2026),
+      ),
+    ],
+    nextAccountIndex: 0,
+    roastSetups: [_setup(role, active: active)],
+    activities: activities,
+  );
   return WalletController(
-    repository,
+    walletRepository,
     roastRuntime: runtime,
     roastKeyService: keyService ?? _FakeRoastKeyService(),
     roastSigningOperations: operationRepository,
