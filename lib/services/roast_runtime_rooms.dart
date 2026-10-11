@@ -14,6 +14,13 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     );
     _setups[setup.id] = setup;
     final server = await _ensureRoomServer(setup);
+    AppLogger.info(
+      '${RoastRuntimeManager._irohScope(setup.id)} Waiting for coordinator discovery',
+    );
+    await server.endpoint
+        .homeRelayStatus()
+        .firstWhere((statuses) => statuses.any((status) => status.connected))
+        .timeout(const Duration(seconds: 30));
     final rooms = server.rooms!;
     await rooms.createRoom(
       roomId: setup.groupId,
