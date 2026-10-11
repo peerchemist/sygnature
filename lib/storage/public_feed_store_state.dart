@@ -53,28 +53,73 @@ final class _FeedState(final Map<String, dynamic> data) {
     }
   }
 
-  /// Persist before starting the coordinator. Disabling retains the random ID.
-  Future<String?> configureHost(String groupId, bool enabled) =>
-      _mutate((data) {
-        final hosts = data['hosts'] as Map;
-        final host = (hosts[groupId] as Map?) ?? <String, dynamic>{};
-        if (enabled) {
-          host['feedId'] ??= PublicFeedId.generate().hex;
-          if (host['enabled'] != true) host['polling'] = true;
-        }
-        host['enabled'] = enabled;
-        hosts[groupId] = host;
-        return host['feedId'] as String?;
-      });
+  /// Persist before starting the coordinator. Disabling retains the feed ID.
+  Future<String?> configureHost(String groupId, bool enabled) async {
+    final feedId = await publicFeedIdForGroup(groupId);
+    return _mutate((data) {
+      final hosts = data['hosts'] as Map;
+      final host = (hosts[groupId] as Map?) ?? <String, dynamic>{};
+      if (enabled) {
+        host['feedId'] = feedId;
+        if (host['enabled'] != true) host['polling'] = true;
+      }
+      host['enabled'] = enabled;
+      hosts[groupId] = host;
+      return host['feedId'] as String?;
+    });
+  }
 
-  /// Call only with credentials obtained via the trusted local/share flow.
-  /// Address is postcard EndpointAddr bytes; pin is independently approved.
+  Future<String?> enabledHostId(String groupId) async {
+    final feedId = await publicFeedIdForGroup(groupId);
+    return _mutate((data) {
+      final host = (data['hosts'] as Map)[groupId] as Map?;
+      if (host?['enabled'] != true) return null;
+      host!['feedId'] = feedId;
+      return feedId;
+    });
+  }
+
+  /// Call only with credentials established by wallet enrollment.
+  /// Address is postcard EndpointAddr bytes; pin is enrollment-approved.
   Future<String> subscribe({
     required String groupId,
     required String address,
     required String pin,
     required String feedId,
   }) => _mutate((data) {
+    _disabledGroups(data).removeWhere((value) => value == groupId);
+    return _subscribe(
+      data,
+      groupId: groupId,
+      address: address,
+      pin: pin,
+      feedId: feedId,
+    );
+  });
+
+  Future<String?> bindFeedFromSetup({
+    required String groupId,
+    required String address,
+    required String pin,
+    required String feedId,
+  }) => _mutate((data) {
+    if (_disabledGroups(data).contains(groupId)) return null;
+    return _subscribe(
+      data,
+      groupId: groupId,
+      address: address,
+      pin: pin,
+      feedId: feedId,
+    );
+  });
+
+  static String _subscribe(
+    Map<String, dynamic> data, {
+    required String groupId,
+    required String address,
+    required String pin,
+    required String feedId,
+  }) {
     PublicFeedId(feedId);
     final key = '$pin:$feedId';
     final feeds = data['feeds'] as Map;
@@ -92,14 +137,19 @@ final class _FeedState(final Map<String, dynamic> data) {
     final host = (data['hosts'] as Map)[groupId] as Map?;
     if (host != null) host['polling'] = true;
     return key;
-  });
+  }
 
   Future<void> unsubscribe(String groupId) => _mutate((data) {
     (data['bindings'] as Map).remove(groupId);
+    final disabled = _disabledGroups(data);
+    if (!disabled.contains(groupId)) disabled.add(groupId);
     final host = (data['hosts'] as Map)[groupId] as Map?;
     if (host != null) host['polling'] = false;
     // Keep scoped cursor/outbox bookkeeping for a later re-subscription.
   });
+
+  static List<dynamic> _disabledGroups(Map<String, dynamic> data) =>
+      data.putIfAbsent('disabledGroups', () => <String>[]) as List;
 
   Future<void> setNotificationWindow(int minutes) => _mutate((data) {
     if (minutes < 1 || minutes > publicFeedMaxNotificationWindow.inMinutes) {

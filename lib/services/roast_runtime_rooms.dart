@@ -203,7 +203,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       rooms: rooms,
     );
     _roomServers[setup.id] = server;
-    await _subscribeHostedFeed(setup.groupId, server.address);
+    await _configureHostedFeed(setup.groupId, server.address);
     unawaited(_serveRoomServer(setup.id, server));
     _roomSubscriptions[setup.id] = rooms.snapshots.listen(
       (room) => _onRoomSnapshot(setup.id, room),

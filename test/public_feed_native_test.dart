@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:coinlib/coinlib.dart' show ECCompressedPublicKey;
 import 'package:iroh_quic/iroh_quic.dart';
@@ -12,7 +11,6 @@ import 'package:noosphere_server/testing.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart' show NoosphereFlutter;
 import 'package:sygnature_ng/services/public_feed_poller.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
-import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/ui/public_feed_dialog.dart';
 
 import 'fixtures/wallet_backup_fixture.dart';
@@ -42,6 +40,7 @@ void main() {
           find.textContaining('unlisted metadata is not private'),
           findsOneWidget,
         );
+        expect(find.text('Add feed from clipboard'), findsNothing);
         tester
             .widget<SwitchListTile>(
               find.byKey(const Key('public-feed-host-enabled')),
@@ -89,55 +88,37 @@ void main() {
     });
   });
 
-  testWidgets('clipboard share must match the enrolled pin', (tester) async {
+  testWidgets('member feed uses the enrolled coordinator without clipboard', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
       final directory = await Directory.systemTemp.createTemp(
-        'sygnature-feed-share-',
+        'sygnature-feed-member-',
       );
       final store = await PublicFeedStore.open(directory.path);
-      final share = RoastExchangeCodec.encodePublicFeed(
-        address: 'unused',
-        pin: 'different-pin',
-        feedId: PublicFeedId.generate().hex,
-      );
-      final messenger =
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (call) async =>
-            call.method == 'Clipboard.getData' ? {'text': share} : null,
-      );
       try {
+        final setup = WalletBackupFixture().setup;
         await tester.pumpWidget(
           MaterialApp(
-            home: PublicFeedDialog(
-              store: store,
-              setup: WalletBackupFixture().setup,
-            ),
+            home: PublicFeedDialog(store: store, setup: setup),
           ),
         );
         await Future<void>.delayed(Duration.zero);
         await tester.pump();
-        final import = find.widgetWithText(
-          OutlinedButton,
-          'Subscribe from clipboard',
-        );
-        expect(tester.widget<OutlinedButton>(import).onPressed, isNull);
-        tester
-            .widget<CheckboxListTile>(find.byType(CheckboxListTile))
-            .onChanged!(true);
+        expect(find.byType(CheckboxListTile), findsNothing);
+        expect(find.byType(OutlinedButton), findsNothing);
+        final enabled = find.byKey(const Key('public-feed-member-enabled'));
+        expect(tester.widget<SwitchListTile>(enabled).value, isFalse);
+        tester.widget<SwitchListTile>(enabled).onChanged!(true);
+        await store.snapshot();
         await tester.pump();
-        tester.widget<OutlinedButton>(import).onPressed!();
-        await Future<void>.delayed(Duration.zero);
-        await tester.pump();
-        expect(
-          find.textContaining('Could not update feed settings'),
-          findsOneWidget,
-        );
-        expect((await store.snapshot())['feeds'], isEmpty);
+        final data = await store.snapshot();
+        final key = (data['bindings'] as Map)[setup.groupId] as String;
+        final feed = (data['feeds'] as Map)[key] as Map;
+        expect(feed['pin'], setup.coordinatorId);
+        expect(feed['feedId'], await publicFeedIdForGroup(setup.groupId));
         await tester.pumpWidget(const SizedBox());
       } finally {
-        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
         await store.close();
         await directory.delete(recursive: true);
       }

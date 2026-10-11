@@ -137,7 +137,7 @@ void main() {
 
   test('host ID, scoped cursor, status and initial baseline survive database restart', () async {
     final id = await store.configureHost('g1', true);
-    expect(id, hasLength(64));
+    expect(id, await publicFeedIdForGroup('g1'));
     expect(await store.configureHost('g1', true), id);
     final other = await store.configureHost('g2', true);
     expect(other, isNot(id));
@@ -166,6 +166,40 @@ void main() {
       'completed',
     );
     expect((await feed())['initialThrough'], 2);
+  });
+
+  test('onboarding feed binding respects an explicit opt-out', () async {
+    const group = 'enrolled-group';
+    final id = await publicFeedIdForGroup(group);
+    final binding = await store.bindFeedFromSetup(
+      groupId: group,
+      address: 'enrolled-address',
+      pin: 'enrolled-pin',
+      feedId: id,
+    );
+    expect(binding, 'enrolled-pin:$id');
+
+    await store.unsubscribe(group);
+    await store.close();
+    store = await PublicFeedStore.open(directory.path);
+    expect(
+      await store.bindFeedFromSetup(
+        groupId: group,
+        address: 'updated-address',
+        pin: 'enrolled-pin',
+        feedId: id,
+      ),
+      isNull,
+    );
+    expect((await store.snapshot())['bindings'], isNot(contains(group)));
+
+    await store.subscribe(
+      groupId: group,
+      address: 'updated-address',
+      pin: 'enrolled-pin',
+      feedId: id,
+    );
+    expect((await store.snapshot())['bindings'], contains(group));
   });
 
   test('exclusive ordered pagination is bounded and initial history stays silent across runs', () async {

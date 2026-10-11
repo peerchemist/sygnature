@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:noosphere_client/public_feed.dart';
 
@@ -16,6 +17,15 @@ part 'public_feed_store_state.dart';
 
 const publicFeedDefaultNotificationWindow = Duration(hours: 1);
 const publicFeedMaxNotificationWindow = Duration(hours: 24);
+
+Future<String> publicFeedIdForGroup(String groupId) async {
+  final digest = await Sha256().hash(
+    utf8.encode('sygnature/public-feed/1:$groupId'),
+  );
+  return digest.bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
 
 Duration _notificationWindow(Map data) => Duration(
   minutes:
@@ -152,10 +162,8 @@ final class PublicFeedStore._(
       _request(['check', owner, feedKey]);
   Future<String?> configureHost(String groupId, bool enabled) =>
       _request(['host', groupId, enabled]);
-  Future<String?> enabledHostId(String groupId) async {
-    final host = ((await snapshot())['hosts'] as Map)[groupId] as Map?;
-    return host?['enabled'] == true ? host!['feedId'] as String : null;
-  }
+  Future<String?> enabledHostId(String groupId) =>
+      _request(['enabledHostId', groupId]);
 
   Future<bool> hostPollingEnabled(String groupId) async =>
       (((await snapshot())['hosts'] as Map)[groupId] as Map?)?['polling'] !=
@@ -172,6 +180,12 @@ final class PublicFeedStore._(
     required String pin,
     required String feedId,
   }) => _request(['subscribe', groupId, address, pin, feedId]);
+  Future<String?> bindFeedFromSetup({
+    required String groupId,
+    required String address,
+    required String pin,
+    required String feedId,
+  }) => _request(['bindSetupFeed', groupId, address, pin, feedId]);
   Future<void> unsubscribe(String groupId) =>
       _request(['unsubscribe', groupId]);
   Future<void> commitPage(

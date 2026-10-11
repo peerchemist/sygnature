@@ -259,7 +259,9 @@ final class RoastRuntimeManager(
     final address = _endpointAddress(selectedCoordinator);
     final pinnedId = address.id;
     if (setup.role == RoastSetupRole.host) {
-      await _subscribeHostedFeed(setup.groupId, address);
+      await _configureHostedFeed(setup.groupId, address);
+    } else {
+      await _configureMemberFeed(setup.groupId, address);
     }
     _signerCoordinators[setup.id] = selectedCoordinator;
     final privateKey = ECPrivateKey.fromHex(
@@ -429,19 +431,19 @@ final class RoastRuntimeManager(
           );
   }
 
-  Future<void> _subscribeHostedFeed(
+  Future<void> _configureHostedFeed(
     String groupId,
     EndpointAddr address,
   ) async {
-    final store = await publicFeedStore;
-    final id = await store?.enabledHostId(groupId);
-    if (store == null ||
-        id == null ||
-        !await store.hostPollingEnabled(groupId)) {
-      return;
-    }
     try {
-      await store.subscribe(
+      final store = await publicFeedStore;
+      final id = await store?.enabledHostId(groupId);
+      if (store == null ||
+          id == null ||
+          !await store.hostPollingEnabled(groupId)) {
+        return;
+      }
+      await store.bindFeedFromSetup(
         groupId: groupId,
         address: base64UrlEncode(address.encode()),
         pin: address.id.toZ32(),
@@ -449,6 +451,25 @@ final class RoastRuntimeManager(
       );
     } on Object {
       // Notification bookkeeping cannot interrupt a started coordinator.
+      AppLogger.warn('Unable to save public feed notification settings.');
+    }
+  }
+
+  Future<void> _configureMemberFeed(
+    String groupId,
+    EndpointAddr address,
+  ) async {
+    try {
+      final store = await publicFeedStore;
+      if (store == null) return;
+      await store.bindFeedFromSetup(
+        groupId: groupId,
+        address: base64UrlEncode(address.encode()),
+        pin: address.id.toZ32(),
+        feedId: await publicFeedIdForGroup(groupId),
+      );
+    } on Object {
+      // Notification bookkeeping cannot interrupt signer startup.
       AppLogger.warn('Unable to save public feed notification settings.');
     }
   }

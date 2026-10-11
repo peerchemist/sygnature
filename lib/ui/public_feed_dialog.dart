@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:iroh_quic/iroh_quic.dart';
 
 import '../models/roast_setup.dart';
@@ -32,7 +31,6 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
   Map<String, dynamic>? _data;
   String? _error;
   bool _busy = false;
-  bool _trusted = false;
   Timer? _refresh;
 
   @override
@@ -64,43 +62,17 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
       await _load();
     } on Object {
       if (mounted) {
-        setState(
-          () => _error = 'Could not update feed settings. Verify the trusted share and coordinator identity.',
-        );
+        setState(() => _error = 'Could not update public feed settings.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _import() async {
-    if (!_trusted) return;
-    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
-    final share = RoastExchangeCodec.decodePublicFeed(clipboard?.text ?? '');
-    // Pin is already trusted through wallet enrollment/explicit coordinator
-    // approval. Never learn an endpoint identity from a feed response/share.
-    if (widget.setup.coordinatorId == null ||
-        share.pin != widget.setup.coordinatorId) {
-      throw const FormatException(
-        'Feed pin does not match enrolled coordinator',
-      );
-    }
-    await initializePublicFeedNative();
-    final pin = EndpointId.fromZ32(share.pin);
-    final address = EndpointAddr.decode(base64Url.decode(share.address));
-    if (address.id != pin) throw const FormatException('Address pin mismatch');
-    await widget.store.subscribe(
-      groupId: widget.setup.groupId,
-      address: base64UrlEncode(address.canonical().encode()),
-      pin: pin.toZ32(),
-      feedId: share.feedId,
-    );
-  }
-
-  Future<void> _export(String feedId) async {
+  Future<void> _subscribe() async {
     final setup = widget.setup;
     if (setup.coordinatorId == null) {
-      throw StateError('Coordinator not started');
+      throw StateError('Coordinator not enrolled');
     }
     await initializePublicFeedNative();
     final address = EndpointAddr(
@@ -108,14 +80,11 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
       relayUrls: setup.coordinatorRelayUrls.map(RelayUrl.parse).toList(),
       ipAddrs: setup.coordinatorIpAddrs,
     );
-    await Clipboard.setData(
-      ClipboardData(
-        text: RoastExchangeCodec.encodePublicFeed(
-          address: base64UrlEncode(address.encode()),
-          pin: address.id.toZ32(),
-          feedId: feedId,
-        ),
-      ),
+    await widget.store.subscribe(
+      groupId: setup.groupId,
+      address: base64UrlEncode(address.canonical().encode()),
+      pin: address.id.toZ32(),
+      feedId: await publicFeedIdForGroup(setup.groupId),
     );
   }
 
@@ -132,6 +101,10 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
     final host = (data?['hosts'] as Map?)?[group] as Map?;
     final key = (data?['bindings'] as Map?)?[group] as String?;
     final feed = (data?['feeds'] as Map?)?[key] as Map?;
+    final hasCurrentFeed =
+        feed != null &&
+        widget.setup.coordinatorId != null &&
+        feed['pin'] == widget.setup.coordinatorId;
     final notificationWindow =
         data?['notificationWindowMinutes'] as int? ??
         publicFeedDefaultNotificationWindow.inMinutes;
@@ -199,40 +172,30 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                           if (!value) await widget.store.unsubscribe(group);
                         }),
                 ),
-                if (host?['feedId'] != null)
-                  OutlinedButton.icon(
-                    onPressed: _busy
-                        ? null
-                        : () => _perform(
-                            () => _export(host!['feedId'] as String),
-                          ),
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copy public feed share'),
-                  ),
               ],
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _trusted,
-                onChanged: _busy
-                    ? null
-                    : (value) => setState(() => _trusted = value == true),
-                title: const Text(
-                  'I obtained this feed share through the trusted enrollment/share channel',
+              if (widget.setup.role == RoastSetupRole.member) ...[
+                SwitchListTile(
+                  key: const Key('public-feed-member-enabled'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Receive notifications on this device'),
+                  subtitle: const Text(
+                    'Included in this wallet’s onboarding setup.',
+                  ),
+                  value: hasCurrentFeed,
+                  onChanged: _busy || data == null
+                      ? null
+                      : (value) => _perform(
+                          value
+                              ? _subscribe
+                              : () => widget.store.unsubscribe(group),
+                        ),
                 ),
-                subtitle: const Text(
-                  'The coordinator pin must match this wallet’s already enrolled/approved identity. Verify the feed ID with the coordinator owner.',
-                ),
-              ),
-              OutlinedButton(
-                onPressed: _busy || !_trusted ? null : () => _perform(_import),
-                child: const Text('Subscribe from clipboard'),
-              ),
+              ],
               if (feed != null) ...[
                 const SizedBox(height: 12),
-                SelectableText('Pinned coordinator: ${feed['pin']}'),
                 if (feed['pin'] != widget.setup.coordinatorId)
                   const Text(
-                    'This feed belongs to a previously selected coordinator. Import a trusted share for the current coordinator.',
+                    'This subscription belongs to a previous coordinator. Re-enable notifications to use the current coordinator.',
                   ),
                 Text('Processed cursor: ${feed['cursor']}'),
                 const Text(
@@ -248,14 +211,15 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                     onPressed: _busy
                         ? null
                         : () => _perform(() => widget.store.retry(key!)),
-                    child: const Text('Retry with the same pin and cursor'),
+                    child: const Text('Retry'),
                   ),
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(() => widget.store.unsubscribe(group)),
-                  child: const Text('Stop polling on this device'),
-                ),
+                if (widget.setup.role == RoastSetupRole.host)
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _perform(() => widget.store.unsubscribe(group)),
+                    child: const Text('Stop polling on this device'),
+                  ),
                 for (final event in events.take(20))
                   ListTile(
                     contentPadding: EdgeInsets.zero,

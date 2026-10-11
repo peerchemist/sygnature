@@ -7,23 +7,23 @@ ROAST/DKG business logic. This integration uses the existing protobuf public
 client and `noosphere/public-feed/1` ALPN; the wallet does not implement a
 protocol, HTTP route, or signature verifier.
 
-## Enable and share
+## Enable and subscribe
 
 1. Open a shared wallet's **Public operation feed** dialog.
 2. On the host, explicitly enable **Publish this group's public feed**. The
-   wallet generates one random ID and flushes it to local configuration before
-   any coordinator can use it. Restart Sygnature to apply publishing changes.
-   The ID remains the same when disabling/re-enabling publication.
-3. Use **Copy public feed share**, then distribute the clipboard payload through
-   the same trusted channel used for participant enrollment. Do not publish it
-   inadvertently: anyone who knows the ID can read operation type, timing and
-   outcome. An unlisted feed is not private to readers who know its ID.
-4. On another enrolled wallet, open the dialog, confirm the share's trusted
-   source and use **Subscribe from clipboard**. The share's pin must equal the
-   wallet's already enrolled/explicitly approved coordinator identity; its
-   address must also match that pin. Confirm the feed ID with the coordinator
-   owner. This is an application share payload, not a modified Noosphere
-   enrollment invitation or an automatic deep-link subscription.
+   wallet derives an opaque 256-bit feed ID from the room's random group ID and
+   flushes it to local configuration before any coordinator can use it. Restart
+   Sygnature to apply publishing changes. The ID remains stable when disabling
+   and re-enabling publication.
+3. Enrolled members derive the same feed ID and save the subscription when the
+   signer connects to its already authenticated coordinator. There is no public
+   feed invitation, clipboard import or second coordinator approval. The member
+   can disable or re-enable notifications locally in the dialog.
+
+Anyone who learns the feed ID can read operation type, timing and outcome. An
+unlisted feed is not private to readers who know the ID. The random group ID is
+distributed by the participant-bound enrollment flow and is never exposed by
+the public feed protocol.
 
 Ordinary embedded coordinators receive `ServerConfig.publicFeed`. Frozen
 room groups receive their own explicit `IrohConfig.roomPublicFeeds[groupId]`.
@@ -43,9 +43,9 @@ database is introduced. Only a shared owner isolate opens the box. Foreground
 and headless Flutter engines discover it through `IsolateNameServer` and send
 whole mutations to its serialized mailbox. It has no vault encryption key, signer storage,
 participant key, wallet seed, or FROST dependency to initialize. The subscription
-credentials are only postcard `EndpointAddr`, an independently pinned EndpointId,
-and feed ID. Bookkeeping includes a cursor scoped to `(pin, feedId)`, a bounded
-recent event cache, sticky gap/error information, retry time and durable outbox.
+credentials are only postcard `EndpointAddr`, the enrollment-pinned EndpointId,
+and derived feed ID. Bookkeeping includes a cursor scoped to `(pin, feedId)`, a
+bounded recent event cache, sticky gap/error information, retry time and durable outbox.
 Local group bindings connect settings to the wallet UI; no group identifier is
 sent to the public API. Feed IDs and transport error details are never logged or
 sent to analytics by this integration.
@@ -150,10 +150,11 @@ requests in the existing authenticated wallet flow.
 ## Validation and dependency availability
 
 Tests cover pure polling/storage/crash handling, real Iroh polling from a fresh
-standalone Dart process, identity rejection, opt-in UI, trusted share rejection
-and existing signing/DKG/controller/storage flows. On Linux the subprocess also
-checks that neither FROST nor coinlib native libraries were loaded and that no
-signer sessions, challenges, presence or coordinator snapshot changed.
+standalone Dart process, identity rejection, opt-in UI, onboarding feed binding
+and existing signing/DKG/controller/storage flows. On Linux the
+subprocess also checks that neither FROST nor coinlib native libraries were
+loaded and that no signer sessions, challenges, presence or coordinator snapshot
+changed.
 
 All Noosphere Git dependencies and overrides use the published `0.1.2` tag.
 The lockfile records its resolved commit, and `flutter pub get` resolves it
