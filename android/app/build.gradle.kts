@@ -16,7 +16,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "network.noosphere.sygnature"
+        // A separate package protects real wallet data during device worker checks.
+        applicationId = if (project.hasProperty("publicFeedVerification"))
+            "network.noosphere.sygnature.publicfeedtest"
+        else "network.noosphere.sygnature"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 30
