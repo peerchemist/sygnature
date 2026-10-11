@@ -1,19 +1,39 @@
 part of '../wallet_home.dart';
 
+const _publicFeedNotificationWindows = {
+  15: '15 minutes',
+  30: '30 minutes',
+  60: '1 hour',
+  180: '3 hours',
+  360: '6 hours',
+  720: '12 hours',
+  1440: '24 hours',
+};
+
 Future<void> _showSettings(
   BuildContext context,
   WalletController controller,
   AppNotifications notifications,
-) => Navigator.of(context).push(
-  MaterialPageRoute<void>(
-    builder: (_) =>
-        _SettingsScreen(controller: controller, notifications: notifications),
-  ),
-);
+) {
+  final publicFeedNotificationWindow =
+      defaultTargetPlatform == TargetPlatform.android
+      ? controller.publicFeedStore?.then((store) => store.notificationWindow())
+      : null;
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => _SettingsScreen(
+        controller: controller,
+        notifications: notifications,
+        publicFeedNotificationWindow: publicFeedNotificationWindow,
+      ),
+    ),
+  );
+}
 
 class const _SettingsScreen({
   required final WalletController controller,
   required final AppNotifications notifications,
+  required final Future<Duration>? publicFeedNotificationWindow,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SelectorBuilder(
@@ -130,6 +150,40 @@ class const _SettingsScreen({
                           }
                         : null,
                   ),
+                  if (publicFeedNotificationWindow != null)
+                    FutureBuilder<Duration>(
+                      future: publicFeedNotificationWindow,
+                      builder: (context, snapshot) => KeyedSubtree(
+                        key: const Key('public-feed-notification-window'),
+                        child: DropdownButtonFormField<int>(
+                          key: ValueKey(snapshot.data?.inMinutes),
+                          initialValue:
+                              snapshot.data?.inMinutes ??
+                              publicFeedDefaultNotificationWindow.inMinutes,
+                          decoration: InputDecoration(
+                            labelText: 'Notify about requests observed within',
+                            helperText: snapshot.hasError
+                                ? 'Notification history unavailable.'
+                                : 'Used when Android catches up. Expired requests never notify.',
+                          ),
+                          items: [
+                            for (final option
+                                in _publicFeedNotificationWindows.entries)
+                              DropdownMenuItem(
+                                value: option.key,
+                                child: Text(option.value),
+                              ),
+                          ],
+                          onChanged: snapshot.hasData
+                              ? (minutes) async =>
+                                    (await controller.publicFeedStore!)
+                                        .setNotificationWindow(
+                                          Duration(minutes: minutes!),
+                                        )
+                              : null,
+                        ),
+                      ),
+                    ),
                   SwitchListTile.adaptive(
                     key: const Key('notification-sound-toggle'),
                     contentPadding: EdgeInsets.zero,

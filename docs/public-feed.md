@@ -123,7 +123,7 @@ it is also stopped.
   cursor. Committed cursors deduplicate `(pin, feedId, cursor)`.
 - The initial page fixes a retained-history baseline. All entries through that
   baseline remain silent even if catch-up spans multiple runs. Later requests
-  notify only when observed within the device's configured notification window
+  notify only when observed within the Android notification-history setting
   (one hour by default, up to 24 hours), not expired and not more than one
   minute in the future. Public completion/rejection/cancellation/expiry
   updates public status; it is not an approval action.

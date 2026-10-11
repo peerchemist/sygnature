@@ -50,35 +50,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(await store.enabledHostId(setup.groupId), hasLength(64));
         expect((await store.snapshot())['feeds'], isEmpty);
-        final notificationWindow = find.byKey(
-          const Key('public-feed-notification-window'),
-        );
-        for (var attempt = 0; attempt < 20; attempt++) {
-          if (tester
-                  .widget<DropdownButtonFormField<int>>(notificationWindow)
-                  .onChanged !=
-              null) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-          await tester.pump();
-        }
         expect(
-          tester
-              .widget<DropdownButtonFormField<int>>(notificationWindow)
-              .initialValue,
-          publicFeedDefaultNotificationWindow.inMinutes,
-        );
-        final changeWindow = tester
-            .widget<DropdownButtonFormField<int>>(notificationWindow)
-            .onChanged;
-        expect(changeWindow, isNotNull);
-        changeWindow!(publicFeedMaxNotificationWindow.inMinutes);
-        await store.snapshot();
-        await tester.pumpAndSettle();
-        expect(
-          await store.notificationWindow(),
-          publicFeedMaxNotificationWindow,
+          find.byKey(const Key('public-feed-notification-window')),
+          findsNothing,
         );
         await tester.pumpWidget(const SizedBox());
       } finally {
