@@ -304,7 +304,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     _events.add(
       RoastRuntimeFailureEvent(
         setupId,
-        message: 'ROAST room failed: $error',
+        message: 'The ROAST room operation failed.',
         interrupted: true,
         operation: RoastRuntimeOperation.room,
       ),

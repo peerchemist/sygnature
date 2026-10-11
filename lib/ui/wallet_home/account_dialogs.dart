@@ -16,7 +16,7 @@ Future<void> _runWalletAction(
     }
     if (!context.mounted) return;
     final message = error is WalletBusyFailure
-        ? error.toString()
+        ? 'Another wallet operation is in progress. Try again.'
         : 'Unable to update the wallet. Please try again.';
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
@@ -232,10 +232,11 @@ Future<void> _confirmDeleteWallet(
   if (confirmed != true) return;
   try {
     await controller.deleteAccount(account.id);
-  } on Object catch (error) {
+  } on Object catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to delete the wallet.')),
+      );
     }
   }
 }
@@ -356,10 +357,14 @@ Future<void> _showArchivedWallets(
                                   if (panelContext.mounted) {
                                     Navigator.pop(panelContext);
                                   }
-                                } on Object catch (error) {
+                                } on Object catch (_) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('$error')),
+                                      const SnackBar(
+                                        content: Text(
+                                          'Unable to restore the wallet.',
+                                        ),
+                                      ),
                                     );
                                   }
                                 }

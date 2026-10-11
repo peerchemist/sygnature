@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'app_logger.dart';
 import 'ui_sounds.dart';
 
 /// User-configurable wallet event sounds and system notifications.
@@ -79,7 +80,11 @@ class AppNotifications({
       _soundEnabled = _parseBool(values[1], fallback: true);
       _soundVolume = (double.tryParse(values[2] ?? '') ?? 0.5).clamp(0.0, 1.0);
     } catch (error, stackTrace) {
-      debugPrint('Unable to load notification settings: $error\n$stackTrace');
+      AppLogger.warn(
+        'Unable to load notification settings',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -166,7 +171,11 @@ class AppNotifications({
       );
       return true;
     } catch (error, stackTrace) {
-      debugPrint('Unable to show system notification: $error\n$stackTrace');
+      AppLogger.warn(
+        'Unable to show system notification',
+        error: error,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -220,7 +229,11 @@ class AppNotifications({
       }
       return true;
     } catch (error, stackTrace) {
-      debugPrint('System notifications unavailable: $error\n$stackTrace');
+      AppLogger.warn(
+        'System notifications unavailable',
+        error: error,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -231,7 +244,11 @@ class AppNotifications({
       try {
         await storage.write(key: key, value: value);
       } catch (error, stackTrace) {
-        debugPrint('Unable to save notification settings: $error\n$stackTrace');
+        AppLogger.warn(
+          'Unable to save notification settings',
+          error: error,
+          stackTrace: stackTrace,
+        );
       }
     });
   }

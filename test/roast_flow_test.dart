@@ -268,7 +268,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(keyService.appliedInvitation, isNull);
-    expect(find.textContaining('room invite prefix'), findsWidgets);
+    expect(find.textContaining('ROAST operation failed'), findsWidgets);
+    expect(find.textContaining('invalid-invite'), findsNothing);
     expect(find.byType(AlertDialog), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());

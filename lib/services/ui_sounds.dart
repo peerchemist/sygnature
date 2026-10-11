@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 
+import 'app_logger.dart';
+
 /// Short, non-blocking audio cues for successful UI actions.
 ///
 /// Audio is optional: an unavailable output device must never stop the user
@@ -44,7 +46,11 @@ class UiSounds({SoLoud? audio}) {
       _audio.setWaveformFreq(_high!, 990);
       _ready = true;
     } catch (error, stackTrace) {
-      debugPrint('UI sounds unavailable: $error\n$stackTrace');
+      AppLogger.warn(
+        'UI sounds unavailable',
+        error: error,
+        stackTrace: stackTrace,
+      );
       await _releaseAudio();
     }
   }
@@ -71,7 +77,11 @@ class UiSounds({SoLoud? audio}) {
         volume: 0.315 * volume.clamp(0.0, 1.0),
       );
     } catch (error, stackTrace) {
-      debugPrint('Unable to play UI sound: $error\n$stackTrace');
+      AppLogger.warn(
+        'Unable to play UI sound',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

@@ -266,7 +266,7 @@ void main() {
     controller.dispose();
   });
 
-  test('surfaces unexpected signing request validation errors', () async {
+  test('redacts unexpected signing request validation errors', () async {
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
     final keyService = _FakeRoastKeyService();
     final controller = _controller(
@@ -289,7 +289,11 @@ void main() {
     expect(controller.roastSetups.single.status, RoastSetupStatus.error);
     expect(
       controller.roastSetups.single.errorMessage,
-      contains('injected derivation failure'),
+      'Unable to connect to the ROAST coordinator.',
+    );
+    expect(
+      controller.roastSetups.single.errorMessage,
+      isNot(contains('injected derivation failure')),
     );
     controller.dispose();
   });

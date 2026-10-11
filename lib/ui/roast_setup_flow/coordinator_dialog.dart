@@ -63,8 +63,10 @@ class _RoastCoordinatorSwitchDialogState
         approved: true,
       );
       if (mounted) Navigator.pop(context);
-    } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Unable to switch the ROAST coordinator.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

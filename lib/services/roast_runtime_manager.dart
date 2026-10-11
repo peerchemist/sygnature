@@ -106,7 +106,7 @@ final class RoastRuntimeManager(
           stackTrace: stackTrace,
         );
         if (!_events.isClosed) {
-          _events.addError(StateError('ROAST worker stream failed: $error'));
+          _events.addError(StateError('The ROAST worker stream failed.'));
         }
       },
     );
@@ -721,25 +721,35 @@ final class RoastRuntimeManager(
         AppLogger.info('${_roastScope(event.setupId)} Group key updated');
         _runBackground(_refresh(event.setupId));
       case WorkerFailureEvent():
+        final operation = switch (event.operation) {
+          'signatures' => RoastRuntimeOperation.signatures,
+          'dkg' => RoastRuntimeOperation.dkg,
+          'reconnect' ||
+          'session' ||
+          'serverAddress' ||
+          'serve' => RoastRuntimeOperation.connection,
+          'worker' => RoastRuntimeOperation.worker,
+          _ => RoastRuntimeOperation.unknown,
+        };
+        final message = switch (operation) {
+          RoastRuntimeOperation.signatures =>
+            'The ROAST signing operation failed.',
+          RoastRuntimeOperation.dkg =>
+            'The ROAST key creation operation failed.',
+          RoastRuntimeOperation.connection => 'The ROAST connection failed.',
+          RoastRuntimeOperation.worker => 'The ROAST worker failed.',
+          _ => 'The ROAST operation failed.',
+        };
         AppLogger.error(
-          '${_noosphereScope(event.setupId)} Worker operation '
-          '${event.operation} failed: ${event.message}',
+          '${_noosphereScope(event.setupId)} Worker ${operation.name} '
+          'operation failed',
         );
         _events.add(
           RoastRuntimeFailureEvent(
             event.setupId,
-            message: event.message,
+            message: message,
             interrupted: event.interrupted,
-            operation: switch (event.operation) {
-              'signatures' => RoastRuntimeOperation.signatures,
-              'dkg' => RoastRuntimeOperation.dkg,
-              'reconnect' ||
-              'session' ||
-              'serverAddress' ||
-              'serve' => RoastRuntimeOperation.connection,
-              'worker' => RoastRuntimeOperation.worker,
-              _ => RoastRuntimeOperation.unknown,
-            },
+            operation: operation,
           ),
         );
         _runBackground(_refresh(event.setupId));
@@ -832,7 +842,7 @@ final class RoastRuntimeManager(
         _events.add(
           RoastRuntimeFailureEvent(
             event.setupId,
-            message: 'Unable to process completed ROAST signatures: $error',
+            message: 'Unable to process completed ROAST signatures.',
             interrupted: false,
             operation: RoastRuntimeOperation.signingPersistence,
             requestIdHex: requestIdHex,
@@ -913,7 +923,7 @@ final class RoastRuntimeManager(
         _events.add(
           RoastRuntimeFailureEvent(
             snapshot.setupId,
-            message: 'Unable to verify ROAST key readiness: $error',
+            message: 'Unable to verify ROAST key readiness.',
             interrupted: true,
             operation: RoastRuntimeOperation.keyReadiness,
           ),

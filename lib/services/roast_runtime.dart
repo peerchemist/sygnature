@@ -257,7 +257,7 @@ final class RoastCoordinatorSwitchFailure({
   required final Object cause,
 }) implements Exception {
   @override
-  String toString() => 'RoastCoordinatorSwitchFailure($code): $cause';
+  String toString() => 'RoastCoordinatorSwitchFailure($code)';
 }
 
 enum RoastEnrollmentFailureKind {
@@ -276,7 +276,7 @@ final class RoastEnrollmentFailure({
 
   @override
   String toString() =>
-      'RoastEnrollmentFailure(${kind.name}, roomCode=$roomFailureCode): $cause';
+      'RoastEnrollmentFailure(${kind.name}, roomCode=$roomFailureCode)';
 }
 
 abstract interface class RoastRuntime {

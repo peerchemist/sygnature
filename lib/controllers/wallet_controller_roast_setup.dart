@@ -1387,10 +1387,15 @@ extension WalletRoastSetupController on WalletController {
     RoastEnrollmentFailure(kind: RoastEnrollmentFailureKind.connection) =>
       'The enrollment connection was interrupted. Check coordinator state '
           'before retrying.',
-    NoosphereWorkerException(:final message) => message,
-    FormatException(:final message) => message,
-    ArgumentError() => error.toString(),
-    StateError(:final message) => message,
+    NoosphereWorkerException(:final code) => switch (code) {
+      'invalid_state' =>
+        'The ROAST operation is not valid in the current state.',
+      'timeout' || 'host_timeout' => 'The ROAST operation timed out.',
+      'worker_closed' ||
+      'worker_closing' ||
+      'worker_exited' => 'The ROAST worker is unavailable.',
+      _ => 'The ROAST operation failed.',
+    },
     _ => 'Unable to connect to the ROAST coordinator.',
   };
 

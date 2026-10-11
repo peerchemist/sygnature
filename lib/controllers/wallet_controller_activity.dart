@@ -33,10 +33,11 @@ extension WalletActivityController on WalletController {
           operation.signaturesHex.isNotEmpty) {
         try {
           operation = await _completeRoastSigningOperation(operation);
-        } on Object catch (error) {
+        } on Object catch (_) {
           operation = operation.copyWith(
             state: RoastSigningOperationState.interrupted,
-            errorMessage: '$error',
+            errorMessage:
+                'The interrupted signing operation could not be restored.',
           );
           await _saveRoastSigningOperation(operation);
         }

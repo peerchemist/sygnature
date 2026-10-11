@@ -124,8 +124,10 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
         network: _network,
       );
       if (mounted) Navigator.pop(context, setupId);
-    } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Unable to create the shared wallet.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -281,10 +283,11 @@ Future<void> _finalizeHostSetup(
     if (context.mounted) {
       await _showIssuedInvitations(context, controller, setup.id);
     }
-  } catch (error) {
+  } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to create ROAST invitations.')),
+      );
     }
   }
 }
@@ -319,8 +322,8 @@ class _RoastInviteWizardState extends State<_RoastInviteWizard> {
     try {
       _publicKeys[_signerIndex] = widget.controller
           .normalizeRoastParticipantPublicKey(_publicKeys[_signerIndex]);
-    } on Object catch (error) {
-      setState(() => _error = _message(error));
+    } on Object catch (_) {
+      setState(() => _error = 'Enter a valid signer public key.');
       return;
     }
     setState(() {
@@ -451,7 +454,4 @@ class _RoastInviteWizardState extends State<_RoastInviteWizard> {
         ),
     ],
   );
-
-  static String _message(Object error) =>
-      '$error'.replaceFirst(RegExp(r'^(FormatException|ArgumentError): '), '');
 }

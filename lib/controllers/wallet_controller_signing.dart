@@ -353,7 +353,11 @@ extension WalletSigningController on WalletController {
                     : rejected
                     ? RoastSigningOperationState.rejected
                     : RoastSigningOperationState.interrupted,
-                errorMessage: '$error',
+                errorMessage: expired
+                    ? 'The signing request expired before enough signatures arrived.'
+                    : rejected
+                    ? 'The signing request was rejected.'
+                    : 'The signing request was interrupted.',
               ),
             );
             if (expired) {
@@ -420,11 +424,11 @@ extension WalletSigningController on WalletController {
       );
       await _saveRoastSigningOperation(current);
       return result;
-    } on Object catch (error) {
+    } on Object catch (_) {
       await _saveRoastSigningOperation(
         current.copyWith(
           state: RoastSigningOperationState.broadcastUnknown,
-          errorMessage: '$error',
+          errorMessage: 'The transaction broadcast outcome is unknown.',
         ),
       );
       rethrow;
@@ -532,8 +536,7 @@ extension WalletSigningController on WalletController {
     if (cause is ElectrumxRpcException) {
       return WalletBroadcastFailure(
         WalletBroadcastFailureKind.rejected,
-        'ElectrumX rejected the transaction: '
-        '${_sanitizeBroadcastError(cause.message)} (code ${cause.code})',
+        'ElectrumX rejected the transaction (code ${cause.code}).',
         cause: error,
         rpcCode: cause.code,
       );
@@ -560,23 +563,13 @@ extension WalletSigningController on WalletController {
     );
   }
 
-  String _sanitizeBroadcastError(String message) {
-    final clean = message
-        .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    const maxLength = 240;
-    if (clean.length <= maxLength) return clean;
-    return '${clean.substring(0, maxLength - 1)}…';
-  }
-
   String _sendFailureMessage(Object error) => switch (error) {
-    NoosphereWorkerException(:final message) =>
-      'ROAST signing failed: ${_sanitizeBroadcastError(message)}',
+    NoosphereWorkerException() =>
+      'ROAST signing failed. Check signer connectivity and retry.',
     TimeoutException() =>
       'Transaction signing timed out. Check signer connectivity and retry.',
-    StateError(:final message) =>
-      'Transaction submission failed: ${_sanitizeBroadcastError(message)}',
+    StateError() =>
+      'Transaction submission failed. Check wallet state and retry.',
     _ => 'Transaction submission failed. Check the application log and retry.',
   };
 

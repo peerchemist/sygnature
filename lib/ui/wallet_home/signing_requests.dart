@@ -93,8 +93,8 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
     });
     try {
       await operation();
-    } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'The signing operation failed.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

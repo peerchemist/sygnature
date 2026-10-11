@@ -103,8 +103,8 @@ class _RoastGroupTransitionDialogState
           ),
         ));
       }
-    } catch (error) {
-      setState(() => _error = '$error');
+    } catch (_) {
+      setState(() => _error = 'Enter valid signer names and public keys.');
       return;
     }
     setState(() {
@@ -124,8 +124,10 @@ class _RoastGroupTransitionDialogState
         ],
       );
       if (mounted) Navigator.pop(context, creation);
-    } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Unable to create the successor signer group.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

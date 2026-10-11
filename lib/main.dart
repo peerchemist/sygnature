@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:app_links/app_links.dart';
 import 'package:coinlib/coinlib.dart';
@@ -27,6 +28,19 @@ import 'ui/widgets/selector_builder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) => AppLogger.fatal(
+    'Unhandled Flutter framework error',
+    error: details.exception,
+    stackTrace: details.stack,
+  );
+  PlatformDispatcher.instance.onError = (error, stackTrace) {
+    AppLogger.fatal(
+      'Unhandled root-isolate error',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return true;
+  };
   final incomingLinks = AppLinks().uriLinkStream;
   await loadCoinlib();
   if (_roastSupported) {
@@ -257,13 +271,11 @@ class _SygnatureAppState extends State<SygnatureApp> {
     final participantPublicKey = link.invite.expectedParticipantPublicKey.hex;
     final controllerFuture = _controller;
     if (controllerFuture == null) {
-      throw StateError('Unlock the vault before opening an invitation.');
+      throw _InvitationFailure.vaultLocked;
     }
     final controller = await controllerFuture;
     if (!controller.roastAvailable) {
-      throw UnsupportedError(
-        'ROAST invitations are not supported on this platform.',
-      );
+      throw _InvitationFailure.unsupported;
     }
     final matchingDrafts = controller.roastSetups
         .where(
@@ -274,10 +286,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
         )
         .toList(growable: false);
     if (matchingDrafts.length != 1) {
-      throw const FormatException(
-        'This invitation is bound to a different signer. Open the member '
-        'wallet whose public key was shared with the host.',
-      );
+      throw _InvitationFailure.signerMismatch;
     }
     final setup = matchingDrafts.single;
     final context = await _navigatorContext();
@@ -366,10 +375,16 @@ class _SygnatureAppState extends State<SygnatureApp> {
     );
   }
 
-  static String _displayError(Object error) => error.toString().replaceFirst(
-    RegExp(r'^(FormatException|Unsupported operation): '),
-    '',
-  );
+  static String _displayError(Object error) => switch (error) {
+    _InvitationFailure.unsupported =>
+      'ROAST invitations are unsupported on this device.',
+    _InvitationFailure.vaultLocked =>
+      'Unlock the matching wallet before opening this invitation.',
+    _InvitationFailure.signerMismatch =>
+      'This invitation is bound to a different signer. Open the member wallet '
+          'whose public key was shared with the host.',
+    _ => 'The invitation is invalid, expired or belongs to another wallet.',
+  };
 
   void _retryDeviceVaultUnlock() {
     setState(() {
@@ -520,7 +535,7 @@ class _StartupError extends StatelessWidget {
                   ] else ...[
                     const SizedBox(height: 16),
                     Text(
-                      '$error',
+                      'Failure type: ${error.runtimeType}',
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
@@ -542,3 +557,5 @@ class _StartupError extends StatelessWidget {
 }
 
 class const _DeviceVaultUnlockFailure() implements Exception;
+
+enum _InvitationFailure { vaultLocked, unsupported, signerMismatch }

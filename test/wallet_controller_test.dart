@@ -782,7 +782,7 @@ void main() {
   });
 
   test(
-    'surfaces the ElectrumX rejection reason when broadcast fails',
+    'redacts the ElectrumX rejection reason when broadcast fails',
     () async {
       final electrumx = _FakeElectrumxService()
         ..broadcastError = const ElectrumxException(
@@ -845,8 +845,7 @@ void main() {
               .having(
                 (error) => error.message,
                 'message',
-                'ElectrumX rejected the transaction: '
-                    'bad-txns-inputs-missingorspent (code -26)',
+                'ElectrumX rejected the transaction (code -26).',
               ),
         ),
       );
@@ -855,7 +854,14 @@ void main() {
           .activitiesFor(controller.accounts.single)
           .first;
       expect(activity.transactionStatus, WalletTransactionStatus.failed);
-      expect(activity.details, contains('bad-txns-inputs-missingorspent'));
+      expect(
+        activity.details,
+        'ElectrumX rejected the transaction (code -26).',
+      );
+      expect(
+        activity.details,
+        isNot(contains('bad-txns-inputs-missingorspent')),
+      );
 
       controller.dispose();
     },
@@ -949,7 +955,7 @@ void main() {
     });
   }
 
-  test('maps and logs an unexpected signing failure', () async {
+  test('maps and redacts an unexpected signing failure', () async {
     final transactions = _FakeWalletTransactionService()
       ..signingError = StateError('signer exploded');
     final controller = WalletController(
@@ -981,7 +987,12 @@ void main() {
             .having(
               (error) => error.message,
               'message',
-              'Transaction submission failed: signer exploded',
+              'Transaction submission failed. Check wallet state and retry.',
+            )
+            .having(
+              (error) => error.message,
+              'redacted message',
+              isNot(contains('signer exploded')),
             ),
       ),
     );

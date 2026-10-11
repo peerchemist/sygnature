@@ -486,10 +486,11 @@ class const RoastSetupPanel({
   ) async {
     try {
       await operation();
-    } catch (error) {
+    } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('The ROAST operation failed.')),
+        );
       }
     }
   }

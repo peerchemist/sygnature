@@ -88,8 +88,10 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
         requestTimeout: _requestTimeout,
       );
       if (mounted) setState(() => _result = result);
-    } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Unable to complete the signing request.');
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

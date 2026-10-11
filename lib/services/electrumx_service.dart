@@ -72,12 +72,7 @@ class ElectrumxException implements Exception {
   final Object? cause;
 
   @override
-  String toString() {
-    if (cause == null) {
-      return 'ElectrumxException: $message';
-    }
-    return 'ElectrumxException: $message ($cause)';
-  }
+  String toString() => 'ElectrumxException: $message';
 }
 
 final class const ElectrumxRpcException(
@@ -126,10 +121,11 @@ class WebSocketElectrumxConnection implements ElectrumxConnection {
   final WebSocketChannel _channel;
 
   static Future<WebSocketElectrumxConnection> connect(Uri uri) async {
-    AppLogger.info('Connecting to ElectrumX websocket: $uri');
+    final endpoint = PeercoinElectrumxService._diagnosticEndpoint(uri);
+    AppLogger.info('Connecting to ElectrumX websocket: $endpoint');
     final channel = WebSocketChannel.connect(uri);
     await channel.ready;
-    AppLogger.info('ElectrumX websocket connected: $uri');
+    AppLogger.info('ElectrumX websocket connected: $endpoint');
     return WebSocketElectrumxConnection._(channel);
   }
 
@@ -254,7 +250,9 @@ class PeercoinElectrumxService
       if (_closed) {
         throw const ElectrumxException('ElectrumX service is closed.');
       }
-      AppLogger.debug('Connecting persistent ElectrumX server=$server');
+      AppLogger.debug(
+        'Connecting persistent ElectrumX server=${_diagnosticEndpoint(server)}',
+      );
       final client = _ElectrumxClient(
         server: server,
         electrumNetwork: electrumNetwork,
@@ -271,7 +269,7 @@ class PeercoinElectrumxService
         _persistentClient = client;
         return client;
       } catch (error) {
-        failures.add('$server: $error');
+        failures.add('${_diagnosticEndpoint(server)} (${error.runtimeType})');
         await client.close();
       }
     }
@@ -326,7 +324,7 @@ class PeercoinElectrumxService
       if (stopping != null) return;
       AppLogger.warn(
         'watchUtxosForAddresses stream failed for '
-        '${addresses.length} address(es): $error. Reconnecting...',
+        '${addresses.length} address(es). Reconnecting...',
         error: error,
         stackTrace: stackTrace,
       );
@@ -471,7 +469,8 @@ class PeercoinElectrumxService
     }
     for (final server in _orderedServers) {
       AppLogger.debug(
-        'Trying ElectrumX server=$server network=${electrumNetwork.preset.id}',
+        'Trying ElectrumX server=${_diagnosticEndpoint(server)} '
+        'network=${electrumNetwork.preset.id}',
       );
       final client = _ElectrumxClient(
         server: server,
@@ -483,7 +482,9 @@ class PeercoinElectrumxService
       try {
         await client.connect();
         final result = await action(client);
-        AppLogger.info('ElectrumX action succeeded via $server');
+        AppLogger.info(
+          'ElectrumX action succeeded via ${_diagnosticEndpoint(server)}',
+        );
         return result;
       } catch (error, stackTrace) {
         lastError = error;
@@ -491,11 +492,11 @@ class PeercoinElectrumxService
           rpcError ??= error;
         }
         AppLogger.warn(
-          'ElectrumX action failed via $server',
+          'ElectrumX action failed via ${_diagnosticEndpoint(server)}',
           error: error,
           stackTrace: stackTrace,
         );
-        failures.add('$server: $error');
+        failures.add('${_diagnosticEndpoint(server)} (${error.runtimeType})');
       } finally {
         await client.close();
       }
@@ -528,6 +529,11 @@ class PeercoinElectrumxService
   static bool _isSupportedEndpoint(Uri endpoint) =>
       (endpoint.scheme == 'ws' || endpoint.scheme == 'wss') &&
       endpoint.host.isNotEmpty;
+
+  static String _diagnosticEndpoint(Uri endpoint) {
+    final port = endpoint.hasPort ? ':${endpoint.port}' : '';
+    return '${endpoint.scheme}://${endpoint.host}$port';
+  }
 
   Iterable<Uri> get _orderedServers sync* {
     yield preferredServer;
@@ -736,7 +742,9 @@ class _ElectrumxClient({
       await cleanup().timeout(timeout);
     } catch (error, stackTrace) {
       AppLogger.warn(
-        'ElectrumX cleanup failed for $server; continuing recovery.',
+        'ElectrumX cleanup failed for '
+        '${PeercoinElectrumxService._diagnosticEndpoint(server)}; '
+        'continuing recovery.',
         error: error,
         stackTrace: stackTrace,
       );

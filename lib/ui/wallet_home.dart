@@ -1026,10 +1026,11 @@ Future<void> _confirmArchiveWallet(
         ),
       ),
     );
-  } on Object catch (error) {
+  } on Object catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to archive the wallet.')),
+      );
     }
   }
 }
