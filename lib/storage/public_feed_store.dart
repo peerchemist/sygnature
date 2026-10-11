@@ -1,63 +1,148 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:math';
 
 import 'package:hive_ce/hive.dart';
 import 'package:noosphere_client/public_feed.dart';
 
-/// App-private notification database. Never opens the vault, keyring or ROAST
-/// storage. One flushed Hive record is the commit point for a page + outbox.
-final class PublicFeedStore(final Box<dynamic> _box) {
-  Future<void> _writes = Future.value();
+import 'public_feed_store_registry.dart'
+    if (dart.library.ui) 'public_feed_store_registry_flutter.dart'
+    as registry;
+
+part 'public_feed_store_owner.dart';
+part 'public_feed_store_state.dart';
+
+/// Only the shared owner isolate opens Hive. Clients send whole mutations,
+/// never a separate read/modify/write sequence or a cached copy of the box.
+final class PublicFeedStore._(
+  final SendPort _owner,
+  final String _registryName,
+  final String _clientId,
+) {
   static const boxName = 'sygnature_public_feed_v1';
+  static final _isolateId = _randomId();
+  bool _closed = false;
 
-  static Future<PublicFeedStore> open(String directory) async {
-    return PublicFeedStore(
-      await Hive.openBox<dynamic>(boxName, path: directory),
-    );
+  static String _randomId() {
+    final random = Random.secure();
+    return base64UrlEncode(List.generate(24, (_) => random.nextInt(256)));
   }
 
-  Map<String, dynamic> _read() => jsonDecode(
-    _box.get(
-      'state',
-      defaultValue: '{"hosts":{},"feeds":{},"bindings":{},"nextNotificationId":1073741824}',
-    ) as String,
-  ) as Map<String, dynamic>;
-
-  Future<T> _mutate<T>(T Function(Map<String, dynamic>) change) {
-    final result = Completer<T>();
-    _writes = _writes.then((_) async {
-      try {
-        final data = _read();
-        final value = change(data);
-        await _box.put('state', jsonEncode(data));
-        await _box.flush();
-        result.complete(value);
-      } catch (error, stack) {
-        result.completeError(error, stack);
-      }
-    });
-    return result.future;
-  }
-
-  Future<Map<String, dynamic>> snapshot() async {
-    await _writes;
-    return _read();
-  }
-
-  /// Persist before starting the coordinator. Disabling retains the random ID.
-  Future<String?> configureHost(String groupId, bool enabled) =>
-      _mutate((data) {
-        final hosts = data['hosts'] as Map;
-        final host = (hosts[groupId] as Map?) ?? <String, dynamic>{};
-        if (enabled) {
-          host['feedId'] ??= PublicFeedId.generate().hex;
-          if (host['enabled'] != true) host['polling'] = true;
+  static Future<PublicFeedStore> open(
+    String directory, {
+    void Function(Isolate)? onOwnerSpawned,
+  }) async {
+    await Directory(directory).create(recursive: true);
+    final canonical = await Directory(directory).resolveSymbolicLinks();
+    final name = 'sygnature-public-feed:$canonical';
+    for (var attempt = 0; attempt < 3; attempt++) {
+      var owner = registry.lookup(name);
+      if (owner == null) {
+        final ready = ReceivePort();
+        try {
+          final spawned = await Isolate.spawn(_publicFeedStoreOwner, (
+            canonical,
+            name,
+            ready.sendPort,
+          ), debugName: 'PublicFeedStore');
+          onOwnerSpawned?.call(spawned);
+          owner = await ready.first.timeout(
+            const Duration(seconds: 10),
+          ) as SendPort?;
+        } finally {
+          ready.close();
         }
-        host['enabled'] = enabled;
-        hosts[groupId] = host;
-        return host['feedId'] as String?;
-      });
+        if (owner == null) continue;
+      }
+      final store = PublicFeedStore._(owner, name, _randomId());
+      try {
+        // Only primitive messages cross Flutter engine isolate groups.
+        Isolate.current.addOnExitListener(
+          owner,
+          response: ['exit', _isolateId],
+        );
+        await store._request<void>([
+          'attach',
+          _isolateId,
+          store._clientId,
+        ], timeout: const Duration(seconds: 2));
+        registry.remember(owner, name);
+        return store;
+      } on _StoreOwnerClosed {
+        registry.forget(owner, name);
+      } on TimeoutException {
+        owner.send([
+          null,
+          ['detach', _isolateId, store._clientId],
+        ]);
+        registry.forget(owner, name);
+      }
+    }
+    throw const FeedStoreUnavailable();
+  }
 
+  Future<T> _request<T>(
+    List<Object?> operation, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    if (_closed) throw StateError('Public feed store is closed');
+    if (operation.first != 'attach' &&
+        registry.lookup(_registryName) != _owner) {
+      throw const FeedStoreUnavailable();
+    }
+    final response = ReceivePort();
+    try {
+      _owner.send([response.sendPort, operation]);
+      final result = await response.first.timeout(timeout) as List;
+      final value = result[1];
+      if (result[0] != true) {
+        throw switch (value) {
+          'closed' => const _StoreOwnerClosed(),
+          'rollback' => const FeedRollback(),
+          'lease' => const FeedLeaseLost(),
+          'format' => const FormatException('Invalid public feed state'),
+          'state' => StateError('Public feed state mutation failed'),
+          _ => const FeedStoreUnavailable(),
+        };
+      }
+      return value as T;
+    } finally {
+      response.close();
+    }
+  }
+
+  Future<Map<String, dynamic>> snapshot() => _request(['read']);
+
+  Future<void> close() async {
+    if (_closed) return;
+    try {
+      final closedOwner = await _request<bool>([
+        'detach',
+        _isolateId,
+        _clientId,
+      ]);
+      if (closedOwner) registry.forget(_owner, _registryName);
+    } finally {
+      _closed = true;
+    }
+  }
+
+  Future<String?> acquirePollingLease({
+    DateTime? now,
+    Duration duration = const Duration(minutes: 2),
+  }) => _request([
+    'acquire',
+    now?.toUtc().toIso8601String(),
+    duration.inMilliseconds,
+  ]);
+  Future<void> releasePollingLease(String owner) =>
+      _request(['release', owner]);
+  Future<void> checkPollingLease(String owner, String feedKey) =>
+      _request(['check', owner, feedKey]);
+  Future<String?> configureHost(String groupId, bool enabled) =>
+      _request(['host', groupId, enabled]);
   Future<String?> enabledHostId(String groupId) async {
     final host = ((await snapshot())['hosts'] as Map)[groupId] as Map?;
     return host?['enabled'] == true ? host!['feedId'] as String : null;
@@ -67,129 +152,45 @@ final class PublicFeedStore(final Box<dynamic> _box) {
       (((await snapshot())['hosts'] as Map)[groupId] as Map?)?['polling'] !=
       false;
 
-  /// Call only with credentials obtained via the trusted local/share flow.
-  /// Address is postcard EndpointAddr bytes; pin is independently approved.
   Future<String> subscribe({
     required String groupId,
     required String address,
     required String pin,
     required String feedId,
-  }) => _mutate((data) {
-    PublicFeedId(feedId);
-    final key = '$pin:$feedId';
-    final feeds = data['feeds'] as Map;
-    feeds[key] ??= {
-      'pin': pin,
-      'feedId': feedId,
-      'cursor': 0,
-      'events': <String, dynamic>{},
-      'outbox': <String, dynamic>{},
-      'historyGap': false,
-      'failures': 0,
-    };
-    (feeds[key] as Map)['address'] = address;
-    (data['bindings'] as Map)[groupId] = key;
-    final host = (data['hosts'] as Map)[groupId] as Map?;
-    if (host != null) host['polling'] = true;
-    return key;
-  });
-
-  Future<void> unsubscribe(String groupId) => _mutate((data) {
-    (data['bindings'] as Map).remove(groupId);
-    final host = (data['hosts'] as Map)[groupId] as Map?;
-    if (host != null) host['polling'] = false;
-    // Keep scoped cursor/outbox bookkeeping for a later re-subscription.
-  });
-
+  }) => _request(['subscribe', groupId, address, pin, feedId]);
+  Future<void> unsubscribe(String groupId) =>
+      _request(['unsubscribe', groupId]);
   Future<void> commitPage(
     String key,
     PublicFeedPage page,
-    DateTime now,
-  ) => _mutate((data) {
-    final feed = (data['feeds'] as Map)[key] as Map;
-    final cursor = feed['cursor'] as int;
-    if (page.latestCursor < cursor) throw const FeedRollback();
-    if (page.afterCursor != cursor || page.feedId.hex != feed['feedId']) {
-      throw const FormatException('Public feed page scope mismatch');
-    }
-    // No initial history notifications, including multi-run catch-up.
-    feed['initialThrough'] ??= page.latestCursor;
-    final events = feed['events'] as Map;
-    final outbox = feed['outbox'] as Map;
-    var previous = cursor;
-    for (final entry in page.entries) {
-      if (entry.cursor <= previous) {
-        throw const FormatException('Public feed entries out of order');
-      }
-      previous = entry.cursor;
-      events.remove(entry.eventId.hex);
-      events[entry.eventId.hex] = {
-        'cursor': entry.cursor,
-        'category': entry.category.name,
-        'state': entry.state.name,
-        'observedAt': entry.observedAt.toUtc().toIso8601String(),
-        'expiresAt': entry.expiresAt?.toUtc().toIso8601String(),
-      };
-      if (entry.state != PublicFeedLifecycle.requested) {
-        outbox.removeWhere(
-          (_, value) => (value as Map)['eventId'] == entry.eventId.hex,
-        );
-        continue;
-      }
-      if (entry.cursor <= (feed['initialThrough'] as int) ||
-          entry.observedAt.isBefore(now.subtract(const Duration(minutes: 5))) ||
-          entry.observedAt.isAfter(now.add(const Duration(minutes: 1))) ||
-          (entry.expiresAt != null && !entry.expiresAt!.isAfter(now))) {
-        continue;
-      }
-      final id = data['nextNotificationId'] as int;
-      if (id >= 0x7fffffff) throw StateError('Notification IDs exhausted');
-      data['nextNotificationId'] = id + 1;
-      outbox['${entry.cursor}'] = {
-        'id': id,
-        'eventId': entry.eventId.hex,
-        'category': entry.category.name,
-        'observedAt': entry.observedAt.toUtc().toIso8601String(),
-        'expiresAt': entry.expiresAt?.toUtc().toIso8601String(),
-      };
-    }
-    // Only a bounded recent public status cache, never protocol request IDs.
-    while (events.length > 200) {
-      events.remove(events.keys.first);
-    }
-    feed['historyGap'] = feed['historyGap'] == true || page.historyGap;
-    feed['cursor'] = page.nextCursor; // Empty pages advance too.
-    feed['failures'] = 0;
-    feed.remove('retryAt');
-    feed.remove('issue');
-  });
-
-  Future<void> delivered(String key, String cursor) => _mutate((data) {
-    (((data['feeds'] as Map)[key] as Map)['outbox'] as Map).remove(cursor);
-  });
-
+    DateTime now, {
+    String? leaseOwner,
+  }) => _request([
+    'commit',
+    key,
+    page.toBytes(),
+    now.toUtc().toIso8601String(),
+    leaseOwner,
+  ]);
+  Future<void> delivered(String key, String cursor, {String? leaseOwner}) =>
+      _request(['delivered', key, cursor, leaseOwner]);
   Future<void> failure(
     String key,
     String issue,
     DateTime now, {
     bool blocked = false,
-  }) => _mutate((data) {
-    final feed = (data['feeds'] as Map)[key] as Map;
-    final count = ((feed['failures'] as int) + 1).clamp(1, 10);
-    feed['failures'] = count;
-    feed['issue'] = issue;
-    feed['blocked'] = blocked;
-    feed['retryAt'] = now
-        .add(Duration(seconds: (15 * (1 << count)).clamp(30, 3600)))
-        .toUtc()
-        .toIso8601String();
-  });
-
-  Future<void> retry(String key) => _mutate((data) {
-    final feed = (data['feeds'] as Map)[key] as Map;
-    feed['blocked'] = false;
-    feed.remove('retryAt');
-  });
+    String? leaseOwner,
+  }) => _request([
+    'failure',
+    key,
+    issue,
+    now.toUtc().toIso8601String(),
+    blocked,
+    leaseOwner,
+  ]);
+  Future<void> retry(String key) => _request(['retry', key]);
 }
 
 final class const FeedRollback() implements Exception;
+final class const FeedLeaseLost() implements Exception;
+final class const FeedStoreUnavailable() implements Exception;

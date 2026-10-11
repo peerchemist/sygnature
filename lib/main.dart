@@ -255,7 +255,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void dispose() {
     _disposed = true;
-    unawaited(_publicFeedPoller?.stop());
+    unawaited(_closePublicFeedPolling());
     unawaited(_incomingLinkSubscription?.cancel());
     final controller = _controller;
     if (controller != null) {
@@ -268,6 +268,16 @@ class _SygnatureAppState extends State<SygnatureApp> {
     }
     _notifications.dispose();
     super.dispose();
+  }
+
+  Future<void> _closePublicFeedPolling() async {
+    try {
+      final store = await _publicFeedStore;
+      await _publicFeedPoller?.stop();
+      await store?.close();
+    } on Object {
+      // Initialization can fail independently of the wallet lifecycle.
+    }
   }
 
   void _queueIncomingLink(Uri uri) {

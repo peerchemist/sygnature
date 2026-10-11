@@ -30,5 +30,5 @@ Future<void> main(List<String> args) async {
           : null,
     }),
   );
-  await Hive.close();
+  await store.close();
 }

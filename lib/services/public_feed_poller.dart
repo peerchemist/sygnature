@@ -81,9 +81,24 @@ final class PublicFeedPoller(
     await _running;
   }
 
-  Future<void> run() => _running ??= _run().whenComplete(() => _running = null);
+  Future<void> run() =>
+      _running ??= _withLease().whenComplete(() => _running = null);
 
-  Future<void> _run() async {
+  Future<void> _withLease() async {
+    final owner = await store.acquirePollingLease(
+      duration: maxDuration + const Duration(minutes: 2),
+    );
+    if (owner == null) return;
+    try {
+      await _run(owner);
+    } on FeedLeaseLost {
+      // A recovered lease or concurrent unsubscribe is a successful no-op.
+    } finally {
+      await store.releasePollingLease(owner);
+    }
+  }
+
+  Future<void> _run(String owner) async {
     final budget = Stopwatch()..start();
     var remaining = maxPages;
     Duration timeLeft() {
@@ -114,7 +129,7 @@ final class PublicFeedPoller(
       FeedConnection? client;
       try {
         // Drain committed intent even when the coordinator is temporarily offline.
-        await _deliver(key, feed, timeLeft);
+        await _deliver(key, feed, timeLeft, owner);
         var abandoned = false;
         final connecting = connect(feed).then((connection) async {
           if (abandoned) {
@@ -139,16 +154,24 @@ final class PublicFeedPoller(
                 limit: 100,
               )
               .timeout(timeLeft());
-          await store.commitPage(key, page, DateTime.now().toUtc());
+          await store.commitPage(
+            key,
+            page,
+            DateTime.now().toUtc(),
+            leaseOwner: owner,
+          );
           feed = ((await store.snapshot())['feeds'] as Map)[key] as Map;
-          await _deliver(key, feed, timeLeft);
+          await _deliver(key, feed, timeLeft, owner);
           if (!page.hasMore) break;
         }
+      } on FeedLeaseLost {
+        rethrow;
       } on FeedRollback {
         await store.failure(
           key,
           'Coordinator rollback / configuration mismatch. Cursor retained.',
           DateTime.now(),
+          leaseOwner: owner,
           blocked: true,
         );
       } on PinnedEndpointMismatchException {
@@ -156,6 +179,7 @@ final class PublicFeedPoller(
           key,
           'Security error: coordinator identity mismatch.',
           DateTime.now(),
+          leaseOwner: owner,
           blocked: true,
         );
       } on FormatException {
@@ -163,6 +187,7 @@ final class PublicFeedPoller(
           key,
           'Security error: invalid signed public feed response.',
           DateTime.now(),
+          leaseOwner: owner,
           blocked: true,
         );
       } on IrohKeyException {
@@ -171,6 +196,7 @@ final class PublicFeedPoller(
           key,
           'Security error: invalid public feed identity or signature.',
           DateTime.now(),
+          leaseOwner: owner,
           blocked: true,
         );
       } on PublicFeedException catch (error) {
@@ -181,6 +207,7 @@ final class PublicFeedPoller(
               ? 'Feed unavailable (unknown or disabled).'
               : 'Public feed request failed.',
           DateTime.now(),
+          leaseOwner: owner,
         );
       } on Object {
         // Do not log arbitrary transport errors: they may include capabilities.
@@ -188,6 +215,7 @@ final class PublicFeedPoller(
           key,
           'Public feed connection or notification failed. Retrying later.',
           DateTime.now(),
+          leaseOwner: owner,
         );
       } finally {
         try {
@@ -203,8 +231,10 @@ final class PublicFeedPoller(
     String key,
     Map feed,
     Duration Function() timeLeft,
+    String owner,
   ) async {
     for (final entry in (feed['outbox'] as Map).entries) {
+      await store.checkPollingLease(owner, key);
       final item = entry.value as Map;
       final now = DateTime.now().toUtc();
       final expiry = item['expiresAt'] as String?;
@@ -219,7 +249,7 @@ final class PublicFeedPoller(
           ).timeout(timeLeft())) {
         throw StateError('Notification delivery failed');
       }
-      await store.delivered(key, entry.key as String);
+      await store.delivered(key, entry.key as String, leaseOwner: owner);
     }
   }
 }

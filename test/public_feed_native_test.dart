@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:coinlib/coinlib.dart' show ECCompressedPublicKey;
-import 'package:hive_ce/hive.dart';
 import 'package:iroh_quic/iroh_quic.dart';
 import 'package:noosphere_server/noosphere_server.dart';
 import 'package:noosphere_server/testing.dart';
@@ -54,7 +53,7 @@ void main() {
         expect((await store.snapshot())['feeds'], isEmpty);
         await tester.pumpWidget(const SizedBox());
       } finally {
-        await Hive.box<dynamic>(PublicFeedStore.boxName).close();
+        await store.close();
         await directory.delete(recursive: true);
       }
     });
@@ -109,11 +108,23 @@ void main() {
         await tester.pumpWidget(const SizedBox());
       } finally {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
-        await Hive.box<dynamic>(PublicFeedStore.boxName).close();
+        await store.close();
         await directory.delete(recursive: true);
       }
     });
   });
+
+  test(
+    'independent engine isolate groups share Hive state and polling lease',
+    () async {
+      final result = await Process.run('dart', [
+        'run',
+        'test/support/public_feed_store_engine_probe.dart',
+      ]).timeout(const Duration(seconds: 60));
+      expect(result.exitCode, 0, reason: result.stderr as String);
+      expect((result.stdout as String).trim(), 'ok');
+    },
+  );
 
   test('fresh locked process polls real Iroh feed with no signer session or presence change', () async {
     final fixture = WalletBackupFixture();
@@ -161,9 +172,9 @@ void main() {
       pin: server.id.toZ32(),
       feedId: id.hex,
     );
-    await Hive.box<dynamic>(PublicFeedStore.boxName).close();
+    await store.close();
     final result = await Process.run('dart', [
-      '--packages=.dart_tool/package_config.json',
+      'run',
       'test/support/public_feed_locked_probe.dart',
       directory.path,
     ]).timeout(const Duration(seconds: 60));
@@ -187,7 +198,7 @@ void main() {
     );
     addTearDown(() => directory.delete(recursive: true));
     final store = await PublicFeedStore.open(directory.path);
-    addTearDown(() => Hive.box<dynamic>(PublicFeedStore.boxName).close());
+    addTearDown(() => store.close());
     final address = EndpointAddr(SecretKey.generate().publicKey);
     final key = await store.subscribe(
       groupId: 'g',

@@ -70,7 +70,6 @@ final class FakeConnection(
 
 void main() {
   late Directory directory;
-  late Box<dynamic> box;
   late PublicFeedStore store;
   late String key;
   late Map<int, String> shown;
@@ -98,8 +97,7 @@ void main() {
 
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('sygnature-public-feed-');
-    box = await Hive.openBox<dynamic>('feed', path: directory.path);
-    store = PublicFeedStore(box);
+    store = await PublicFeedStore.open(directory.path);
     key = await store.subscribe(
       groupId: 'g1',
       address: 'mock-address',
@@ -109,7 +107,7 @@ void main() {
     shown = {};
   });
   tearDown(() async {
-    await box.close();
+    await store.close();
     await directory.delete(recursive: true);
   });
 
@@ -158,9 +156,8 @@ void main() {
       ),
       DateTime.now(),
     );
-    await box.close();
-    box = await Hive.openBox<dynamic>('feed', path: directory.path);
-    store = PublicFeedStore(box);
+    await store.close();
+    store = await PublicFeedStore.open(directory.path);
     expect(await store.enabledHostId('g1'), id);
     expect((await feed())['cursor'], 2);
     expect(((await feed())['events'] as Map).length, 1);
@@ -242,9 +239,8 @@ void main() {
     await service.run();
     expect((await feed())['cursor'], 1); // Atomically committed with intent.
     expect(((await feed())['outbox'] as Map).length, 1);
-    await box.close();
-    box = await Hive.openBox<dynamic>('feed', path: directory.path);
-    store = PublicFeedStore(box);
+    await store.close();
+    store = await PublicFeedStore.open(directory.path);
     await store.retry(key);
     await poller(
       FakeConnection((cursor) async => page(cursor, 1)),
@@ -440,9 +436,8 @@ void main() {
       await store.unsubscribe('g1');
       expect(await store.enabledHostId('g1'), id);
       expect(await store.hostPollingEnabled('g1'), isFalse);
-      await box.close();
-      box = await Hive.openBox<dynamic>('feed', path: directory.path);
-      store = PublicFeedStore(box);
+      await store.close();
+      store = await PublicFeedStore.open(directory.path);
       expect(await store.hostPollingEnabled('g1'), isFalse);
       expect(await store.enabledHostId('g1'), id);
     },

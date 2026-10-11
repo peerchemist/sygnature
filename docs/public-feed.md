@@ -36,8 +36,12 @@ restart.
 
 ## Locked-wallet polling
 
-`PublicFeedStore` uses a separate Hive box, `sygnature_public_feed_v1`, in the
-application support directory. It has no vault encryption key, signer storage,
+`PublicFeedStore` keeps the existing app-private Hive CE box,
+`sygnature_public_feed_v1`, in the application support directory. The existing
+JSON state remains readable and writable in place; no migration or second
+database is introduced. Only a shared owner isolate opens the box. Foreground
+and headless Flutter engines discover it through `IsolateNameServer` and send
+whole mutations to its serialized mailbox. It has no vault encryption key, signer storage,
 participant key, wallet seed, or FROST dependency to initialize. The subscription
 credentials are only postcard `EndpointAddr`, an independently pinned EndpointId,
 and feed ID. Bookkeeping includes a cursor scoped to `(pin, feedId)`, a bounded
@@ -58,7 +62,7 @@ The application starts polling separately from vault/controller creation. It
 uses the existing in-process timer pattern: immediately, then once per minute.
 A run allows at most five pages total (100 entries each), a 45-second network /
 notification budget and up to three seconds for final transport close. Local
-durable commits are allowed to finish. Runs cannot overlap; feed order rotates
+durable commits are allowed to finish. Runs share a durable global lease; feed order rotates
 to avoid starving other subscriptions during catch-up. A connection completing
 after its deadline is closed without fetching.
 
@@ -66,10 +70,26 @@ There is no existing OS scheduler/foreground service in this wallet. This change
 does not add one. Polling works while the wallet is locked and the process is
 running; a suspended/terminated mobile process cannot promise delivery. A future
 OS worker can open the same public database and invoke `run()` with Iroh
-available in that isolate, without bootstrapping the signer. Use a single database
-owner; do not open ordinary Hive boxes concurrently in multiple isolates or
-processes. Validate notification delivery, app opening, native library packaging
-and suspension/resume behavior on each shipping platform.
+available in that isolate, without bootstrapping the signer.
+
+Foreground and headless engines share one Hive owner. Each queued mutation reads
+the latest state, applies the complete change, and writes and flushes one JSON
+record before replying. Cursor, lifecycle state and outbox creation are one
+mutation; concurrent settings/subscription changes are retained. Connections
+are reference counted, and isolate exit listeners clean up killed clients. An
+independent monitor removes a killed owner's registration so the next open can
+recover persisted data. Standalone Dart callers reuse a local owner; concurrent
+Flutter engines use the process-wide name server.
+The global polling lease is acquired by the same serialized mailbox with a random owner
+and expiry (the run budget plus two minutes, normally 165 seconds). Every page
+commit, failure, outbox acknowledgement and pre-delivery check is fenced by the
+current owner, expiry and active subscription. A killed worker becomes recoverable
+after expiry; a late old owner cannot commit or release a replacement lease.
+Stable OS notification IDs cover interruption after display but before outbox ack.
+The local `_running` guard remains a cheap optimization, not synchronization.
+
+Validate notification delivery, app opening, native library packaging and
+suspension/resume behavior on each shipping platform.
 
 ## Processing and presentation
 
