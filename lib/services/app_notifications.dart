@@ -238,12 +238,14 @@ class AppNotifications({
       if (!_pluginInitialized) return false;
       if (requestPermission) {
         if (defaultTargetPlatform == TargetPlatform.android) {
-          return await _plugin
-                  .resolvePlatformSpecificImplementation<
-                    AndroidFlutterLocalNotificationsPlugin
-                  >()
-                  ?.requestNotificationsPermission() ??
-              false;
+          final android = _plugin
+              .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin
+              >();
+          if (android == null) return false;
+          final granted = await android.requestNotificationsPermission();
+          if (granted == true) return true;
+          return await android.areNotificationsEnabled() ?? false;
         }
         if (defaultTargetPlatform == TargetPlatform.macOS) {
           return await _plugin

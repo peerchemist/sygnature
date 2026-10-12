@@ -80,6 +80,40 @@ void main() {
     },
   );
 
+  test('Android accepts notifications that are already enabled', () async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+      call,
+    ) async {
+      storageCalls.add(call);
+      if (call.method == 'read' &&
+          (call.arguments as Map)['key'] == 'notifications.desktop_enabled') {
+        return 'false';
+      }
+      return null;
+    });
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+      call,
+    ) async {
+      pluginCalls.add(call);
+      return switch (call.method) {
+        'requestNotificationsPermission' => false,
+        'areNotificationsEnabled' => true,
+        _ => true,
+      };
+    });
+
+    final delivery = AppNotifications();
+    await delivery.initialize();
+    expect(await delivery.setSystemEnabled(true), isTrue);
+    expect(delivery.systemEnabled, isTrue);
+    expect(pluginCalls.map((call) => call.method), [
+      'initialize',
+      'requestNotificationsPermission',
+      'areNotificationsEnabled',
+    ]);
+    delivery.dispose();
+  });
+
   test('background plugin failure propagates without persisting a disabled preference', () async {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(
       notifications,
