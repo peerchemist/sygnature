@@ -633,8 +633,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere"
-      ref: "0.1.2"
-      resolved-ref: "30d934b3e57ee797cdf2c3d5119ab15d04f33cc4"
+      ref: "feat/creator-signature-cancellation"
+      resolved-ref: e9f7907231ebc5ed1a1a18b3ad07f22aabe78a2e
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.2"
@@ -642,8 +642,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_client"
-      ref: "0.1.2"
-      resolved-ref: "30d934b3e57ee797cdf2c3d5119ab15d04f33cc4"
+      ref: "feat/creator-signature-cancellation"
+      resolved-ref: e9f7907231ebc5ed1a1a18b3ad07f22aabe78a2e
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "4.0.0"
@@ -651,8 +651,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "0.1.2"
-      resolved-ref: "30d934b3e57ee797cdf2c3d5119ab15d04f33cc4"
+      ref: "feat/creator-signature-cancellation"
+      resolved-ref: e9f7907231ebc5ed1a1a18b3ad07f22aabe78a2e
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "0.1.2"
@@ -660,8 +660,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_server"
-      ref: "0.1.2"
-      resolved-ref: "30d934b3e57ee797cdf2c3d5119ab15d04f33cc4"
+      ref: "feat/creator-signature-cancellation"
+      resolved-ref: e9f7907231ebc5ed1a1a18b3ad07f22aabe78a2e
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "3.0.0"

@@ -42,7 +42,7 @@ class WalletTransactionRejected extends WalletTransactionFailure {
   const WalletTransactionRejected(super.message);
 }
 
-enum WalletSigningFailureKind { expired, rejected, interrupted }
+enum WalletSigningFailureKind { expired, rejected, cancelled, interrupted }
 
 final class const WalletSigningFailure(
   final WalletSigningFailureKind kind,

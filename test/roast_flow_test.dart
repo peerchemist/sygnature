@@ -1176,6 +1176,7 @@ void main() {
 
     final close = find.byKey(const Key('close-message-signing'));
     expect(close, findsOneWidget);
+    expect(find.byKey(const Key('cancel-message-signing')), findsOneWidget);
     await tester.tap(close);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -1644,6 +1645,7 @@ void main() {
     expect(runtime.transactionRequestTimeout, const Duration(hours: 2));
 
     expect(find.text('Close'), findsOneWidget);
+    expect(find.byKey(const Key('send-cancel-request-button')), findsOneWidget);
     expect(
       find.textContaining('approval request will continue'),
       findsOneWidget,
@@ -1757,8 +1759,7 @@ WalletVault _finalizedRoastVault() => WalletVault(
           cardId: 'remote-card',
           name: 'Bob',
           identifierHex: '01',
-          publicKeyHex:
-              '03458e1f11de2c060570fbfd8a163a22ef28a55bb9180d9fe38cf24f82647bc077',
+          publicKeyHex: '03458e1f11de2c060570fbfd8a163a22ef28a55bb9180d9fe38cf24f82647bc077',
         ),
         RoastParticipant(
           cardId: 'local-card',
@@ -2051,6 +2052,12 @@ class _FakeRoastRuntime implements RoastRuntime {
   @override
   Future<void> rejectSignatures(String setupId, String requestIdHex) =>
       throw UnimplementedError();
+
+  @override
+  Future<RoastSigningCancellationResult> cancelSignatures(
+    String setupId,
+    String requestIdHex,
+  ) => throw UnimplementedError();
 
   @override
   Future<void> stopSetup(String setupId) async {}

@@ -226,6 +226,8 @@ bool _isExpiredRequest(
         candidate.reference == reference &&
             (candidate.type == WalletActivityType.signatureRequestApproved ||
                 candidate.type == WalletActivityType.signatureRequestRejected ||
+                candidate.type ==
+                    WalletActivityType.signatureRequestCancelled ||
                 candidate.type == WalletActivityType.messageSigned) ||
         activity.type == WalletActivityType.transactionSignatureRequested &&
             candidate.id ==
@@ -406,6 +408,11 @@ class const _ActivityDetail({
     title: 'Signature request rejected',
     icon: Icons.cancel_outlined,
     color: AppColors.danger,
+  ),
+  WalletActivityType.signatureRequestCancelled => (
+    title: 'Signature request cancelled',
+    icon: Icons.cancel_schedule_send_outlined,
+    color: AppColors.warningDark,
   ),
   WalletActivityType.signatureRequestExpired => (
     title: 'Signature request expired',

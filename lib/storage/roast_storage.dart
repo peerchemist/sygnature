@@ -460,6 +460,7 @@ final class _HiveRoastClientStorage(
         'nonces': <String, Object?>{},
         'prepared': <String, String>{},
         'rejected': <String, String>{},
+        'cancelled': <String, String>{},
       };
     }
     if (raw is! Map) throw StateError('Invalid ROAST client storage record.');
@@ -516,6 +517,14 @@ final class _HiveRoastClientStorage(
             FinalExpirable(expiry);
       }
     }
+    final cancelled = <SignaturesRequestId, CancelledSignaturesRequest>{};
+    for (final entry
+        in ((data['cancelled'] as Map?) ?? const <String, String>{}).entries) {
+      final expiry = Expiry.fromTime(DateTime.parse(entry.value as String));
+      if (expiry.isExpired) continue;
+      final id = SignaturesRequestId.fromBytes(_decode(entry.key as String));
+      cancelled[id] = CancelledSignaturesRequest(id, expiry);
+    }
     return ClientStorageSnapshot(
       keys: (data['keys'] as List).cast<String>().map(
         (value) => FrostKeyWithDetails.fromBytes(_decode(value)),
@@ -523,8 +532,55 @@ final class _HiveRoastClientStorage(
       sigNonces: nonces,
       preparedOperations: prepared,
       rejectedRequests: rejected,
+      cancelledRequests: cancelled,
     );
   }
+
+  static void _requireNotCancelled(
+    Map<String, dynamic> data,
+    SignaturesRequestId id,
+  ) {
+    final cancelled = Map<String, dynamic>.from(
+      (data['cancelled'] as Map?) ?? const {},
+    );
+    final key = _id(id);
+    final value = cancelled[key];
+    if (value == null) return;
+    if (DateTime.parse(value as String).isAfter(DateTime.now())) {
+      throw StateError('Signatures request was cancelled.');
+    }
+    cancelled.remove(key);
+    data['cancelled'] = cancelled;
+  }
+
+  @override
+  Future<void> cancelSignaturesRequest(
+    SignaturesRequestId id,
+    Expiry expiresAt,
+  ) => _mutate((data) {
+    final key = _id(id);
+    final cancelled = Map<String, dynamic>.from(
+      (data['cancelled'] as Map?) ?? const {},
+    );
+    cancelled[key] = expiresAt.time.toUtc().toIso8601String();
+    data['cancelled'] = cancelled;
+    for (final field in ['nonces', 'prepared', 'rejected']) {
+      final values = Map<String, dynamic>.from(data[field] as Map);
+      values.remove(key);
+      data[field] = values;
+    }
+  });
+
+  @override
+  Future<void> pruneCancelledSignaturesRequests() => _mutate((data) {
+    final cancelled = Map<String, dynamic>.from(
+      (data['cancelled'] as Map?) ?? const {},
+    );
+    cancelled.removeWhere(
+      (_, value) => !DateTime.parse(value as String).isAfter(DateTime.now()),
+    );
+    data['cancelled'] = cancelled;
+  });
 
   @override
   Future<void> addOrReplaceFrostKey(FrostKeyWithDetails newKey) =>
@@ -546,6 +602,7 @@ final class _HiveRoastClientStorage(
     SignaturesNonces nonces,
     int capacity,
   ) => _mutate((data) {
+    _requireNotCancelled(data, id);
     final all = Map<String, dynamic>.from(data['nonces'] as Map);
     final key = _id(id);
     final existing = all[key] == null
@@ -569,6 +626,7 @@ final class _HiveRoastClientStorage(
     PreparedSignaturesOperation operation,
     int capacity,
   ) => _mutate((data) {
+    _requireNotCancelled(data, operation.id);
     _putNonces(data, operation.id, operation.nextNonces);
     final prepared = Map<String, dynamic>.from(data['prepared'] as Map);
     prepared[_id(operation.id)] = _bytes(operation.toBytes());
@@ -611,6 +669,7 @@ final class _HiveRoastClientStorage(
     SignaturesRequestId id,
     FinalExpirable expirable,
   ) => _mutate((data) {
+    _requireNotCancelled(data, id);
     final rejected = Map<String, dynamic>.from(data['rejected'] as Map);
     rejected[_id(id)] = expirable.expiry.time.toUtc().toIso8601String();
     data['rejected'] = rejected;

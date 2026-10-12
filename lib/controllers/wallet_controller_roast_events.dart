@@ -352,6 +352,42 @@ extension WalletRoastEventController on WalletController {
           );
         }
         _notifyListeners();
+      case RoastRuntimeSigningRequestCancelledEvent():
+        final requestKey = '${event.setupId}:${event.requestIdHex}';
+        _roastSigningRequests.remove(requestKey);
+        final error = const WalletSigningFailure(
+          WalletSigningFailureKind.cancelled,
+          'The signing request was cancelled.',
+        );
+        final pendingSend = _pendingRoastSends[requestKey];
+        if (pendingSend != null && !pendingSend.completer.isCompleted) {
+          pendingSend.completer.complete(_RoastSendOutcome(error: error));
+        }
+        final pendingMessage = _pendingRoastMessages[requestKey];
+        if (pendingMessage != null && !pendingMessage.isCompleted) {
+          pendingMessage.completeError(error);
+        }
+        final operation = _storedRoastSigningOperations[requestKey];
+        if (operation != null && operation.rawTransactionHex == null) {
+          await _saveRoastSigningOperation(
+            operation.copyWith(
+              state: RoastSigningOperationState.cancelled,
+              errorMessage: error.message,
+            ),
+          );
+        }
+        final account = accounts
+            .where((item) => item.sourceId == setup.id)
+            .firstOrNull;
+        if (account != null) {
+          await _recordActivity(
+            id: 'signature-request-cancelled:$requestKey',
+            accountId: account.id,
+            type: WalletActivityType.signatureRequestCancelled,
+            reference: event.requestIdHex,
+          );
+        }
+        _notifyListeners();
       case RoastRuntimeSigningResultEvent():
         final pendingKey = '${setup.id}:${event.requestIdHex}';
         _roastSigningRequests.remove(pendingKey);
