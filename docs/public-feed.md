@@ -113,10 +113,12 @@ Swiping the app from Recents normally leaves scheduled work intact. Android
 **force-stop** prevents background execution until the user opens the app again;
 Doze, battery restrictions and vendor policies may delay work. Retained events
 are caught up by cursor when execution resumes, subject to coordinator retention.
-Expired/older-than-five-minute requests remain silent, so a deferred run can
-update status without showing a notification. No background delivery deadline
-is promised. Keep the coordinator running independently if the wallet hosting
-it is also stopped.
+Expired requests and requests older than the configured notification-age window
+remain silent, so a deferred run can update status without showing a
+notification. The window is configurable from 15 minutes to 24 hours and
+defaults to one hour. It limits how far a delayed best-effort run may look back;
+it does not define or guarantee a delivery deadline. Keep the coordinator
+running independently if the wallet hosting it is also stopped.
 
 ## Processing and presentation
 
@@ -126,8 +128,8 @@ it is also stopped.
 - The initial page fixes a retained-history baseline. All entries through that
   baseline remain silent even if catch-up spans multiple runs. Later requests
   notify only when observed within the Android notification-history setting
-  (one hour by default, up to 24 hours), not expired and not more than one
-  minute in the future. Public completion/rejection/cancellation/expiry
+  (15 minutes to 24 hours, one hour by default), not expired and not more than
+  one minute in the future. Public completion/rejection/cancellation/expiry
   updates public status; it is not an approval action.
 - Notification IDs are allocated durably from a separate range and reused on
   retries, including a crash after showing but before outbox acknowledgement.
