@@ -294,6 +294,32 @@ void main() {
     expect((await feed())['events'], hasLength(1));
   });
 
+  test('a signing request sent by this wallet is not notified', () async {
+    await baseline();
+    final token = await store.suppressNextLocalRequest(
+      groupId: 'g1',
+      category: PublicFeedCategory.signing,
+      expiresAt: DateTime.now().add(const Duration(hours: 1)),
+    );
+    expect(token, isNotNull);
+    final connection = FakeConnection(
+      (cursor) async => page(
+        cursor,
+        2,
+        entries: cursor == 0
+            ? [entry(1), entry(2, event: PublicFeedId('cd' * 32))]
+            : [],
+      ),
+    );
+
+    await poller(connection).run();
+
+    expect(shown.length, 1);
+    expect(shown.values.single, 'signing');
+    expect((await feed())['cursor'], 2);
+    expect((await feed())['localRequestSuppressions'], isEmpty);
+  });
+
   test('duplicate/concurrent runs do not reprocess committed events', () async {
     await baseline();
     final gate = Completer<PublicFeedPage>();

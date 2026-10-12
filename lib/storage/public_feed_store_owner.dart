@@ -142,6 +142,17 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
             );
           case 'unsubscribe':
             await state.unsubscribe(operation[1] as String);
+          case 'suppressLocalRequest':
+            result = await state.suppressNextLocalRequest(
+              groupId: operation[1] as String,
+              category: operation[2] as String,
+              expiresAt: DateTime.parse(operation[3] as String),
+            );
+          case 'cancelLocalRequestSuppression':
+            await state.cancelLocalRequestSuppression(
+              operation[1] as String,
+              operation[2] as String,
+            );
           case 'commit':
             await state.commitPage(
               operation[1] as String,

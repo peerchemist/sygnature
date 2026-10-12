@@ -7,7 +7,12 @@ import 'package:coinlib/coinlib.dart'
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_server/noosphere_server.dart'
-    show PublicFeedConfig, PublicFeedId, RoomException, RoomFailureCode;
+    show
+        PublicFeedCategory,
+        PublicFeedConfig,
+        PublicFeedId,
+        RoomException,
+        RoomFailureCode;
 
 import '../models/roast_setup.dart';
 import '../storage/roast_storage.dart';
@@ -588,7 +593,33 @@ final class RoastRuntimeManager(
       '${_roastScope(setup.id)} Requesting signatures '
       '${_shortId(proposal.idHex)}',
     );
-    await (await _ensureWorker()).requestSignatures(setup.id, details);
+    PublicFeedStore? feedStore;
+    String? suppressionToken;
+    try {
+      feedStore = await publicFeedStore;
+      suppressionToken = await feedStore?.suppressNextLocalRequest(
+        groupId: setup.groupId,
+        category: PublicFeedCategory.signing,
+        expiresAt: proposal.expiry,
+      );
+    } on Object {
+      AppLogger.warn('Unable to suppress the local signing notification.');
+    }
+    try {
+      await (await _ensureWorker()).requestSignatures(setup.id, details);
+    } on Object {
+      if (feedStore != null && suppressionToken != null) {
+        try {
+          await feedStore.cancelLocalRequestSuppression(
+            setup.groupId,
+            suppressionToken,
+          );
+        } on Object {
+          AppLogger.warn('Unable to clear the local notification filter.');
+        }
+      }
+      rethrow;
+    }
   }
 
   @override

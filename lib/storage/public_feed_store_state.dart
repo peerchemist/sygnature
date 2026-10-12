@@ -153,6 +153,40 @@ final class _FeedState(final Map<String, dynamic> data) {
     // Keep scoped cursor/outbox bookkeeping for a later re-subscription.
   });
 
+  Future<String?> suppressNextLocalRequest({
+    required String groupId,
+    required String category,
+    required DateTime expiresAt,
+  }) => _mutate((data) {
+    final key = (data['bindings'] as Map)[groupId] as String?;
+    if (key == null) return null;
+    final feed = (data['feeds'] as Map)[key] as Map;
+    final now = DateTime.now().toUtc();
+    final suppressions =
+        feed.putIfAbsent('localRequestSuppressions', () => <dynamic>[]) as List;
+    suppressions.removeWhere(
+      (value) =>
+          !DateTime.parse((value as Map)['expiresAt'] as String).isAfter(now),
+    );
+    final token = PublicFeedStore._randomId();
+    suppressions.add({
+      'token': token,
+      'category': category,
+      'expiresAt': expiresAt.toUtc().toIso8601String(),
+    });
+    return token;
+  });
+
+  Future<void> cancelLocalRequestSuppression(String groupId, String token) =>
+      _mutate((data) {
+        final key = (data['bindings'] as Map)[groupId] as String?;
+        if (key == null) return;
+        final feed = (data['feeds'] as Map)[key] as Map;
+        (feed['localRequestSuppressions'] as List?)?.removeWhere(
+          (value) => (value as Map)['token'] == token,
+        );
+      });
+
   static List<dynamic> _disabledGroups(Map<String, dynamic> data) =>
       data.putIfAbsent('disabledGroups', () => <String>[]) as List;
 
@@ -180,6 +214,12 @@ final class _FeedState(final Map<String, dynamic> data) {
       feed['initialThrough'] ??= page.latestCursor;
       final events = feed['events'] as Map;
       final outbox = feed['outbox'] as Map;
+      final suppressions =
+          feed['localRequestSuppressions'] as List? ?? <dynamic>[];
+      suppressions.removeWhere(
+        (value) =>
+            !DateTime.parse((value as Map)['expiresAt'] as String).isAfter(now),
+      );
       var previous = cursor;
       for (final entry in page.entries) {
         if (entry.cursor <= previous) {
@@ -198,6 +238,13 @@ final class _FeedState(final Map<String, dynamic> data) {
           outbox.removeWhere(
             (_, value) => (value as Map)['eventId'] == entry.eventId.hex,
           );
+          continue;
+        }
+        final suppressed = suppressions.indexWhere(
+          (value) => (value as Map)['category'] == entry.category.name,
+        );
+        if (suppressed != -1) {
+          suppressions.removeAt(suppressed);
           continue;
         }
         if (entry.cursor <= (feed['initialThrough'] as int) ||

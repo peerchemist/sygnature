@@ -188,6 +188,18 @@ final class PublicFeedStore._(
   }) => _request(['bindSetupFeed', groupId, address, pin, feedId]);
   Future<void> unsubscribe(String groupId) =>
       _request(['unsubscribe', groupId]);
+  Future<String?> suppressNextLocalRequest({
+    required String groupId,
+    required PublicFeedCategory category,
+    required DateTime expiresAt,
+  }) => _request([
+    'suppressLocalRequest',
+    groupId,
+    category.name,
+    expiresAt.toUtc().toIso8601String(),
+  ]);
+  Future<void> cancelLocalRequestSuppression(String groupId, String token) =>
+      _request(['cancelLocalRequestSuppression', groupId, token]);
   Future<void> commitPage(
     String key,
     PublicFeedPage page,
