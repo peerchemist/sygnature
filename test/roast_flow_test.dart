@@ -1329,7 +1329,7 @@ void main() {
 
     expect(find.text('MESSAGE SIGNATURE · ACTION REQUIRED'), findsOneWidget);
     expect(
-      find.text('Requested by 02111111…11111111 (Bob) · shared group key'),
+      find.text('Requested by 03458e1f…647bc077 (Bob) · shared group key'),
       findsOneWidget,
     );
     expect(find.text('EXACT MESSAGE TO SIGN'), findsOneWidget);

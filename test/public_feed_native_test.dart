@@ -39,7 +39,9 @@ void main() {
         await tester.pump();
         expect(await store.enabledHostId(setup.groupId), hasLength(64));
         expect(
-          find.textContaining('unlisted metadata is not private'),
+          find.textContaining(
+            'Transaction, message, signer and approval details are not shared',
+          ),
           findsOneWidget,
         );
         expect(find.text('Add feed from clipboard'), findsNothing);
@@ -83,8 +85,9 @@ void main() {
         expect(find.byType(OutlinedButton), findsNothing);
         final enabled = find.byKey(const Key('public-feed-member-enabled'));
         expect(tester.widget<SwitchListTile>(enabled).value, isTrue);
-        tester.widget<SwitchListTile>(enabled).onChanged!(false);
-        await store.snapshot();
+        await (tester.widget<SwitchListTile>(enabled).onChanged as dynamic)(
+          false,
+        );
         await tester.pump();
         expect(tester.widget<SwitchListTile>(enabled).value, isFalse);
         tester.widget<SwitchListTile>(enabled).onChanged!(true);
