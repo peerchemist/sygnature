@@ -20,6 +20,7 @@ import '../storage/public_feed_store.dart';
 import 'about_screen.dart';
 import 'app_theme.dart';
 import 'onboarding_screen.dart';
+import 'public_feed_dialog.dart';
 import 'roast_setup_flow.dart';
 import 'watch_only_wallet_dialog.dart';
 import 'wallet_backup_screen.dart';
@@ -479,6 +480,17 @@ class _WalletDashboard extends StatelessWidget {
       onDelete: () => _confirmDeleteWallet(context, controller, account),
       onArchive: () => _confirmArchiveWallet(context, controller, account),
       onRename: () => _showRenameWallet(context, controller, account),
+      onOpenPublicFeed: roastSetup != null && controller.publicFeedStore != null
+          ? () async {
+              final store = await controller.publicFeedStore!;
+              if (!context.mounted) return;
+              await showDialog<void>(
+                context: context,
+                builder: (_) =>
+                    PublicFeedDialog(store: store, setup: roastSetup),
+              );
+            }
+          : null,
       onChangeSignerGroup:
           roastSetup?.isActive == true && controller.roastAvailable
           ? () => showRoastGroupTransition(
@@ -820,6 +832,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.onDelete,
     required this.onArchive,
     required this.onRename,
+    this.onOpenPublicFeed,
     this.onChangeSignerGroup,
     this.onSwitchCoordinator,
   });
@@ -828,6 +841,7 @@ class _DashboardHeader extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onArchive;
   final VoidCallback onRename;
+  final VoidCallback? onOpenPublicFeed;
   final VoidCallback? onChangeSignerGroup;
   final VoidCallback? onSwitchCoordinator;
 
@@ -915,6 +929,7 @@ class _DashboardHeader extends StatelessWidget {
               ),
               onSelected: (value) {
                 if (value == 'rename') onRename();
+                if (value == 'public-feed') onOpenPublicFeed?.call();
                 if (value == 'signers') onChangeSignerGroup?.call();
                 if (value == 'coordinator') onSwitchCoordinator?.call();
                 if (value == 'archive') onArchive();
@@ -931,6 +946,18 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (onOpenPublicFeed != null)
+                  const PopupMenuItem(
+                    key: Key('open-public-feed'),
+                    value: 'public-feed',
+                    child: Row(
+                      children: [
+                        Icon(Icons.notifications_outlined),
+                        SizedBox(width: 10),
+                        Flexible(child: Text('Public operation feed')),
+                      ],
+                    ),
+                  ),
                 if (onChangeSignerGroup != null)
                   const PopupMenuItem(
                     value: 'signers',

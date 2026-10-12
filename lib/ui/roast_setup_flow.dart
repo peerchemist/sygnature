@@ -11,7 +11,6 @@ import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import '../services/roast_runtime_manager.dart';
 import 'app_theme.dart';
-import 'public_feed_dialog.dart';
 import 'widgets/selector_builder.dart';
 
 part 'roast_setup_flow/coordinator_dialog.dart';
@@ -136,21 +135,6 @@ class const RoastSetupPanel({
                 _RoastBadge(setup: setup),
               ],
             ),
-            if (controller.publicFeedStore != null)
-              TextButton.icon(
-                key: const Key('open-public-feed'),
-                onPressed: () async {
-                  final store = await controller.publicFeedStore!;
-                  if (!context.mounted) return;
-                  await showDialog<void>(
-                    context: context,
-                    builder: (_) =>
-                        PublicFeedDialog(store: store, setup: setup),
-                  );
-                },
-                icon: const Icon(Icons.notifications_outlined),
-                label: const Text('Public operation feed'),
-              ),
             if (setup.isFinalized) ...[
               const SizedBox(height: 14),
               _CoordinatorConnectionStatus(
