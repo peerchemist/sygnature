@@ -398,6 +398,23 @@ class const RoastSetupPanel({
         ),
       ];
     }
+    if (setup.needsInvitationCreation) {
+      return [
+        FilledButton.icon(
+          key: const Key('retry-roast-invitations'),
+          onPressed: busy
+              ? null
+              : () => _perform(context, () async {
+                  await controller.retryHostedRoastInvitations(setup.id);
+                  if (context.mounted) {
+                    await _showIssuedInvitations(context, controller, setup.id);
+                  }
+                }),
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Retry creating invitations'),
+        ),
+      ];
+    }
     if (setup.status == RoastSetupStatus.draft) {
       if (setup.role == RoastSetupRole.host) {
         return [
@@ -528,6 +545,8 @@ class const RoastSetupPanel({
               '${setup.participantCount} signers joined',
         RoastSetupStatus.ready =>
           'Connected · waiting for the host to create the shared key',
+        RoastSetupStatus.connecting when setup.needsInvitationCreation =>
+          'Signer invitations are waiting to be created',
         RoastSetupStatus.connecting when setup.role == RoastSetupRole.host =>
           'Room open · $enrolledSigners of '
               '${setup.participantCount} signers joined',
@@ -537,6 +556,8 @@ class const RoastSetupPanel({
         RoastSetupStatus.creatingKey => _creatingKeyStatus(setup),
         RoastSetupStatus.active => 'Shared key secured on this device',
         RoastSetupStatus.interrupted => 'ROAST operation was interrupted',
+        RoastSetupStatus.error when setup.needsInvitationCreation =>
+          'Signer invitations need attention',
         RoastSetupStatus.error => 'ROAST setup needs attention',
       };
 

@@ -533,7 +533,8 @@ void main() {
         coordinatorId: 'coordinator',
         coordinatorRelayUrls: const [],
         coordinatorIpAddrs: const [],
-      );
+      )
+      ..createRoomError = StateError('temporary invitation failure');
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
         accounts: [
@@ -574,11 +575,27 @@ void main() {
     final controller = WalletController(repository, roastRuntime: runtime);
     await controller.load();
 
-    final invitations = await controller.createHostedRoastInvitations('setup', [
-      (name: 'Member', publicKeyHex: participants.first.publicKeyHex),
-    ]);
+    await expectLater(
+      controller.createHostedRoastInvitations('setup', [
+        (name: 'Member', publicKeyHex: participants.first.publicKeyHex),
+      ]),
+      throwsStateError,
+    );
+    final failed = controller.roastSetups.single;
+    expect(failed.status, RoastSetupStatus.error);
+    expect(failed.needsInvitationCreation, isTrue);
+    expect(failed.coordinatorId, 'coordinator');
+    expect(
+      failed.errorMessage,
+      'Could not create signer invitations. Check the network connection and '
+      'try again.',
+    );
+
+    runtime.createRoomError = null;
+    final invitations = await controller.retryHostedRoastInvitations('setup');
 
     expect(invitations, hasLength(1));
+    expect(runtime.createRoomCalls, 2);
     expect(invitations.single.participantName, 'Member');
     final payload = NoosphereRoomInvite.decode(
       invitations.single.encoded,
@@ -2861,6 +2878,8 @@ class _FakeRoastRuntime implements RoastRuntime {
   void Function()? afterRoomPrepared;
   Object? joinRoomError;
   Object? signatureRequestError;
+  Object? createRoomError;
+  int createRoomCalls = 0;
   int joinRoomCalls = 0;
   String? messageText;
   String? messageNote;
@@ -2892,6 +2911,7 @@ class _FakeRoastRuntime implements RoastRuntime {
     setup, {
     Future<void> Function(RoastRoomCreation room)? beforeInvitations,
   }) async {
+    createRoomCalls++;
     createdRoomSetup = setup;
     final room = roomCreation ?? (throw UnimplementedError());
     await beforeInvitations?.call(
@@ -2904,6 +2924,7 @@ class _FakeRoastRuntime implements RoastRuntime {
       ),
     );
     afterRoomPrepared?.call();
+    if (createRoomError case final error?) throw error;
     return room;
   }
 

@@ -22,11 +22,43 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         .firstWhere((statuses) => statuses.any((status) => status.connected))
         .timeout(const Duration(seconds: 30));
     final rooms = server.rooms!;
-    await rooms.createRoom(
-      roomId: setup.groupId,
-      expectedParticipants: setup.participantCount,
-      threshold: setup.threshold,
-    );
+    late RoomSnapshot room;
+    try {
+      room = await rooms.getRoom(setup.groupId);
+    } on RoomException catch (error) {
+      if (error.code != RoomFailureCode.unknownRoom) rethrow;
+      room = await rooms.createRoom(
+        roomId: setup.groupId,
+        expectedParticipants: setup.participantCount,
+        threshold: setup.threshold,
+      );
+    }
+    if (room.lifecycle != RoomLifecycle.enrolling ||
+        room.expectedParticipants != setup.participantCount ||
+        room.threshold != setup.threshold) {
+      throw StateError('The saved invitation room does not match this setup.');
+    }
+    final participantKeys = setup.participants
+        .map((participant) => participant.publicKeyHex)
+        .toSet();
+    if (room.participants.any(
+          (participant) => !participantKeys.contains(participant.publicKey.hex),
+        ) ||
+        room.invites.any(
+          (invite) => !participantKeys.contains(
+            invite.expectedParticipantPublicKey.hex,
+          ),
+        )) {
+      throw StateError('The saved invitation room has an unexpected signer.');
+    }
+    for (final invite in room.invites.where(
+      (invite) => invite.status == RoomInviteStatus.pending,
+    )) {
+      await rooms.revokeRoomInvite(
+        roomId: setup.groupId,
+        inviteId: invite.inviteId,
+      );
+    }
     final coordinator = RoastRuntimeManager._coordinator(server.address);
     final preparedRoom = RoastRoomCreation(
       invites: const [],
@@ -41,6 +73,11 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     );
     final issued = <NoosphereRoomInvite>[];
     for (final participant in setup.participants) {
+      if (room.participants.any(
+        (enrolled) => enrolled.publicKey.hex == participant.publicKeyHex,
+      )) {
+        continue;
+      }
       final invite = await rooms.issueRoomInvite(
         roomId: setup.groupId,
         expectedParticipantPublicKey: ECCompressedPublicKey.fromHex(

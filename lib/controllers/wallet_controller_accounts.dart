@@ -71,6 +71,7 @@ extension WalletAccountsController on WalletController {
       for (final setup in roastSetups.where(
         (item) =>
             item.isFinalized &&
+            !item.needsInvitationCreation &&
             !item.requiresBackupReconciliation &&
             activeSetupIds.contains(item.id),
       )) {

@@ -728,6 +728,60 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('manually retries failed signer invitation creation', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final vault = _finalizedRoastVault();
+    final failedSetup = vault.roastSetups.single.copyWith(
+      status: RoastSetupStatus.error,
+      errorMessage:
+          'Could not create signer invitations. Check the network connection '
+          'and try again.',
+    );
+    final remote = failedSetup.participants.first;
+    final runtime = _FakeRoastRuntime()
+      ..roomCreation = RoastRoomCreation(
+        invites: [_roomInviteFor(remote.publicKeyHex)],
+        coordinatorEndpointId: Uint8List(32)..[0] = 1,
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+      );
+    final repository = MemoryWalletRepository()
+      ..value = vault.copyWith(roastSetups: [failedSetup]);
+    final controller = WalletController(
+      repository,
+      roastRuntime: runtime,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(runtime.startCalls, 0);
+    expect(find.byKey(const Key('retry-roast-invitations')), findsOneWidget);
+    expect(find.text('Signer invitations need attention'), findsOneWidget);
+    expect(find.byKey(const Key('roast-setup-error')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('retry-roast-invitations')));
+    await tester.pumpAndSettle();
+
+    expect(runtime.createRoomCalls, 1);
+    expect(find.text('Signer invitations'), findsOneWidget);
+    expect(find.text('INVITE READY'), findsOneWidget);
+    expect(controller.roastSetups.single.errorMessage, isNull);
+    expect(controller.roastSetups.single.invitations, hasLength(1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('refreshes the ROAST UI after coordinator reconnection', (
     tester,
   ) async {
@@ -1703,7 +1757,8 @@ WalletVault _finalizedRoastVault() => WalletVault(
           cardId: 'remote-card',
           name: 'Bob',
           identifierHex: '01',
-          publicKeyHex: '02${'11' * 32}',
+          publicKeyHex:
+              '03458e1f11de2c060570fbfd8a163a22ef28a55bb9180d9fe38cf24f82647bc077',
         ),
         RoastParticipant(
           cardId: 'local-card',
@@ -1851,8 +1906,12 @@ class _FakeRoastRuntime implements RoastRuntime {
   Object? startError;
   List<RoastSigningRequest> snapshotSigningRequests = const [];
   RoastRuntimeSnapshot? joinSnapshot;
+  RoastRoomCreation? roomCreation;
+  Object? createRoomError;
   Completer<void>? signatureRequestGate;
   Object? signatureRequestError;
+  int startCalls = 0;
+  int createRoomCalls = 0;
   Duration? transactionRequestTimeout;
   Duration? messageRequestTimeout;
 
@@ -1863,6 +1922,7 @@ class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(setup) async {
+    startCalls++;
     if (startError case final error?) throw error;
     for (final request in snapshotSigningRequests) {
       emit(RoastRuntimeSigningRequestEvent(setup.id, request: request));
@@ -1874,7 +1934,21 @@ class _FakeRoastRuntime implements RoastRuntime {
   Future<RoastRoomCreation> createRoom(
     setup, {
     Future<void> Function(RoastRoomCreation room)? beforeInvitations,
-  }) => throw UnimplementedError();
+  }) async {
+    createRoomCalls++;
+    final room = roomCreation ?? (throw UnimplementedError());
+    await beforeInvitations?.call(
+      RoastRoomCreation(
+        invites: const [],
+        coordinatorEndpointId: room.coordinatorEndpointId,
+        coordinatorId: room.coordinatorId,
+        coordinatorRelayUrls: room.coordinatorRelayUrls,
+        coordinatorIpAddrs: room.coordinatorIpAddrs,
+      ),
+    );
+    if (createRoomError case final error?) throw error;
+    return room;
+  }
 
   @override
   Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) async {

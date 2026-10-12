@@ -60,6 +60,12 @@ class RoastSetup({
   bool get isActive => status == RoastSetupStatus.active;
   bool get isWaitingForInvitation =>
       role == RoastSetupRole.member && status == RoastSetupStatus.draft;
+  bool get needsInvitationCreation =>
+      role == RoastSetupRole.host &&
+      isFinalized &&
+      invitations.isEmpty &&
+      (status == RoastSetupStatus.connecting ||
+          status == RoastSetupStatus.error);
 
   RoastSetup copyWith({
     RoastSetupStatus? status,

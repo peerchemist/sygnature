@@ -618,7 +618,7 @@ extension WalletRoastSetupController on WalletController {
   Future<List<RoastIssuedInvitation>> finalizeHostedRoastSetup(
     String setupId,
     List<String> participantCards,
-  ) async {
+  ) => _guardRoastOperation(setupId, () async {
     final draft = _setupById(setupId);
     if (draft.role != RoastSetupRole.host) {
       throw StateError('Only a host can finalize this participant roster.');
@@ -639,21 +639,46 @@ extension WalletRoastSetupController on WalletController {
       groupFingerprintHex: _roastKeyService.groupFingerprint(setup),
     );
     await _updateSetup(setup.id, (_) => setup);
+    return _createHostedRoastInvitations(setup);
+  }, errorMessage: _cleanRoastInvitationError);
+
+  Future<List<RoastIssuedInvitation>> retryHostedRoastInvitations(
+    String setupId,
+  ) => _guardRoastOperation(setupId, () async {
+    final setup = _setupById(setupId);
+    if (!setup.needsInvitationCreation) {
+      throw StateError('Signer invitations are not waiting to be created.');
+    }
+    await _updateSetup(
+      setup.id,
+      (latest) => latest.copyWith(
+        status: RoastSetupStatus.connecting,
+        clearError: true,
+      ),
+    );
+    return _createHostedRoastInvitations(_setupById(setupId));
+  }, errorMessage: _cleanRoastInvitationError);
+
+  Future<List<RoastIssuedInvitation>> _createHostedRoastInvitations(
+    RoastSetup setup,
+  ) async {
     try {
-      final room = await _roastRuntime!.createRoom(setup);
-      await _updateSetup(
-        setup.id,
-        (latest) => latest.copyWith(
-          coordinatorId: room.coordinatorId,
-          coordinatorRelayUrls: room.coordinatorRelayUrls,
-          coordinatorIpAddrs: room.coordinatorIpAddrs,
+      final room = await _roastRuntime!.createRoom(
+        setup,
+        beforeInvitations: (room) => _updateSetup(
+          setup.id,
+          (latest) => latest.copyWith(
+            coordinatorId: room.coordinatorId,
+            coordinatorRelayUrls: room.coordinatorRelayUrls,
+            coordinatorIpAddrs: room.coordinatorIpAddrs,
+          ),
         ),
       );
       setup = _setupById(setup.id);
       final invitations = [
         for (final invite in room.invites)
           RoastIssuedInvitation(
-            participantName: participants
+            participantName: setup.participants
                 .singleWhere(
                   (participant) =>
                       participant.publicKeyHex ==
@@ -672,13 +697,11 @@ extension WalletRoastSetupController on WalletController {
         (latest) => latest.copyWith(invitations: invitations),
       );
       return invitations;
-    } catch (error) {
-      await _updateSetup(
-        setup.id,
-        (setup) => setup.copyWith(
-          status: RoastSetupStatus.error,
-          errorMessage: _cleanRoastError(error),
-        ),
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '${_roastLogScope(setup.id)} Signer invitation creation failed',
+        error: error,
+        stackTrace: stackTrace,
       );
       rethrow;
     }
@@ -1129,25 +1152,28 @@ extension WalletRoastSetupController on WalletController {
     });
   }
 
-  Future<void> _guardRoastOperation(
+  Future<T> _guardRoastOperation<T>(
     String setupId,
-    Future<void> Function() operation,
-  ) async {
+    Future<T> Function() operation, {
+    String Function(Object error)? errorMessage,
+  }) async {
     if (_busy) throw const WalletBusyFailure();
     if (_setupById(setupId).requiresBackupReconciliation) {
       throw StateError('Restored group requires live reconciliation.');
     }
-    if (!_roastOperations.add(setupId)) return;
+    if (!_roastOperations.add(setupId)) throw const WalletBusyFailure();
     _notifyListeners();
     try {
-      await operation();
+      return await operation();
     } catch (error) {
-      if (roastSetups.any((setup) => setup.id == setupId)) {
+      if (roastSetups
+          .where((setup) => setup.id == setupId)
+          .any((setup) => setup.isFinalized)) {
         await _updateSetup(
           setupId,
           (setup) => setup.copyWith(
             status: RoastSetupStatus.error,
-            errorMessage: _cleanRoastError(error),
+            errorMessage: errorMessage?.call(error) ?? _cleanRoastError(error),
           ),
         );
       }
@@ -1413,6 +1439,23 @@ extension WalletRoastSetupController on WalletController {
       _ => 'The ROAST operation failed.',
     },
     _ => 'Unable to connect to the ROAST coordinator.',
+  };
+
+  static String _cleanRoastInvitationError(Object error) => switch (error) {
+    TimeoutException() =>
+      'Creating signer invitations timed out. Check the network connection '
+          'and try again.',
+    NoosphereWorkerException(code: 'timeout' || 'host_timeout') =>
+      'Creating signer invitations timed out. Check the network connection '
+          'and try again.',
+    NoosphereWorkerException(
+      code: 'worker_closed' || 'worker_closing' || 'worker_exited',
+    ) =>
+      'The ROAST service stopped while creating signer invitations. Try '
+          'again.',
+    _ =>
+      'Could not create signer invitations. Check the network connection and '
+          'try again.',
   };
 
   static String _cleanRoastJoinError(

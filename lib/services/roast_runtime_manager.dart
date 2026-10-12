@@ -7,7 +7,7 @@ import 'package:coinlib/coinlib.dart'
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_server/noosphere_server.dart'
-    show PublicFeedConfig, PublicFeedId;
+    show PublicFeedConfig, PublicFeedId, RoomException, RoomFailureCode;
 
 import '../models/roast_setup.dart';
 import '../storage/roast_storage.dart';

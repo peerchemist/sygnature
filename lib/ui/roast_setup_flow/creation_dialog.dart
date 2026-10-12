@@ -322,7 +322,12 @@ Future<void> _finalizeHostSetup(
   } catch (_) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to create ROAST invitations.')),
+        const SnackBar(
+          content: Text(
+            'Unable to create ROAST invitations. Use Retry creating '
+            'invitations to try again.',
+          ),
+        ),
       );
     }
   }
