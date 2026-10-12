@@ -81,6 +81,28 @@ void main() {
     return controller;
   }
 
+  test('client storage persists cancellation tombstones atomically', () async {
+    final storage = (await factory.open()).clientStorage(fixture.setup.id);
+    final requestId = SignaturesRequestId.fromBytes(Uint8List(16));
+    final expiry = Expiry(const Duration(hours: 1));
+    await storage.addRejectedSigsRequest(requestId, FinalExpirable(expiry));
+
+    await storage.cancelSignaturesRequest(requestId, expiry);
+
+    final state = await storage.loadState();
+    expect(state.rejectedRequests, isEmpty);
+    expect(
+      state.cancelledRequests[requestId]?.expiry.time.isAtSameMomentAs(
+        expiry.time,
+      ),
+      isTrue,
+    );
+    await expectLater(
+      storage.addRejectedSigsRequest(requestId, FinalExpirable(expiry)),
+      throwsStateError,
+    );
+  });
+
   test(
     'first export waits for background connect and reconnects afterwards',
     () async {

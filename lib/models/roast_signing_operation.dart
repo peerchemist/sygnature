@@ -8,6 +8,7 @@ enum RoastSigningOperationState {
   broadcasted,
   expired,
   rejected,
+  cancelled,
   interrupted,
 }
 
@@ -41,7 +42,8 @@ class RoastSigningOperation({
     }
     return switch (state) {
       RoastSigningOperationState.expired ||
-      RoastSigningOperationState.rejected => false,
+      RoastSigningOperationState.rejected ||
+      RoastSigningOperationState.cancelled => false,
       _ => true,
     };
   }

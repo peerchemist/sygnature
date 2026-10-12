@@ -84,6 +84,7 @@ class _SendDialogState extends State<_SendDialog> {
   WalletTransactionPreview? _preview;
   String? _error;
   bool _submitting = false;
+  bool _cancelling = false;
   bool _maximum = false;
 
   @override
@@ -201,6 +202,24 @@ class _SendDialogState extends State<_SendDialog> {
     }
   }
 
+  Future<void> _cancelRoastRequest() async {
+    final setupId = widget.account.sourceId;
+    if (setupId == null || _cancelling) return;
+    setState(() {
+      _cancelling = true;
+      _error = null;
+    });
+    try {
+      await widget.controller.cancelRoastTransactionSigning(setupId);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Unable to cancel the signing request.');
+      }
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final preview = _preview;
@@ -255,6 +274,12 @@ class _SendDialogState extends State<_SendDialog> {
                 if (dismissed && mounted) setState(() => _error = null);
               },
               child: const Text('Dismiss failed request'),
+            ),
+          if (canClosePendingRequest)
+            FilledButton.tonal(
+              key: const Key('send-cancel-request-button'),
+              onPressed: _cancelling ? null : _cancelRoastRequest,
+              child: Text(_cancelling ? 'Cancelling…' : 'Cancel request'),
             ),
           FilledButton(
             key: Key(

@@ -182,6 +182,7 @@ class WalletController extends ChangeNotifier {
   final Map<String, RoastSigningOperation> _storedRoastSigningOperations = {};
   final Map<String, Completer<RoastSignedMessage>> _pendingRoastMessages = {};
   final Map<String, RoastSigningProgress> _pendingRoastMessageProgress = {};
+  final Set<String> _cancellingRoastRequests = {};
   final Map<String, RoastSignedMessage> _completedRoastMessages = {};
   final Map<String, _RoastPresence> _roastPresence = {};
   final Set<String> _announcedRoastActions = {};

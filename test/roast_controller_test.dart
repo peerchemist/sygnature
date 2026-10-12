@@ -2043,6 +2043,52 @@ void main() {
     },
   );
 
+  test('creator can cancel a pending message signature request', () async {
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    runtime.signatureRequestGate = Completer<void>();
+    final controller = _controller(runtime: runtime, active: true);
+    await controller.load();
+    await _flushEvents();
+
+    final signing = controller.signRoastMessage(
+      controller.accounts.single,
+      text: 'Do not sign this after cancellation',
+    );
+    await _flushEvents();
+
+    await controller.cancelRoastMessageSigning('setup');
+    expect(runtime.cancelledSigningRequestIds, ['cc' * 16]);
+
+    runtime.emit(
+      RoastRuntimeSigningRequestCancelledEvent(
+        'setup',
+        requestIdHex: 'cc' * 16,
+        expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      ),
+    );
+    runtime.signatureRequestGate!.complete();
+
+    await expectLater(
+      signing,
+      throwsA(
+        isA<WalletSigningFailure>().having(
+          (error) => error.kind,
+          'kind',
+          WalletSigningFailureKind.cancelled,
+        ),
+      ),
+    );
+    await _flushEvents();
+
+    expect(controller.roastMessageSigningInProgress('setup'), isFalse);
+    expect(controller.roastMessageSigningProgress('setup'), isNull);
+    expect(
+      controller.activitiesFor(controller.accounts.single).first.type,
+      WalletActivityType.signatureRequestCancelled,
+    );
+    controller.dispose();
+  });
+
   test('records expiration of a locally requested message', () async {
     final requestId = 'cc' * 16;
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
@@ -2477,6 +2523,91 @@ void main() {
     );
   }
 
+  test('creator cancellation releases transaction inputs', () async {
+    final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
+    final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
+    final sourceAddress = P2TRAddress.fromTaproot(
+      Taproot(internalKey: signingKey.pubkey),
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final destinationAddress = P2TRAddress.fromTweakedKey(
+      destinationKey.pubkey,
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
+    final operations = MemoryRoastSigningOperationRepository();
+    final runtime = _FakeRoastRuntime()
+      ..snapshotGroupKey = 'expected-key'
+      ..signatureRequestGate = Completer<void>();
+    final controller = _activeController(
+      runtime: runtime,
+      operations: operations,
+      electrumx: _FakeElectrumxService(),
+      sourceAddress: sourceAddress,
+      derived: RoastDerivedAddress(
+        path: const [0, 6, 0, 0, 0, 0],
+        pathLabel: 'R/0/6/0/0/0/0',
+        address: sourceAddress,
+        internalKeyHex: signingKey.pubkey.hex,
+      ),
+    );
+    await controller.load();
+    await _flushEvents();
+    final preview = const CoinlibWalletTransactionService().prepare(
+      accountId: 'shared',
+      network: PeercoinNetworks.mainnet,
+      sourceAddress: sourceAddress,
+      availableUtxos: [
+        ElectrumxUtxo(
+          address: sourceAddress,
+          txHash: 'd' * 64,
+          txPos: 0,
+          height: 100,
+          value: 2000000,
+        ),
+      ],
+      request: WalletSendRequest(
+        destinationAddress: destinationAddress,
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+
+    final sending = controller.sendTransaction(preview);
+    await _flushEvents();
+    await controller.cancelRoastTransactionSigning('setup');
+    expect(runtime.cancelledSigningRequestIds, ['aa' * 16]);
+    runtime.emit(
+      RoastRuntimeSigningRequestCancelledEvent(
+        'setup',
+        requestIdHex: 'aa' * 16,
+        expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      ),
+    );
+    runtime.signatureRequestGate!.complete();
+
+    await expectLater(
+      sending,
+      throwsA(
+        isA<WalletSigningFailure>().having(
+          (error) => error.kind,
+          'kind',
+          WalletSigningFailureKind.cancelled,
+        ),
+      ),
+    );
+    await _flushEvents();
+
+    final cancelled = (await operations.loadSigningOperations()).single;
+    expect(cancelled.state, RoastSigningOperationState.cancelled);
+    expect(cancelled.reservesUtxos, isFalse);
+    expect(controller.reservedBalanceSatsFor(controller.accounts.single), 0);
+    expect(
+      controller.activitiesFor(controller.accounts.single).first.type,
+      WalletActivityType.signatureRequestCancelled,
+    );
+    controller.dispose();
+  });
+
   test(
     'keeps broadcast UTXOs reserved until sync observes the spend',
     () async {
@@ -2863,6 +2994,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   final List<String> rejectedDkgProposalHexes = [];
   final List<String> acceptedSigningRequestIds = [];
   final List<String> rejectedSigningRequestIds = [];
+  final List<String> cancelledSigningRequestIds = [];
   final List<String> deletedSetupIds = [];
   String? snapshotGroupKey;
   bool failSigningRequests = false;
@@ -3012,6 +3144,15 @@ class _FakeRoastRuntime implements RoastRuntime {
   @override
   Future<void> rejectSignatures(String setupId, String requestIdHex) async {
     rejectedSigningRequestIds.add(requestIdHex);
+  }
+
+  @override
+  Future<RoastSigningCancellationResult> cancelSignatures(
+    String setupId,
+    String requestIdHex,
+  ) async {
+    cancelledSigningRequestIds.add(requestIdHex);
+    return RoastSigningCancellationResult.cancelled;
   }
 
   @override
@@ -3304,6 +3445,12 @@ final class _SigningRoastRuntime(
 
   @override
   Future<void> rejectSignatures(String setupId, String requestIdHex) async {}
+
+  @override
+  Future<RoastSigningCancellationResult> cancelSignatures(
+    String setupId,
+    String requestIdHex,
+  ) async => RoastSigningCancellationResult.cancelled;
 
   @override
   Future<void> stopSetup(String setupId) async {}

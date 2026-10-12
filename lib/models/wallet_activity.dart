@@ -2,6 +2,7 @@ enum WalletActivityType {
   signatureRequestReceived,
   signatureRequestApproved,
   signatureRequestRejected,
+  signatureRequestCancelled,
   signatureRequestExpired,
   dkgStarted,
   dkgCompleted,

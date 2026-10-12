@@ -38,6 +38,55 @@ extension WalletSigningController on WalletController {
   RoastSignedMessage? completedRoastMessage(String setupId) =>
       _completedRoastMessages[setupId];
 
+  Future<void> cancelRoastMessageSigning(String setupId) =>
+      _cancelRoastSigningRequest(
+        setupId,
+        _pendingRoastMessages.keys
+            .where((key) => key.startsWith('$setupId:'))
+            .singleOrNull,
+      );
+
+  Future<void> cancelRoastTransactionSigning(String setupId) =>
+      _cancelRoastSigningRequest(
+        setupId,
+        _pendingRoastSends.keys
+            .where((key) => key.startsWith('$setupId:'))
+            .singleOrNull,
+      );
+
+  Future<void> _cancelRoastSigningRequest(
+    String setupId,
+    String? pendingKey,
+  ) async {
+    if (_backupInProgress) throw const WalletBusyFailure();
+    final prefix = '$setupId:';
+    if (pendingKey == null) {
+      throw StateError('There is no active local signing request.');
+    }
+    if (!_cancellingRoastRequests.add(pendingKey)) return;
+    _notifyListeners();
+    try {
+      final result = await _roastRuntime!.cancelSignatures(
+        setupId,
+        pendingKey.substring(prefix.length),
+      );
+      switch (result) {
+        case RoastSigningCancellationResult.cancelled ||
+            RoastSigningCancellationResult.alreadyCancelled:
+          return;
+        case RoastSigningCancellationResult.alreadyCompleted:
+          throw StateError('The signing request has already completed.');
+        case RoastSigningCancellationResult.alreadyTerminal:
+          throw StateError('The signing request is already closed.');
+        case RoastSigningCancellationResult.notFound:
+          throw StateError('The signing request was not found.');
+      }
+    } finally {
+      _cancellingRoastRequests.remove(pendingKey);
+      _notifyListeners();
+    }
+  }
+
   RoastSigningOperation? recoverableBroadcastForSetup(String setupId) =>
       recoverableRoastSigningOperations
           .where((operation) => operation.setupId == setupId)
@@ -346,17 +395,24 @@ extension WalletSigningController on WalletController {
             final rejected =
                 error is WalletSigningFailure &&
                 error.kind == WalletSigningFailureKind.rejected;
+            final cancelled =
+                error is WalletSigningFailure &&
+                error.kind == WalletSigningFailureKind.cancelled;
             await _saveRoastSigningOperation(
               current.copyWith(
                 state: expired
                     ? RoastSigningOperationState.expired
                     : rejected
                     ? RoastSigningOperationState.rejected
+                    : cancelled
+                    ? RoastSigningOperationState.cancelled
                     : RoastSigningOperationState.interrupted,
                 errorMessage: expired
                     ? 'The signing request expired before enough signatures arrived.'
                     : rejected
                     ? 'The signing request was rejected.'
+                    : cancelled
+                    ? 'The signing request was cancelled.'
                     : 'The signing request was interrupted.',
               ),
             );

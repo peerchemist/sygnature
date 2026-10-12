@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart'
-    show TaprootKeySignDetails, bytesEqual, bytesToHex;
+    show TaprootKeySignDetails, bytesEqual, bytesToHex, hexToBytes;
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_server/noosphere_server.dart'
@@ -39,6 +39,7 @@ final class RoastRuntimeManager(
       StreamController<RoastRuntimeEvent>.broadcast();
   final Map<String, WorkerDkgStatus> _dkgProposals = {};
   final Map<String, WorkerSigningRequest> _signingRequests = {};
+  final Map<String, DateTime> _cancelledSigningRequests = {};
   final Map<String, RoastSetup> _setups = {};
   final Map<String, String> _emittedGroupKeys = {};
   final Set<String> _serverSetups = {};
@@ -617,6 +618,34 @@ final class RoastRuntimeManager(
   }
 
   @override
+  Future<RoastSigningCancellationResult> cancelSignatures(
+    String setupId,
+    String requestIdHex,
+  ) async {
+    final request = SignaturesRequestId.fromBytes(hexToBytes(requestIdHex));
+    AppLogger.info(
+      '${_roastScope(setupId)} Cancelling signing request '
+      '${_shortId(requestIdHex)}',
+    );
+    final result = await (await _ensureWorker()).cancelSignaturesRequest(
+      setupId,
+      request,
+    );
+    return switch (result) {
+      CancelSignaturesRequestResult.cancelled =>
+        RoastSigningCancellationResult.cancelled,
+      CancelSignaturesRequestResult.alreadyCancelled =>
+        RoastSigningCancellationResult.alreadyCancelled,
+      CancelSignaturesRequestResult.alreadyCompleted =>
+        RoastSigningCancellationResult.alreadyCompleted,
+      CancelSignaturesRequestResult.alreadyTerminal =>
+        RoastSigningCancellationResult.alreadyTerminal,
+      CancelSignaturesRequestResult.notFound =>
+        RoastSigningCancellationResult.notFound,
+    };
+  }
+
+  @override
   Future<void> stopSetup(String setupId) async {
     AppLogger.info('${_roastScope(setupId)} Stopping setup');
     _roomSignerTimers.remove(setupId)?.cancel();
@@ -635,6 +664,9 @@ final class RoastRuntimeManager(
     _signerCoordinators.remove(setupId);
     _dkgProposals.removeWhere((key, _) => key.startsWith('$setupId:'));
     _signingRequests.removeWhere((key, _) => key.startsWith('$setupId:'));
+    _cancelledSigningRequests.removeWhere(
+      (key, _) => key.startsWith('$setupId:'),
+    );
     _refreshAgain.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
@@ -758,6 +790,7 @@ final class RoastRuntimeManager(
         if (!_synchronizingDkgSetups.contains(event.setupId)) {
           _rememberDkgs(event.snapshot);
         }
+        _rememberCancelledSigningRequests(event.snapshot);
         _rememberSigningRequests(event.snapshot);
         _emitSnapshot(event.snapshot);
         _runBackground(_rememberExpectedKeySafely(event.snapshot));
@@ -841,6 +874,12 @@ final class RoastRuntimeManager(
           '${event.request.progress.threshold}',
         );
         _emitSigningRequest(event.setupId, event.request);
+      case WorkerSignaturesCancelledEvent():
+        _rememberCancelledSigningRequest(
+          event.setupId,
+          bytesToHex(event.requestId),
+          event.expiresAt,
+        );
       case WorkerSigningResultEvent():
         AppLogger.info(
           '${_roastScope(event.setupId)} Signing completed for '
@@ -950,6 +989,7 @@ final class RoastRuntimeManager(
         return;
       }
       _rememberDkgs(snapshot);
+      _rememberCancelledSigningRequests(snapshot);
       _rememberSigningRequests(snapshot);
       _emitSnapshot(snapshot);
       await _rememberExpectedKeySafely(snapshot);
@@ -1140,6 +1180,40 @@ final class RoastRuntimeManager(
     for (final request in snapshot.signingRequests) {
       _emitSigningRequest(snapshot.setupId, request);
     }
+  }
+
+  void _rememberCancelledSigningRequests(NoosphereWorkerSnapshot snapshot) {
+    final now = DateTime.now();
+    _cancelledSigningRequests.removeWhere((_, expiry) => !expiry.isAfter(now));
+    for (final request in snapshot.cancelledRequests) {
+      _rememberCancelledSigningRequest(
+        snapshot.setupId,
+        bytesToHex(request.requestId),
+        request.expiresAt,
+      );
+    }
+  }
+
+  void _rememberCancelledSigningRequest(
+    String setupId,
+    String requestIdHex,
+    DateTime expiresAt,
+  ) {
+    final key = '$setupId:$requestIdHex';
+    if (_cancelledSigningRequests[key] == expiresAt) return;
+    _cancelledSigningRequests[key] = expiresAt;
+    _signingRequests.remove(key);
+    AppLogger.info(
+      '${_roastScope(setupId)} Signing request '
+      '${_shortId(requestIdHex)} cancelled',
+    );
+    _events.add(
+      RoastRuntimeSigningRequestCancelledEvent(
+        setupId,
+        requestIdHex: requestIdHex,
+        expiresAt: expiresAt,
+      ),
+    );
   }
 
   void _emitSigningRequest(String setupId, WorkerSigningRequest request) {

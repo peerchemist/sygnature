@@ -163,6 +163,20 @@ final class RoastRuntimeSigningRequestRemovedEvent(
   required final bool expired,
 }) extends RoastRuntimeEvent;
 
+final class RoastRuntimeSigningRequestCancelledEvent(
+  super.setupId, {
+  required final String requestIdHex,
+  required final DateTime expiresAt,
+}) extends RoastRuntimeEvent;
+
+enum RoastSigningCancellationResult {
+  cancelled,
+  alreadyCancelled,
+  alreadyCompleted,
+  alreadyTerminal,
+  notFound,
+}
+
 final class RoastRuntimeSigningResultEvent(
   super.setupId, {
   required final String requestIdHex,
@@ -317,6 +331,10 @@ abstract interface class RoastRuntime {
   );
   Future<void> acceptSignatures(String setupId, String requestIdHex);
   Future<void> rejectSignatures(String setupId, String requestIdHex);
+  Future<RoastSigningCancellationResult> cancelSignatures(
+    String setupId,
+    String requestIdHex,
+  );
   Future<void> stopSetup(String setupId);
 
   /// Quiesces all local roles and closes the worker before taking a snapshot.
