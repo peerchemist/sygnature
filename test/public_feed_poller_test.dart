@@ -136,12 +136,15 @@ void main() {
   });
 
   test('host ID, scoped cursor, status and initial baseline survive database restart', () async {
-    final id = await store.configureHost('g1', true);
+    final id = await store.enabledHostId('g1');
     expect(id, await publicFeedIdForGroup('g1'));
     expect(await store.configureHost('g1', true), id);
     final other = await store.configureHost('g2', true);
     expect(other, isNot(id));
     await store.configureHost('g1', false);
+    expect(await store.enabledHostId('g1'), isNull);
+    await store.close();
+    store = await PublicFeedStore.open(directory.path);
     expect(await store.enabledHostId('g1'), isNull);
     expect(await store.configureHost('g1', true), id);
     await store.commitPage(

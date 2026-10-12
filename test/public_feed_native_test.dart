@@ -20,7 +20,9 @@ void main() {
   // not inherit this initialization or have access to any private storage.
   setUpAll(NoosphereFlutter.initializeNative);
 
-  testWidgets('public feed opt-in saves an ID before restart', (tester) async {
+  testWidgets('host public feed defaults on and supports opt-out', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
       final directory = await Directory.systemTemp.createTemp(
         'sygnature-feed-ui-',
@@ -35,20 +37,18 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
         await tester.pump();
-        expect(await store.enabledHostId(setup.groupId), isNull);
+        expect(await store.enabledHostId(setup.groupId), hasLength(64));
         expect(
           find.textContaining('unlisted metadata is not private'),
           findsOneWidget,
         );
         expect(find.text('Add feed from clipboard'), findsNothing);
-        tester
-            .widget<SwitchListTile>(
-              find.byKey(const Key('public-feed-host-enabled')),
-            )
-            .onChanged!(true);
+        final enabled = find.byKey(const Key('public-feed-host-enabled'));
+        expect(tester.widget<SwitchListTile>(enabled).value, isTrue);
+        tester.widget<SwitchListTile>(enabled).onChanged!(false);
         await store.snapshot();
         await tester.pumpAndSettle();
-        expect(await store.enabledHostId(setup.groupId), hasLength(64));
+        expect(await store.enabledHostId(setup.groupId), isNull);
         expect((await store.snapshot())['feeds'], isEmpty);
         expect(
           find.byKey(const Key('public-feed-notification-window')),
@@ -82,6 +82,10 @@ void main() {
         expect(find.byType(CheckboxListTile), findsNothing);
         expect(find.byType(OutlinedButton), findsNothing);
         final enabled = find.byKey(const Key('public-feed-member-enabled'));
+        expect(tester.widget<SwitchListTile>(enabled).value, isTrue);
+        tester.widget<SwitchListTile>(enabled).onChanged!(false);
+        await store.snapshot();
+        await tester.pump();
         expect(tester.widget<SwitchListTile>(enabled).value, isFalse);
         tester.widget<SwitchListTile>(enabled).onChanged!(true);
         await store.snapshot();

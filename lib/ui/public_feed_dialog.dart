@@ -88,20 +88,21 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
   Widget build(BuildContext context) {
     final data = _data;
     final group = widget.setup.groupId;
+    final isMember = widget.setup.role == RoastSetupRole.member;
     final host = (data?['hosts'] as Map?)?[group] as Map?;
     final key = (data?['bindings'] as Map?)?[group] as String?;
     final feed = (data?['feeds'] as Map?)?[key] as Map?;
-    final hasCurrentFeed =
-        feed != null &&
-        widget.setup.coordinatorId != null &&
-        feed['pin'] == widget.setup.coordinatorId;
+    final notificationsEnabled =
+        !((data?['disabledGroups'] as List?) ?? const []).contains(group);
     final events = ((feed?['events'] as Map?) ?? {}).entries.toList()
       ..sort(
         (a, b) =>
             (b.value['cursor'] as int).compareTo(a.value['cursor'] as int),
       );
     return AlertDialog(
-      title: const Text('Public operation feed'),
+      title: Text(
+        isMember ? 'Receive background notifications' : 'Public operation feed',
+      ),
       content: SizedBox(
         width: 580,
         child: SingleChildScrollView(
@@ -109,23 +110,26 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Anyone who knows the feed ID can see operation type, timing and outcome. There is no directory, but unlisted metadata is not private to people who know the ID.',
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Public events contain no transaction/message details, signer counts or approval actions. Open the wallet’s authenticated requests to review current state. Initial retained history is silent.',
-              ),
-              const SizedBox(height: 12),
+              if (isMember) ...[
+                const Text(
+                  'Get notified when this shared wallet has a new signing or key-setup request. On Android, Sygnature checks periodically in the background, so delivery may be delayed; on other platforms it checks while the app is open. Notifications contain no transaction or message details—open and unlock the wallet to review the request.',
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
+                const Text(
+                  'Publishes basic request status so wallet members can receive background notifications. Transaction, message, signer and approval details are not shared.',
+                ),
+                const SizedBox(height: 12),
+              ],
               if (widget.setup.role == RoastSetupRole.host) ...[
                 SwitchListTile(
                   key: const Key('public-feed-host-enabled'),
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Publish this group’s public feed'),
                   subtitle: const Text(
-                    'Saved before coordinator startup. Restart Sygnature to apply publishing changes. Enrollment groups opt in separately from the bootstrap group.',
+                    'Restart Sygnature after changing this setting.',
                   ),
-                  value: host?['enabled'] == true,
+                  value: host?['enabled'] != false,
                   onChanged: _busy || data == null
                       ? null
                       : (value) => _perform(() async {
@@ -138,11 +142,8 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                 SwitchListTile(
                   key: const Key('public-feed-member-enabled'),
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Receive notifications on this device'),
-                  subtitle: const Text(
-                    'Included in this wallet’s onboarding setup.',
-                  ),
-                  value: hasCurrentFeed,
+                  title: const Text('Background notifications'),
+                  value: notificationsEnabled,
                   onChanged: _busy || data == null
                       ? null
                       : (value) => _perform(
@@ -152,16 +153,13 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                         ),
                 ),
               ],
-              if (feed != null) ...[
+              if (!isMember && feed != null) ...[
                 const SizedBox(height: 12),
                 if (feed['pin'] != widget.setup.coordinatorId)
                   const Text(
                     'This subscription belongs to a previous coordinator. Re-enable notifications to use the current coordinator.',
                   ),
-                Text('Processed cursor: ${feed['cursor']}'),
-                const Text(
-                  'Recent public observations (bounded cache; not a complete operation history).',
-                ),
+                if (events.isNotEmpty) const Text('Recent events'),
                 if (feed['historyGap'] == true)
                   const Text(
                     'History gap: some coordinator history is no longer available.',

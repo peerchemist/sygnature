@@ -60,6 +60,7 @@ final class _FeedState(final Map<String, dynamic> data) {
       final hosts = data['hosts'] as Map;
       final host = (hosts[groupId] as Map?) ?? <String, dynamic>{};
       if (enabled) {
+        _disabledGroups(data).removeWhere((value) => value == groupId);
         host['feedId'] = feedId;
         if (host['enabled'] != true) host['polling'] = true;
       }
@@ -72,9 +73,13 @@ final class _FeedState(final Map<String, dynamic> data) {
   Future<String?> enabledHostId(String groupId) async {
     final feedId = await publicFeedIdForGroup(groupId);
     return _mutate((data) {
-      final host = (data['hosts'] as Map)[groupId] as Map?;
-      if (host?['enabled'] != true) return null;
-      host!['feedId'] = feedId;
+      final hosts = data['hosts'] as Map;
+      final host = (hosts[groupId] as Map?) ?? <String, dynamic>{};
+      if (host['enabled'] == false) return null;
+      host['enabled'] = true;
+      host['polling'] ??= true;
+      host['feedId'] = feedId;
+      hosts[groupId] = host;
       return feedId;
     });
   }

@@ -480,6 +480,9 @@ class _WalletDashboard extends StatelessWidget {
       onDelete: () => _confirmDeleteWallet(context, controller, account),
       onArchive: () => _confirmArchiveWallet(context, controller, account),
       onRename: () => _showRenameWallet(context, controller, account),
+      publicFeedLabel: roastSetup?.role == RoastSetupRole.member
+          ? 'Receive background notifications'
+          : 'Public operation feed',
       onOpenPublicFeed: roastSetup != null && controller.publicFeedStore != null
           ? () async {
               final store = await controller.publicFeedStore!;
@@ -832,6 +835,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.onDelete,
     required this.onArchive,
     required this.onRename,
+    this.publicFeedLabel = 'Public operation feed',
     this.onOpenPublicFeed,
     this.onChangeSignerGroup,
     this.onSwitchCoordinator,
@@ -841,6 +845,7 @@ class _DashboardHeader extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onArchive;
   final VoidCallback onRename;
+  final String publicFeedLabel;
   final VoidCallback? onOpenPublicFeed;
   final VoidCallback? onChangeSignerGroup;
   final VoidCallback? onSwitchCoordinator;
@@ -947,14 +952,14 @@ class _DashboardHeader extends StatelessWidget {
                   ),
                 ),
                 if (onOpenPublicFeed != null)
-                  const PopupMenuItem(
-                    key: Key('open-public-feed'),
+                  PopupMenuItem(
+                    key: const Key('open-public-feed'),
                     value: 'public-feed',
                     child: Row(
                       children: [
-                        Icon(Icons.notifications_outlined),
-                        SizedBox(width: 10),
-                        Flexible(child: Text('Public operation feed')),
+                        const Icon(Icons.notifications_outlined),
+                        const SizedBox(width: 10),
+                        Flexible(child: Text(publicFeedLabel)),
                       ],
                     ),
                   ),

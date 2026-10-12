@@ -9,16 +9,18 @@ protocol, HTTP route, or signature verifier.
 
 ## Enable and subscribe
 
-1. Open a shared wallet's **Public operation feed** dialog.
-2. On the host, explicitly enable **Publish this group's public feed**. The
+1. Open **Public operation feed** on the host, or **Receive background
+   notifications** on a member wallet.
+2. On the host, **Publish this group's public feed** is enabled by default. The
    wallet derives an opaque 256-bit feed ID from the room's random group ID and
-   flushes it to local configuration before any coordinator can use it. Restart
-   Sygnature to apply publishing changes. The ID remains stable when disabling
+   flushes it to local configuration before the coordinator uses it. Restart
+   Sygnature after changing publication. The ID remains stable when disabling
    and re-enabling publication.
-3. Enrolled members derive the same feed ID and save the subscription when the
-   signer connects to its already authenticated coordinator. There is no public
-   feed invitation, clipboard import or second coordinator approval. The member
-   can disable or re-enable notifications locally in the dialog.
+3. Member notifications are also enabled by default. Enrolled members derive
+   the same feed ID and save the subscription when the signer connects to its
+   already authenticated coordinator. There is no public feed invitation,
+   clipboard import or second coordinator approval. The member can disable or
+   re-enable notifications locally in the dialog.
 
 Anyone who learns the feed ID can read operation type, timing and outcome. An
 unlisted feed is not private to readers who know the ID. The random group ID is
