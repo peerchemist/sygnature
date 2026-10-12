@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
@@ -13,6 +14,7 @@ import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
+import 'package:sygnature_ng/storage/public_feed_store.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/about_screen.dart';
 import 'package:sygnature_ng/ui/wallet_home.dart';
@@ -426,10 +428,13 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
     final controller = WalletController(
       MemoryWalletRepository(),
       keyService: _FakeWalletKeyService(),
+      publicFeedStore: Completer<PublicFeedStore>().future,
     );
     await controller.load();
     await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
@@ -448,6 +453,13 @@ void main() {
     expect(find.text('Volume'), findsOneWidget);
     expect(find.text('50%'), findsOneWidget);
     expect(find.text('Send test notification'), findsOneWidget);
+    expect(find.text('ROAST EVENT NOTIFICATIONS'), findsOneWidget);
+    expect(
+      find.text('How old can ROAST events be and still notify you?'),
+      findsOneWidget,
+    );
+    expect(find.text('Maximum event age'), findsOneWidget);
+    expect(find.text('1 hour'), findsOneWidget);
     expect(find.byKey(const Key('settings-version')), findsOneWidget);
     expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
 
@@ -470,6 +482,8 @@ void main() {
     expect(find.byKey(const Key('about-version')), findsOneWidget);
     expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
     expect(find.byKey(const Key('licenses-button')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
     expect(tester.takeException(), isNull);
   });
 

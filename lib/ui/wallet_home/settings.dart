@@ -150,40 +150,6 @@ class const _SettingsScreen({
                           }
                         : null,
                   ),
-                  if (publicFeedNotificationWindow != null)
-                    FutureBuilder<Duration>(
-                      future: publicFeedNotificationWindow,
-                      builder: (context, snapshot) => KeyedSubtree(
-                        key: const Key('public-feed-notification-window'),
-                        child: DropdownButtonFormField<int>(
-                          key: ValueKey(snapshot.data?.inMinutes),
-                          initialValue:
-                              snapshot.data?.inMinutes ??
-                              publicFeedDefaultNotificationWindow.inMinutes,
-                          decoration: InputDecoration(
-                            labelText: 'Notify about requests observed within',
-                            helperText: snapshot.hasError
-                                ? 'Notification history unavailable.'
-                                : 'Used when Android catches up. Expired requests never notify.',
-                          ),
-                          items: [
-                            for (final option
-                                in _publicFeedNotificationWindows.entries)
-                              DropdownMenuItem(
-                                value: option.key,
-                                child: Text(option.value),
-                              ),
-                          ],
-                          onChanged: snapshot.hasData
-                              ? (minutes) async =>
-                                    (await controller.publicFeedStore!)
-                                        .setNotificationWindow(
-                                          Duration(minutes: minutes!),
-                                        )
-                              : null,
-                        ),
-                      ),
-                    ),
                   SwitchListTile.adaptive(
                     key: const Key('notification-sound-toggle'),
                     contentPadding: EdgeInsets.zero,
@@ -245,6 +211,57 @@ class const _SettingsScreen({
                       label: const Text('Send test notification'),
                     ),
                   ),
+                  if (publicFeedNotificationWindow != null) ...[
+                    const SizedBox(height: 20),
+                    Text(
+                      'ROAST EVENT NOTIFICATIONS',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.inkMuted,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'How old can ROAST events be and still notify you?',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    FutureBuilder<Duration>(
+                      future: publicFeedNotificationWindow,
+                      builder: (context, snapshot) => KeyedSubtree(
+                        key: const Key('public-feed-notification-window'),
+                        child: DropdownButtonFormField<int>(
+                          key: ValueKey(snapshot.data?.inMinutes),
+                          initialValue:
+                              snapshot.data?.inMinutes ??
+                              publicFeedDefaultNotificationWindow.inMinutes,
+                          decoration: InputDecoration(
+                            labelText: 'Maximum event age',
+                            helperText: snapshot.hasError
+                                ? 'Event age setting unavailable.'
+                                : 'When Android catches up, older events are ignored. '
+                                      'Expired requests never notify.',
+                          ),
+                          items: [
+                            for (final option
+                                in _publicFeedNotificationWindows.entries)
+                              DropdownMenuItem(
+                                value: option.key,
+                                child: Text(option.value),
+                              ),
+                          ],
+                          onChanged: snapshot.hasData
+                              ? (minutes) async =>
+                                    (await controller.publicFeedStore!)
+                                        .setNotificationWindow(
+                                          Duration(minutes: minutes!),
+                                        )
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ],
                   const Divider(height: 32),
                   ListTile(
                     key: const Key('about-button'),
