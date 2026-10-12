@@ -31,6 +31,15 @@ service and no participant ever holding the complete private key.
 - A recent-activity feed for DKG, signature requests, signing and broadcast
   events.
 
+ROAST (Robust Asynchronous Schnorr Threshold Signatures) is a coordination
+protocol for creating threshold signatures even when some signers are offline,
+slow or misbehaving. It builds on FROST, whose participants jointly create a
+Schnorr signature without ever reconstructing the complete private key. ROAST
+organizes FROST signing rounds and replaces unavailable participants so that a
+quorum of responsive signers can make progress. In Sygnature, this makes a
+shared wallet behave like a single-signature wallet on-chain while keeping its
+signing authority distributed across participants.
+
 ## ROAST shared-wallet workflow
 
 1. Someone creates a ROAST group and decides how many people can sign and how
