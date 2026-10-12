@@ -37,7 +37,11 @@ modules:
       - cp -a app/build/linux/*/release/bundle/. /app/lib/sygnature/
       - ln -s /app/lib/sygnature/sygnature /app/bin/sygnature
       - install -Dm644 app/.flatpak/network.noosphere.sygnature.desktop /app/share/applications/network.noosphere.sygnature.desktop
-      - install -Dm644 app/.flatpak/network.noosphere.sygnature.metainfo.xml /app/share/metainfo/network.noosphere.sygnature.metainfo.xml
+      - |
+        version="$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' app/pubspec.yaml)"
+        test -n "$version"
+        sed "s|<release version=\"[^\"]*\"|<release version=\"$version\"|" app/.flatpak/network.noosphere.sygnature.metainfo.xml > network.noosphere.sygnature.metainfo.xml
+        install -Dm644 network.noosphere.sygnature.metainfo.xml /app/share/metainfo/network.noosphere.sygnature.metainfo.xml
       - install -Dm644 app/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png /app/share/icons/hicolor/512x512/apps/network.noosphere.sygnature.png
     sources:
       - type: dir
