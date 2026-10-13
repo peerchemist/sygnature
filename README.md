@@ -11,6 +11,21 @@ ordinary personal wallets, it supports fully peer-to-peer ROAST threshold
 wallets over [Iroh](https://www.iroh.computer/), with no central Sygnature
 service and no participant ever holding the complete private key.
 
+## Installing
+
+### macOS
+
+The published macOS packages require macOS 12 or newer. Download
+`Sygnature-macOS-arm64.dmg` for an Apple Silicon Mac or
+`Sygnature-macOS-x86_64.dmg` for an Intel Mac from the
+[latest release](https://github.com/peerchemist/sygnature/releases/latest).
+Open the disk image, then drag `Sygnature.app` into **Applications**.
+
+The app is ad-hoc signed so macOS can validate the app bundle internally, but
+it is not signed with an Apple Developer certificate and is not notarized by
+Apple. If Gatekeeper blocks the first launch, go to **System Settings > Privacy
+& Security** and select **Open Anyway**.
+
 ## Screenshots
 
 ![Sygnature shared wallet dashboard and recent activity](screenshots/1.png)
