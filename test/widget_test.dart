@@ -582,7 +582,9 @@ void main() {
     expect(find.byKey(const Key('collapsed-address')), findsNothing);
   });
 
-  testWidgets('shows persisted events in recent activity', (tester) async {
+  testWidgets('shows activity only for the selected sub-wallet', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final account = WalletAccount(
@@ -596,10 +598,22 @@ void main() {
       privateKeyHex: 'private-key-0',
       createdAt: DateTime.utc(2026),
     );
+    final savings = WalletAccount(
+      id: 'savings',
+      name: 'Savings',
+      accountIndex: 1,
+      blockchainId: 'peercoin',
+      networkId: 'mainnet',
+      derivationState: WalletDerivationState.ready,
+      address: 'pc1paccount1',
+      privateKeyHex: 'private-key-1',
+      createdAt: DateTime.utc(2026),
+    );
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
-        accounts: [account],
-        nextAccountIndex: 1,
+        accounts: [account, savings],
+        nextAccountIndex: 2,
+        selectedAccountId: account.id,
         activities: [
           WalletActivity(
             id: 'message-signature-requested:message-request',
@@ -612,13 +626,21 @@ void main() {
             details: 'Expired message',
           ),
           WalletActivity(
-            id: 'broadcast:txid',
+            id: 'main-transaction',
             accountId: account.id,
             type: WalletActivityType.transactionBroadcast,
             occurredAt: DateTime.now().toUtc(),
             reference: 'transaction-id',
             transactionStatus: WalletTransactionStatus.confirmed,
             blockHeight: 123,
+          ),
+          WalletActivity(
+            id: 'savings-transaction',
+            accountId: savings.id,
+            type: WalletActivityType.transactionReceived,
+            occurredAt: DateTime.now().toUtc(),
+            reference: 'savings-transaction-id',
+            transactionStatus: WalletTransactionStatus.mempool,
           ),
         ],
       );
@@ -635,7 +657,11 @@ void main() {
 
     expect(find.text('Recent activity'), findsOneWidget);
     expect(find.text('Transaction confirmed'), findsOneWidget);
-    expect(find.textContaining('Transaction transa'), findsOneWidget);
+    expect(find.byKey(const Key('activity-main-transaction')), findsOneWidget);
+    expect(
+      find.byKey(const Key('activity-savings-transaction')),
+      findsNothing,
+    );
     expect(find.text('EXPIRED'), findsOneWidget);
     expect(
       find.byKey(
@@ -645,6 +671,17 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    await tester.tap(find.text('Savings'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('activity-main-transaction')), findsNothing);
+    expect(
+      find.byKey(const Key('activity-savings-transaction')),
+      findsOneWidget,
+    );
+    expect(find.text('Incoming transaction'), findsOneWidget);
+    expect(find.text('EXPIRED'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }
