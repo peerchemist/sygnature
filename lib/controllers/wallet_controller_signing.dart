@@ -440,7 +440,13 @@ extension WalletSigningController on WalletController {
         }
       }
       return signingOperation == null
-          ? await _broadcastSigned(account, signed)
+          ? await _broadcastSigned(
+              account,
+              signed,
+              inputOutpoints: [
+                for (final utxo in preview.selectedUtxos) _utxoKey(utxo),
+              ],
+            )
           : await _broadcastRoastOperation(account, signingOperation, signed);
     } on WalletTransactionFailure {
       rethrow;
@@ -472,7 +478,11 @@ extension WalletSigningController on WalletController {
     );
     await _saveRoastSigningOperation(current);
     try {
-      final result = await _broadcastSigned(account, signed);
+      final result = await _broadcastSigned(
+        account,
+        signed,
+        inputOutpoints: operation.reservedOutpoints,
+      );
       current = current.copyWith(
         state: RoastSigningOperationState.broadcasted,
         serverTransactionId: result.serverTransactionId,
@@ -516,8 +526,9 @@ extension WalletSigningController on WalletController {
 
   Future<WalletSendResult> _broadcastSigned(
     WalletAccount account,
-    SignedWalletTransaction signed,
-  ) async {
+    SignedWalletTransaction signed, {
+    List<String> inputOutpoints = const [],
+  }) async {
     if (_broadcastedTransactionIds.contains(signed.transactionId) ||
         !_broadcastingTransactionIds.add(signed.transactionId)) {
       throw const WalletTransactionRejected(
@@ -529,6 +540,7 @@ extension WalletSigningController on WalletController {
         accountId: account.id,
         transactionId: signed.transactionId,
         status: WalletTransactionStatus.broadcasting,
+        inputOutpoints: inputOutpoints,
       );
       late final String serverTransactionId;
       try {

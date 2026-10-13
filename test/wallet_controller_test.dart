@@ -729,6 +729,32 @@ void main() {
     final missing = controller.activitiesFor(controller.accounts.single).first;
     expect(missing.transactionStatus, WalletTransactionStatus.broadcast);
     expect(missing.blockHeight, isNull);
+
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(
+        address: 'pc1paccount0',
+        utxos: [],
+        history: [
+          ElectrumxTransactionHistoryEntry(
+            transactionId: 'competing-transaction-id',
+            height: 124,
+            confirmations: 2,
+            netSats: -1001000,
+            feeSats: 1000,
+            outputs: [(value: 1000000, address: 'pc1pdestination')],
+            inputOutpoints: ['funding:0'],
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    final conflicted = controller
+        .activitiesFor(controller.accounts.single)
+        .firstWhere((activity) => activity.reference == 'local-transaction-id');
+    expect(conflicted.transactionStatus, WalletTransactionStatus.conflicted);
+    expect(conflicted.details, contains('same inputs'));
+    expect(conflicted.details, contains('competing-transaction-id'));
     await expectLater(
       controller.sendTransaction(preview),
       throwsA(isA<WalletTransactionRejected>()),
@@ -736,6 +762,86 @@ void main() {
 
     controller.dispose();
   });
+
+  test(
+    'discovers, updates, and persists incoming transaction history',
+    () async {
+      final repository = MemoryWalletRepository();
+      final electrumx = _FakeElectrumxService();
+      final controller = WalletController(
+        repository,
+        keyService: _FakeWalletKeyService(),
+        networkServiceFactory: (_) async => electrumx,
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      final timestamp = DateTime.utc(2026, 10, 12, 8, 30);
+
+      electrumx.snapshots.add(
+        PeercoinElectrumxUtxoSnapshot(
+          address: 'pc1paccount0',
+          utxos: const [],
+          history: [
+            ElectrumxTransactionHistoryEntry(
+              transactionId: 'incoming-transaction-id',
+              height: 321,
+              confirmations: 4,
+              timestamp: timestamp,
+              netSats: 750000,
+              inputOutpoints: const ['external-funding:1'],
+            ),
+          ],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      var activity = controller
+          .activitiesFor(controller.accounts.single)
+          .single;
+      expect(activity.type, WalletActivityType.transactionReceived);
+      expect(activity.transactionStatus, WalletTransactionStatus.confirmed);
+      expect(activity.transactionNetSats, 750000);
+      expect(activity.blockHeight, 321);
+      expect(activity.transactionConfirmations, 4);
+      expect(activity.occurredAt, timestamp);
+      expect(repository.value!.activities.single.reference, activity.reference);
+
+      electrumx.snapshots.add(
+        const PeercoinElectrumxUtxoSnapshot(
+          address: 'pc1paccount0',
+          utxos: [],
+          history: [
+            ElectrumxTransactionHistoryEntry(
+              transactionId: 'incoming-transaction-id',
+              height: 0,
+              netSats: 750000,
+              inputOutpoints: ['external-funding:1'],
+            ),
+          ],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      activity = controller.activitiesFor(controller.accounts.single).single;
+      expect(activity.transactionStatus, WalletTransactionStatus.mempool);
+      expect(activity.blockHeight, isNull);
+      expect(activity.transactionConfirmations, isNull);
+
+      electrumx.snapshots.add(
+        const PeercoinElectrumxUtxoSnapshot(address: 'pc1paccount0', utxos: []),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      activity = controller.activitiesFor(controller.accounts.single).single;
+      expect(activity.transactionStatus, WalletTransactionStatus.dropped);
+
+      controller.dispose();
+    },
+  );
 
   test('rejects sends unless derivation state is ready', () async {
     for (final state in [

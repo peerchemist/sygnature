@@ -10,8 +10,12 @@ enum WalletActivityType {
   transactionSignatureRequested,
   transactionSigned,
   transactionBroadcast,
+  transactionReceived,
   messageSignatureRequested,
-  messageSigned,
+  messageSigned;
+
+  bool get isTransaction =>
+      this == transactionBroadcast || this == transactionReceived;
 }
 
 enum WalletTransactionStatus {
@@ -19,6 +23,8 @@ enum WalletTransactionStatus {
   broadcast,
   mempool,
   confirmed,
+  dropped,
+  conflicted,
   failed,
 }
 
@@ -60,21 +66,28 @@ class WalletActivity({
   final String? signedMessageEncoded,
   final WalletTransactionStatus? transactionStatus,
   final int? blockHeight,
+  final int? transactionConfirmations,
   final List<WalletActivityRecipient> transactionRecipients = const [],
   final int? transactionFeeSats,
+  final int? transactionNetSats,
+  final List<String> transactionInputOutpoints = const [],
 }) {
   WalletActivity copyWith({
     DateTime? expiresAt,
     WalletTransactionStatus? transactionStatus,
     int? blockHeight,
+    int? transactionConfirmations,
     String? details,
     String? signedMessagePublicKeyHex,
     String? signedMessageSignatureHex,
     String? signedMessageEncoded,
     List<WalletActivityRecipient>? transactionRecipients,
     int? transactionFeeSats,
+    int? transactionNetSats,
+    List<String>? transactionInputOutpoints,
     bool clearDetails = false,
     bool clearBlockHeight = false,
+    bool clearTransactionConfirmations = false,
   }) => WalletActivity(
     id: id,
     accountId: accountId,
@@ -90,8 +103,14 @@ class WalletActivity({
     signedMessageEncoded: signedMessageEncoded ?? this.signedMessageEncoded,
     transactionStatus: transactionStatus ?? this.transactionStatus,
     blockHeight: clearBlockHeight ? null : blockHeight ?? this.blockHeight,
+    transactionConfirmations: clearTransactionConfirmations
+        ? null
+        : transactionConfirmations ?? this.transactionConfirmations,
     transactionRecipients: transactionRecipients ?? this.transactionRecipients,
     transactionFeeSats: transactionFeeSats ?? this.transactionFeeSats,
+    transactionNetSats: transactionNetSats ?? this.transactionNetSats,
+    transactionInputOutpoints:
+        transactionInputOutpoints ?? this.transactionInputOutpoints,
   );
 
   Map<String, Object?> toJson() => {
@@ -107,10 +126,13 @@ class WalletActivity({
     'signedMessageEncoded': signedMessageEncoded,
     'transactionStatus': transactionStatus?.name,
     'blockHeight': blockHeight,
+    'transactionConfirmations': transactionConfirmations,
     'transactionRecipients': transactionRecipients
         .map((recipient) => recipient.toJson())
         .toList(),
     'transactionFeeSats': transactionFeeSats,
+    'transactionNetSats': transactionNetSats,
+    'transactionInputOutpoints': transactionInputOutpoints,
   };
 
   factory WalletActivity.fromJson(Map<Object?, Object?> json) => WalletActivity(
@@ -132,6 +154,7 @@ class WalletActivity({
       _ => null,
     },
     blockHeight: json['blockHeight'] as int?,
+    transactionConfirmations: json['transactionConfirmations'] as int?,
     transactionRecipients:
         ((json['transactionRecipients'] as List?) ?? const [])
             .map(
@@ -141,5 +164,10 @@ class WalletActivity({
             )
             .toList(growable: false),
     transactionFeeSats: json['transactionFeeSats'] as int?,
+    transactionNetSats: json['transactionNetSats'] as int?,
+    transactionInputOutpoints:
+        ((json['transactionInputOutpoints'] as List?) ?? const [])
+            .cast<String>()
+            .toList(growable: false),
   );
 }

@@ -334,6 +334,15 @@ class PeercoinElectrumxService
     Future<void> start() async {
       try {
         final client = await _getPersistentClient();
+        final headerStream = await client.subscribeHeaders();
+        final headerSubscription = headerStream
+            .asyncExpand((_) async* {
+              for (final address in addresses) {
+                yield await client.fetchSnapshot(address);
+              }
+            })
+            .listen(output.add, onError: fail);
+        subscriptions.add(headerSubscription);
         for (final address in addresses) {
           if (stopping != null) return;
           final statusStream = await client.subscribeScriptHash(
@@ -352,11 +361,7 @@ class PeercoinElectrumxService
                     history: const [],
                   );
                 }
-                return PeercoinElectrumxUtxoSnapshot(
-                  address: address,
-                  utxos: await client.fetchUtxos(address),
-                  history: await client.fetchHistory(address),
-                );
+                return client.fetchSnapshot(address);
               })
               .listen(
                 output.add,
@@ -555,6 +560,10 @@ class _ElectrumxClient({
   Timer? _keepAliveTimer;
   final Map<int, Completer<Object?>> _pending = {};
   final Map<String, StreamController<String?>> _subscriptions = {};
+  StreamController<int>? _headerSubscription;
+  final Map<String, Future<Transaction>> _transactions = {};
+  final Map<int, Future<DateTime?>> _blockTimes = {};
+  int? _tipHeight;
   int _nextId = 0;
   bool _usable = false;
   bool _closed = false;
@@ -639,6 +648,13 @@ class _ElectrumxClient({
         .toList(growable: false);
   }
 
+  Future<PeercoinElectrumxUtxoSnapshot> fetchSnapshot(String address) async =>
+      PeercoinElectrumxUtxoSnapshot(
+        address: address,
+        utxos: await fetchUtxos(address),
+        history: await fetchHistory(address),
+      );
+
   Future<List<ElectrumxTransactionHistoryEntry>> fetchHistory(
     String address,
   ) async {
@@ -652,9 +668,194 @@ class _ElectrumxClient({
     if (result is! List) {
       throw const FormatException('Invalid ElectrumX history response.');
     }
-    return result
+    final history = result
         .map(ElectrumxTransactionHistoryEntry.fromJson)
         .toList(growable: false);
+    const batchSize = 8;
+    final enriched = <ElectrumxTransactionHistoryEntry>[];
+    for (var offset = 0; offset < history.length; offset += batchSize) {
+      final end = (offset + batchSize).clamp(0, history.length);
+      enriched.addAll(
+        await Future.wait([
+          for (final entry in history.sublist(offset, end))
+            _enrichHistoryEntry(address, entry),
+        ]),
+      );
+    }
+    return enriched;
+  }
+
+  Future<ElectrumxTransactionHistoryEntry> _enrichHistoryEntry(
+    String address,
+    ElectrumxTransactionHistoryEntry entry,
+  ) async {
+    try {
+      final transaction = await _fetchTransaction(entry.transactionId);
+      final walletScript = Address.fromString(
+        address,
+        electrumNetwork.network,
+      ).program.script.compiled;
+      final inputOutpoints = <String>[];
+      var allInputsResolved = true;
+      var totalInputSats = 0;
+      var walletInputSats = 0;
+      for (final input in transaction.inputs) {
+        if (input.prevOut.coinbase) continue;
+        final previousId = bytesToHex(
+          Uint8List.fromList(input.prevOut.hash.reversed.toList()),
+        );
+        inputOutpoints.add('$previousId:${input.prevOut.n}');
+        try {
+          final previous = await _fetchTransaction(previousId);
+          if (input.prevOut.n >= previous.outputs.length) {
+            throw const FormatException('Invalid transaction input index.');
+          }
+          final output = previous.outputs[input.prevOut.n];
+          final value = output.value.toInt();
+          totalInputSats += value;
+          if (bytesEqual(output.scriptPubKey, walletScript)) {
+            walletInputSats += value;
+          }
+        } on Object {
+          allInputsResolved = false;
+        }
+      }
+
+      var receivedSats = 0;
+      var totalOutputSats = 0;
+      final outputs = <ElectrumxTransactionOutput>[];
+      for (final output in transaction.outputs) {
+        final value = output.value.toInt();
+        totalOutputSats += value;
+        if (bytesEqual(output.scriptPubKey, walletScript)) {
+          receivedSats += value;
+        } else {
+          outputs.add((value: value, address: _addressForOutput(output)));
+        }
+      }
+      final fee = allInputsResolved && !transaction.isCoinBase
+          ? totalInputSats - totalOutputSats
+          : -1;
+      DateTime? timestamp;
+      if (entry.height > 0) {
+        try {
+          timestamp = await _fetchBlockTime(entry.height);
+        } on Object catch (error, stackTrace) {
+          AppLogger.warn(
+            'Unable to load ElectrumX block time at height ${entry.height}.',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+      final tipHeight = _tipHeight;
+      return ElectrumxTransactionHistoryEntry(
+        transactionId: entry.transactionId,
+        height: entry.height,
+        confirmations:
+            entry.height > 0 && tipHeight != null && tipHeight >= entry.height
+            ? tipHeight - entry.height + 1
+            : null,
+        timestamp: timestamp,
+        netSats: allInputsResolved ? receivedSats - walletInputSats : null,
+        feeSats: fee >= 0 ? fee : null,
+        outputs: List.unmodifiable(outputs),
+        inputOutpoints: List.unmodifiable(inputOutpoints),
+      );
+    } on Object catch (error, stackTrace) {
+      AppLogger.warn(
+        'Unable to load ElectrumX transaction details for '
+        '${entry.transactionId}.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return entry;
+    }
+  }
+
+  Future<Transaction> _fetchTransaction(
+    String transactionId,
+  ) => _cached(_transactions, transactionId, () async {
+    final result = await _request('blockchain.transaction.get', [
+      transactionId,
+      false,
+    ]);
+    if (result is! String) {
+      throw const FormatException('Invalid ElectrumX transaction response.');
+    }
+    final transaction = Transaction.fromHex(result);
+    if (transaction.txid.toLowerCase() != transactionId.toLowerCase()) {
+      throw const FormatException('ElectrumX returned the wrong transaction.');
+    }
+    return transaction;
+  });
+
+  Future<DateTime?> _fetchBlockTime(int height) =>
+      _cached(_blockTimes, height, () async {
+        final result = await _request('blockchain.block.header', [height]);
+        if (result is! String) {
+          throw const FormatException('Invalid ElectrumX block header.');
+        }
+        final header = hexToBytes(result);
+        if (header.length < 72) {
+          throw const FormatException('ElectrumX block header is too short.');
+        }
+        final seconds = ByteData.sublistView(
+          header,
+          68,
+          72,
+        ).getUint32(0, Endian.little);
+        return DateTime.fromMillisecondsSinceEpoch(
+          seconds * Duration.millisecondsPerSecond,
+          isUtc: true,
+        );
+      });
+
+  Future<V> _cached<K, V>(
+    Map<K, Future<V>> cache,
+    K key,
+    Future<V> Function() load,
+  ) async {
+    final loading = cache[key] ??= load();
+    try {
+      return await loading;
+    } catch (_) {
+      if (identical(cache[key], loading)) cache.remove(key);
+      rethrow;
+    }
+  }
+
+  String? _addressForOutput(Output output) {
+    final program = output.program;
+    final network = electrumNetwork.network;
+    return switch (program) {
+      P2PKH() => P2PKHAddress.fromHash(
+        program.pkHash,
+        version: network.p2pkhPrefix,
+      ).toString(),
+      P2SH() => P2SHAddress.fromHash(
+        program.scriptHash,
+        version: network.p2shPrefix,
+      ).toString(),
+      P2WPKH() => P2WPKHAddress.fromHash(
+        program.data,
+        hrp: network.bech32Hrp,
+      ).toString(),
+      P2WSH() => P2WSHAddress.fromHash(
+        program.data,
+        hrp: network.bech32Hrp,
+      ).toString(),
+      P2TR() => P2TRAddress.fromTweakedKeyX(
+        program.data,
+        hrp: network.bech32Hrp,
+      ).toString(),
+      P2Witness() => UnknownWitnessAddress(
+        program.data,
+        version: program.version,
+        hrp: network.bech32Hrp,
+      ).toString(),
+      _ => null,
+    };
   }
 
   Future<Stream<String?>> subscribeScriptHash(String scriptHash) async {
@@ -694,6 +895,45 @@ class _ElectrumxClient({
     }
 
     return controller.stream;
+  }
+
+  Future<Stream<int>> subscribeHeaders() async {
+    final existing = _headerSubscription;
+    if (existing != null) return existing.stream;
+
+    late final StreamController<int> controller;
+    controller = StreamController<int>.broadcast(
+      onCancel: () {
+        if (identical(_headerSubscription, controller)) {
+          _headerSubscription = null;
+        }
+      },
+    );
+    _headerSubscription = controller;
+    try {
+      final height = _parseHeaderHeight(
+        await _request('blockchain.headers.subscribe', const []),
+      );
+      _tipHeight = height;
+      return controller.stream;
+    } catch (_) {
+      if (identical(_headerSubscription, controller)) {
+        _headerSubscription = null;
+      }
+      await controller.close();
+      rethrow;
+    }
+  }
+
+  int _parseHeaderHeight(Object? value) {
+    if (value is! Map || value['height'] is! int) {
+      throw const FormatException('Invalid ElectrumX header notification.');
+    }
+    final height = value['height'] as int;
+    if (height < 0) {
+      throw const FormatException('Invalid ElectrumX header height.');
+    }
+    return height;
   }
 
   Future<String> broadcastTransaction(String rawTransactionHex) async {
@@ -832,6 +1072,19 @@ class _ElectrumxClient({
       }
       return;
     }
+    if (method == 'blockchain.headers.subscribe') {
+      final params = decoded['params'];
+      if (params is! List || params.length != 1) {
+        throw const FormatException('Invalid ElectrumX header notification.');
+      }
+      final height = _parseHeaderHeight(params.single);
+      _tipHeight = height;
+      final controller = _headerSubscription;
+      if (controller != null && !controller.isClosed) {
+        controller.add(height);
+      }
+      return;
+    }
 
     final id = decoded['id'];
     if (id is! int) {
@@ -915,5 +1168,11 @@ class _ElectrumxClient({
       }
     }
     _subscriptions.clear();
+    final headerSubscription = _headerSubscription;
+    _headerSubscription = null;
+    if (headerSubscription != null && !headerSubscription.isClosed) {
+      headerSubscription.addError(error, stackTrace);
+      headerSubscription.close();
+    }
   }
 }

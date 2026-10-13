@@ -28,6 +28,9 @@ void main() {
           reference: 'transaction-id',
           transactionStatus: WalletTransactionStatus.confirmed,
           blockHeight: 123,
+          transactionConfirmations: 7,
+          transactionNetSats: -101000,
+          transactionInputOutpoints: const ['funding:0'],
         ),
       ],
       announcedRoastActionIds: const ['signatures:setup:request'],
@@ -53,6 +56,9 @@ void main() {
       WalletTransactionStatus.confirmed,
     );
     expect(restored.activities.single.blockHeight, 123);
+    expect(restored.activities.single.transactionConfirmations, 7);
+    expect(restored.activities.single.transactionNetSats, -101000);
+    expect(restored.activities.single.transactionInputOutpoints, ['funding:0']);
     expect(
       restored.activities.single.occurredAt,
       DateTime.utc(2026, 1, 2, 3, 4),

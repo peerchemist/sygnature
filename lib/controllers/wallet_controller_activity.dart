@@ -90,6 +90,8 @@ extension WalletActivityController on WalletController {
     String? signedMessageEncoded,
     List<WalletActivityRecipient>? transactionRecipients,
     int? transactionFeeSats,
+    int? transactionNetSats,
+    List<String>? transactionInputOutpoints,
   }) async {
     try {
       await _updateVault((current) {
@@ -110,11 +112,13 @@ extension WalletActivityController on WalletController {
             signedMessageEncoded: signedMessageEncoded,
             transactionRecipients: transactionRecipients ?? const [],
             transactionFeeSats: transactionFeeSats,
+            transactionNetSats: transactionNetSats,
+            transactionInputOutpoints: transactionInputOutpoints ?? const [],
           );
-          activities = [
+          activities = _limitNonTransactionActivities([
             activity,
             ...current.activities,
-          ].take(WalletController._maxActivityEntries).toList(growable: false);
+          ]);
         } else {
           final previous = current.activities[index];
           final updated = previous.copyWith(
@@ -125,6 +129,8 @@ extension WalletActivityController on WalletController {
             signedMessageEncoded: signedMessageEncoded,
             transactionRecipients: transactionRecipients,
             transactionFeeSats: transactionFeeSats,
+            transactionNetSats: transactionNetSats,
+            transactionInputOutpoints: transactionInputOutpoints,
           );
           if (updated.expiresAt == previous.expiresAt &&
               updated.details == previous.details &&
@@ -137,7 +143,12 @@ extension WalletActivityController on WalletController {
                 updated.transactionRecipients,
                 previous.transactionRecipients,
               ) &&
-              updated.transactionFeeSats == previous.transactionFeeSats) {
+              updated.transactionFeeSats == previous.transactionFeeSats &&
+              updated.transactionNetSats == previous.transactionNetSats &&
+              listEquals(
+                updated.transactionInputOutpoints,
+                previous.transactionInputOutpoints,
+              )) {
             return current;
           }
           activities = [...current.activities];
@@ -160,6 +171,7 @@ extension WalletActivityController on WalletController {
     required WalletTransactionStatus status,
     int? blockHeight,
     String? details,
+    List<String>? inputOutpoints,
   }) async {
     try {
       await _updateVault((current) {
@@ -181,14 +193,13 @@ extension WalletActivityController on WalletController {
               details: details,
               transactionStatus: status,
               blockHeight: blockHeight,
+              transactionInputOutpoints: inputOutpoints ?? const [],
             ),
           );
-          if (activities.length > WalletController._maxActivityEntries) {
-            activities.removeRange(
-              WalletController._maxActivityEntries,
-              activities.length,
-            );
-          }
+          final limited = _limitNonTransactionActivities(activities);
+          activities
+            ..clear()
+            ..addAll(limited);
         } else {
           final activity = activities[index];
           final chainAlreadySawTransaction =
@@ -207,6 +218,7 @@ extension WalletActivityController on WalletController {
             blockHeight: blockHeight,
             details: keepChainStatus ? null : details,
             clearDetails: keepChainStatus || details == null,
+            transactionInputOutpoints: inputOutpoints,
           );
         }
         return current.copyWith(activities: activities);
@@ -231,45 +243,180 @@ extension WalletActivityController on WalletController {
             .where((account) => account.address == address)
             .map((account) => account.id)
             .toSet();
-        final transactions = {
+        final transactions = <String, ElectrumxTransactionHistoryEntry>{
           for (final entry in history) entry.transactionId: entry,
         };
+        final spendersByOutpoint = <String, Set<String>>{};
+        for (final entry in history) {
+          for (final outpoint in entry.inputOutpoints) {
+            spendersByOutpoint
+                .putIfAbsent(outpoint, () => <String>{})
+                .add(entry.transactionId);
+          }
+        }
+        for (final activity in current.activities) {
+          if (!accountIds.contains(activity.accountId) ||
+              activity.reference == null ||
+              !activity.type.isTransaction) {
+            continue;
+          }
+          for (final outpoint in activity.transactionInputOutpoints) {
+            spendersByOutpoint
+                .putIfAbsent(outpoint, () => <String>{})
+                .add(activity.reference!);
+          }
+        }
+        final conflictedIds = <String>{};
+        for (final spenders in spendersByOutpoint.values) {
+          if (spenders.length < 2) continue;
+          final confirmed = spenders
+              .where((id) => transactions[id]?.isConfirmed ?? false)
+              .toSet();
+          conflictedIds.addAll(
+            confirmed.length == 1 ? spenders.difference(confirmed) : spenders,
+          );
+        }
+        String? findCompetingTransaction(
+          String? transactionId,
+          Iterable<String> outpoints,
+        ) {
+          for (final outpoint in outpoints) {
+            for (final candidate
+                in spendersByOutpoint[outpoint] ?? const <String>{}) {
+              if (candidate != transactionId) return candidate;
+            }
+          }
+          return null;
+        }
+
+        List<WalletActivityRecipient> recipientsFor(
+          ElectrumxTransactionHistoryEntry entry,
+        ) => [
+          for (final output in entry.outputs)
+            if (output.address case final address?)
+              WalletActivityRecipient(
+                address: address,
+                amountSats: output.value,
+              ),
+        ];
+        String? conflictDetails(String? transactionId) => transactionId == null
+            ? null
+            : 'Conflicts with transaction $transactionId, which spends one or '
+                  'more of the same inputs.';
+
         var changed = false;
         final activities = <WalletActivity>[];
         for (final activity in current.activities) {
           final entry = transactions[activity.reference];
-          if (activity.type != WalletActivityType.transactionBroadcast ||
+          if (!activity.type.isTransaction ||
               !accountIds.contains(activity.accountId)) {
             activities.add(activity);
             continue;
           }
-          final status = entry == null
-              ? switch (activity.transactionStatus) {
-                  WalletTransactionStatus.confirmed ||
-                  WalletTransactionStatus.mempool =>
-                    WalletTransactionStatus.broadcast,
-                  _ => activity.transactionStatus,
-                }
+          final competingTransactionId = entry == null
+              ? findCompetingTransaction(
+                  activity.reference,
+                  activity.transactionInputOutpoints,
+                )
+              : conflictedIds.contains(entry.transactionId)
+              ? findCompetingTransaction(
+                  entry.transactionId,
+                  entry.inputOutpoints,
+                )
+              : null;
+          final synchronizedActivity = activity.id.startsWith(
+            'transaction-chain:',
+          );
+          final status = competingTransactionId != null
+              ? WalletTransactionStatus.conflicted
+              : entry == null
+              ? synchronizedActivity
+                    ? WalletTransactionStatus.dropped
+                    : switch (activity.transactionStatus) {
+                        WalletTransactionStatus.confirmed ||
+                        WalletTransactionStatus.mempool =>
+                          WalletTransactionStatus.broadcast,
+                        _ => activity.transactionStatus,
+                      }
               : entry.isConfirmed
               ? WalletTransactionStatus.confirmed
               : WalletTransactionStatus.mempool;
           final blockHeight = entry?.isConfirmed ?? false
               ? entry!.height
               : null;
-          if (activity.transactionStatus == status &&
-              activity.blockHeight == blockHeight) {
+          final recipients = entry == null
+              ? activity.transactionRecipients
+              : recipientsFor(entry);
+          final details = conflictDetails(competingTransactionId);
+          final updated = activity.copyWith(
+            transactionStatus: status,
+            blockHeight: blockHeight,
+            clearBlockHeight: blockHeight == null,
+            transactionConfirmations: entry?.confirmations,
+            clearTransactionConfirmations: entry?.confirmations == null,
+            details: details,
+            clearDetails: details == null,
+            transactionRecipients: recipients.isEmpty ? null : recipients,
+            transactionFeeSats: entry?.feeSats,
+            transactionNetSats: entry?.netSats,
+            transactionInputOutpoints:
+                entry == null || entry.inputOutpoints.isEmpty
+                ? null
+                : entry.inputOutpoints,
+          );
+          if (_sameTransactionActivity(activity, updated)) {
             activities.add(activity);
             continue;
           }
           changed = true;
-          activities.add(
-            activity.copyWith(
-              transactionStatus: status,
-              blockHeight: blockHeight,
-              clearBlockHeight: blockHeight == null,
-              clearDetails: true,
-            ),
-          );
+          activities.add(updated);
+        }
+        for (final entry in history) {
+          if (!entry.hasTransactionDetails ||
+              activities.any(
+                (activity) =>
+                    accountIds.contains(activity.accountId) &&
+                    activity.reference == entry.transactionId &&
+                    activity.type.isTransaction,
+              )) {
+            continue;
+          }
+          final status = conflictedIds.contains(entry.transactionId)
+              ? WalletTransactionStatus.conflicted
+              : entry.isConfirmed
+              ? WalletTransactionStatus.confirmed
+              : WalletTransactionStatus.mempool;
+          final competingTransactionId =
+              status == WalletTransactionStatus.conflicted
+              ? findCompetingTransaction(
+                  entry.transactionId,
+                  entry.inputOutpoints,
+                )
+              : null;
+          final recipients = recipientsFor(entry);
+          for (final accountId in accountIds) {
+            activities.insert(
+              0,
+              WalletActivity(
+                id: 'transaction-chain:$accountId:${entry.transactionId}',
+                accountId: accountId,
+                type: entry.netSats! < 0
+                    ? WalletActivityType.transactionBroadcast
+                    : WalletActivityType.transactionReceived,
+                occurredAt: entry.timestamp ?? DateTime.now().toUtc(),
+                reference: entry.transactionId,
+                details: conflictDetails(competingTransactionId),
+                transactionStatus: status,
+                blockHeight: entry.isConfirmed ? entry.height : null,
+                transactionConfirmations: entry.confirmations,
+                transactionRecipients: recipients,
+                transactionFeeSats: entry.feeSats,
+                transactionNetSats: entry.netSats,
+                transactionInputOutpoints: entry.inputOutpoints,
+              ),
+            );
+          }
+          changed = true;
         }
         if (!changed) return current;
         return current.copyWith(activities: activities);
@@ -281,6 +428,29 @@ extension WalletActivityController on WalletController {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  bool _sameTransactionActivity(WalletActivity first, WalletActivity second) =>
+      first.transactionStatus == second.transactionStatus &&
+      first.blockHeight == second.blockHeight &&
+      first.transactionConfirmations == second.transactionConfirmations &&
+      first.details == second.details &&
+      listEquals(first.transactionRecipients, second.transactionRecipients) &&
+      first.transactionFeeSats == second.transactionFeeSats &&
+      first.transactionNetSats == second.transactionNetSats &&
+      listEquals(
+        first.transactionInputOutpoints,
+        second.transactionInputOutpoints,
+      );
+
+  List<WalletActivity> _limitNonTransactionActivities(
+    List<WalletActivity> activities,
+  ) {
+    var remaining = WalletController._maxActivityEntries;
+    return [
+      for (final activity in activities)
+        if (activity.type.isTransaction || remaining-- > 0) activity,
+    ];
   }
 
   Future<void> _recordSetupActivity(

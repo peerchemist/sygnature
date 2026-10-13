@@ -314,6 +314,16 @@ Future<void> _showActivityDetails(
                 ),
               if (activity.blockHeight case final height?)
                 _ActivityDetail(label: 'Block height', value: '$height'),
+              if (activity.transactionConfirmations case final confirmations?)
+                _ActivityDetail(
+                  label: 'Confirmations',
+                  value: '$confirmations',
+                ),
+              if (activity.transactionNetSats case final netSats?)
+                _ActivityDetail(
+                  label: netSats >= 0 ? 'Received' : 'Wallet debit',
+                  value: '${_formatPpc(netSats.abs())} PPC',
+                ),
               for (
                 var index = 0;
                 index < activity.transactionRecipients.length;
@@ -449,6 +459,8 @@ class const _ActivityDetail({
       WalletTransactionStatus.broadcasting => 'Broadcasting transaction…',
       WalletTransactionStatus.mempool => 'Transaction in mempool',
       WalletTransactionStatus.confirmed => 'Transaction confirmed',
+      WalletTransactionStatus.dropped => 'Transaction dropped',
+      WalletTransactionStatus.conflicted => 'Transaction conflicted',
       WalletTransactionStatus.failed => 'Transaction failed',
       WalletTransactionStatus.broadcast || null => 'Transaction broadcast',
     },
@@ -456,6 +468,8 @@ class const _ActivityDetail({
       WalletTransactionStatus.broadcasting => Icons.sync_rounded,
       WalletTransactionStatus.mempool => Icons.hourglass_top_rounded,
       WalletTransactionStatus.confirmed => Icons.verified_outlined,
+      WalletTransactionStatus.dropped => Icons.remove_circle_outline,
+      WalletTransactionStatus.conflicted => Icons.warning_amber_rounded,
       WalletTransactionStatus.failed => Icons.error_outline,
       WalletTransactionStatus.broadcast || null => Icons.send_outlined,
     },
@@ -463,10 +477,29 @@ class const _ActivityDetail({
       WalletTransactionStatus.broadcasting ||
       WalletTransactionStatus.mempool => AppColors.warningDark,
       WalletTransactionStatus.failed => AppColors.danger,
+      WalletTransactionStatus.dropped ||
+      WalletTransactionStatus.conflicted => AppColors.danger,
       WalletTransactionStatus.broadcast ||
       WalletTransactionStatus.confirmed ||
       null => AppColors.success,
     },
+  ),
+  WalletActivityType.transactionReceived => (
+    title: switch (activity.transactionStatus) {
+      WalletTransactionStatus.mempool => 'Incoming transaction',
+      WalletTransactionStatus.confirmed => 'Payment received',
+      WalletTransactionStatus.dropped => 'Incoming transaction dropped',
+      WalletTransactionStatus.conflicted => 'Transaction conflicted',
+      _ => 'Incoming transaction',
+    },
+    icon: activity.transactionStatus == WalletTransactionStatus.confirmed
+        ? Icons.south_west_rounded
+        : Icons.move_to_inbox_outlined,
+    color:
+        activity.transactionStatus == WalletTransactionStatus.dropped ||
+            activity.transactionStatus == WalletTransactionStatus.conflicted
+        ? AppColors.danger
+        : AppColors.success,
   ),
   WalletActivityType.messageSignatureRequested => (
     title: 'Message signature requested',
@@ -490,7 +523,8 @@ String _activityReferenceLabel(WalletActivityType type) => switch (type) {
   WalletActivityType.dkgFailed => 'DKG',
   WalletActivityType.transactionSignatureRequested => 'Transaction request',
   WalletActivityType.transactionSigned ||
-  WalletActivityType.transactionBroadcast => 'Transaction',
+  WalletActivityType.transactionBroadcast ||
+  WalletActivityType.transactionReceived => 'Transaction',
   WalletActivityType.messageSignatureRequested ||
   WalletActivityType.messageSigned => 'Message request',
   _ => 'Request',
@@ -502,6 +536,8 @@ String _transactionStatusLabel(WalletTransactionStatus status) =>
       WalletTransactionStatus.broadcast => 'Broadcast',
       WalletTransactionStatus.mempool => 'In mempool',
       WalletTransactionStatus.confirmed => 'Confirmed',
+      WalletTransactionStatus.dropped => 'Dropped',
+      WalletTransactionStatus.conflicted => 'Conflicted',
       WalletTransactionStatus.failed => 'Failed',
     };
 

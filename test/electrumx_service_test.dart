@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:coinlib/coinlib.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
+
+import 'fixtures/peercoin_taproot_transaction_fixture.dart';
 
 const _mainnetAddress = 'PRq95DFpcQHMs3XqewNtuvB8vKkXCuLN6c';
 
@@ -214,6 +218,82 @@ void main() {
       ),
       hasLength(1),
     );
+  });
+
+  test('enriches history from raw transactions and block headers', () async {
+    final network = PeercoinElectrumxNetworks.mainnet.network;
+    final wallet = Address.fromString(_mainnetAddress, network);
+    final destination = Address.fromString(fixtureDestinationAddress, network);
+    final funding = Transaction(
+      inputs: [
+        RawInput(
+          prevOut: OutPoint(Uint8List(32), 0xffffffff),
+          scriptSig: Uint8List(0),
+        ),
+      ],
+      outputs: [Output.fromAddress(BigInt.from(1250000), wallet)],
+    );
+    final spending = Transaction(
+      inputs: [
+        RawInput(
+          prevOut: OutPoint.fromHex(funding.txid, 0),
+          scriptSig: Uint8List(0),
+        ),
+      ],
+      outputs: [
+        Output.fromAddress(BigInt.from(1000000), destination),
+        Output.fromAddress(BigInt.from(249000), wallet),
+      ],
+    );
+    final header = Uint8List(80);
+    ByteData.sublistView(header).setUint32(
+      68,
+      DateTime.utc(2026, 10, 12, 8, 30).millisecondsSinceEpoch ~/
+          Duration.millisecondsPerSecond,
+      Endian.little,
+    );
+    final connection = _FakeConnection(
+      history: [
+        {'tx_hash': spending.txid, 'height': 321},
+      ],
+      transactions: {
+        spending.txid: bytesToHex(spending.toBytes()),
+        funding.txid: bytesToHex(funding.toBytes()),
+      },
+      blockHeaders: {321: bytesToHex(header)},
+    );
+    final service = PeercoinElectrumxService(
+      electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+      connector: (_) async => connection,
+      reconnectDelay: Duration.zero,
+    );
+    addTearDown(service.close);
+
+    final initial = Completer<ElectrumxTransactionHistoryEntry>();
+    final updated = Completer<ElectrumxTransactionHistoryEntry>();
+    final subscription = service
+        .watchUtxosForAddresses([_mainnetAddress])
+        .listen((snapshot) {
+          final entry = snapshot.history.single;
+          if (entry.confirmations == 180 && !initial.isCompleted) {
+            initial.complete(entry);
+          } else if (entry.confirmations == 181 && !updated.isCompleted) {
+            updated.complete(entry);
+          }
+        });
+    addTearDown(subscription.cancel);
+    final entry = await initial.future;
+
+    expect(entry.netSats, -1001000);
+    expect(entry.feeSats, 1000);
+    expect(entry.confirmations, 180);
+    expect(entry.inputOutpoints, ['${funding.txid}:0']);
+    expect(entry.outputs.single.address, fixtureDestinationAddress);
+    expect(entry.outputs.single.value, 1000000);
+    expect(entry.timestamp, DateTime.utc(2026, 10, 12, 8, 30));
+
+    connection.notifyHeader(501);
+    expect((await updated.future).confirmations, 181);
   });
 
   test('keeps an active subscription alive with server ping', () async {
@@ -455,6 +535,9 @@ class _FakeConnection({
       '0000000032fe677166d54963b62a4677d8957e87c508eaa4fd7eb1c880cd27e3',
   final Map<String, Object>? broadcastError,
   final Completer<void>? closeCompletion,
+  final List<Map<String, Object?>>? history,
+  final Map<String, String> transactions = const {},
+  final Map<int, String> blockHeaders = const {},
 }) implements ElectrumxConnection {
   final StreamController<dynamic> _controller = StreamController<dynamic>();
   final List<String> methods = [];
@@ -496,6 +579,7 @@ class _FakeConnection({
         'protocol_max': '1.4.3',
       },
       'server.ping' => null,
+      'blockchain.headers.subscribe' => {'height': 500, 'hex': ''},
       'blockchain.scripthash.subscribe' => 'status-1',
       'blockchain.scripthash.listunspent' => [
         {
@@ -505,13 +589,21 @@ class _FakeConnection({
           'value': 1250000,
         },
       ],
-      'blockchain.scripthash.get_history' => [
-        {
-          'tx_hash': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-          'height': 0,
-          'fee': 1000,
-        },
-      ],
+      'blockchain.scripthash.get_history' =>
+        history ??
+            [
+              {
+                'tx_hash': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                'height': 0,
+                'fee': 1000,
+              },
+            ],
+      // Most transport tests only exercise the history envelope. A malformed
+      // transaction keeps enrichment optional without failing UTXO sync.
+      'blockchain.transaction.get' =>
+        transactions[(request['params'] as List).first] ?? '00',
+      'blockchain.block.header' =>
+        blockHeaders[(request['params'] as List).first] ?? '00',
       'blockchain.transaction.broadcast' => 'transaction-id',
       _ => throw StateError('Unexpected ElectrumX method: $method'),
     };
@@ -528,6 +620,18 @@ class _FakeConnection({
         'jsonrpc': '2.0',
         'method': 'blockchain.scripthash.subscribe',
         'params': [_scriptHash, 'status-2'],
+      }),
+    );
+  }
+
+  void notifyHeader(int height) {
+    _controller.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'blockchain.headers.subscribe',
+        'params': [
+          {'height': height, 'hex': ''},
+        ],
       }),
     );
   }

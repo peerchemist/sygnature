@@ -54,12 +54,25 @@ class ElectrumxTransactionHistoryEntry {
   const ElectrumxTransactionHistoryEntry({
     required this.transactionId,
     required this.height,
+    this.confirmations,
+    this.timestamp,
+    this.netSats,
+    this.feeSats,
+    this.outputs = const [],
+    this.inputOutpoints = const [],
   });
 
   final String transactionId;
   final int height;
+  final int? confirmations;
+  final DateTime? timestamp;
+  final int? netSats;
+  final int? feeSats;
+  final List<ElectrumxTransactionOutput> outputs;
+  final List<String> inputOutpoints;
 
   bool get isConfirmed => height > 0;
+  bool get hasTransactionDetails => netSats != null;
 
   static ElectrumxTransactionHistoryEntry fromJson(Object? value) {
     if (value is! Map) {
@@ -81,3 +94,5 @@ class ElectrumxTransactionHistoryEntry {
 
   static final _transactionHash = RegExp(r'^[0-9a-fA-F]{64}$');
 }
+
+typedef ElectrumxTransactionOutput = ({int value, String? address});
