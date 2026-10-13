@@ -122,6 +122,13 @@ checks must pass before artifact upload. A separate release job waits for both
 architecture jobs to succeed before publishing the macOS assets. Other platform
 workflows can still independently create a shared GitHub Release.
 
+Apple credential authentication, ticket stapling/validation, and Gatekeeper
+assessment retry recognized transport failures up to four attempts, waiting
+10, 20, and 40 seconds. Invalid signatures, rejected assessments, and unknown
+errors fail immediately. Notarization uploads are not automatically repeated,
+since losing an upload response could otherwise duplicate a submission. All
+existing checks must still succeed before an artifact is uploaded or published.
+
 For a local build, save notarization credentials using the secure interactive
 prompt (substitute your Apple Developer account email):
 

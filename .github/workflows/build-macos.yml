@@ -45,6 +45,7 @@ jobs:
           set -euo pipefail
           set +x
           umask 077
+          source sygnature_ng/scripts/apple_network_retry.sh
           for name in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Required repository secret is missing: $name"
@@ -72,8 +73,8 @@ jobs:
           print(matches[0])
           ')"
           xcrun notarytool store-credentials Sygnature-CI --keychain "$keychain" \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" >/dev/null
-          xcrun notarytool history --keychain-profile Sygnature-CI --keychain "$keychain" >/dev/null
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --no-validate >/dev/null
+          apple_network_retry xcrun notarytool history --keychain-profile Sygnature-CI --keychain "$keychain" >/dev/null
           {
             echo "MACOS_SIGNING_IDENTITY=$identity"
             echo "MACOS_SIGNING_KEYCHAIN=$keychain"

@@ -4,6 +4,8 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
+# shellcheck source=apple_network_retry.sh
+source "$script_dir/apple_network_retry.sh"
 project_dir="$(cd -- "$script_dir/.." && pwd)"
 readonly project_dir
 
@@ -157,10 +159,10 @@ PY
 # Staple the app before packaging so the installed app also has an offline ticket.
 ditto -c -k --keepParent "$staging_dir/Sygnature.app" "$temporary_dir/app.zip"
 notarize "$temporary_dir/app.zip" "$temporary_dir/app-notarization.json"
-xcrun stapler staple "$staging_dir/Sygnature.app"
-xcrun stapler validate "$staging_dir/Sygnature.app"
+apple_network_retry xcrun stapler staple "$staging_dir/Sygnature.app"
+apple_network_retry xcrun stapler validate "$staging_dir/Sygnature.app"
 codesign --verify --deep --strict "$staging_dir/Sygnature.app"
-spctl --assess --type execute --verbose=2 "$staging_dir/Sygnature.app"
+apple_network_retry spctl --assess --type execute --verbose=2 "$staging_dir/Sygnature.app"
 ln -s /Applications "$staging_dir/Applications"
 
 hdiutil create \
@@ -174,18 +176,18 @@ hdiutil create \
 codesign "${signing_args[@]}" "$temporary_dmg"
 codesign --verify --strict "$temporary_dmg"
 notarize "$temporary_dmg" "$temporary_dir/dmg-notarization.json"
-xcrun stapler staple "$temporary_dmg"
-xcrun stapler validate "$temporary_dmg"
+apple_network_retry xcrun stapler staple "$temporary_dmg"
+apple_network_retry xcrun stapler validate "$temporary_dmg"
 codesign --verify --strict "$temporary_dmg"
-spctl --assess --type open --context context:primary-signature --verbose=2 "$temporary_dmg"
+apple_network_retry spctl --assess --type open --context context:primary-signature --verbose=2 "$temporary_dmg"
 
 # Verify the app actually packaged in the final image, not just the staging copy.
 mkdir "$temporary_dir/mounted"
 hdiutil attach -quiet -readonly -nobrowse -mountpoint "$temporary_dir/mounted" "$temporary_dmg"
 trap 'hdiutil detach -quiet "$temporary_dir/mounted" || true; rm -rf -- "$temporary_dir"' EXIT
 codesign --verify --deep --strict "$temporary_dir/mounted/Sygnature.app"
-xcrun stapler validate "$temporary_dir/mounted/Sygnature.app"
-spctl --assess --type execute --verbose=2 "$temporary_dir/mounted/Sygnature.app"
+apple_network_retry xcrun stapler validate "$temporary_dir/mounted/Sygnature.app"
+apple_network_retry spctl --assess --type execute --verbose=2 "$temporary_dir/mounted/Sygnature.app"
 hdiutil detach -quiet "$temporary_dir/mounted"
 trap 'rm -rf -- "$temporary_dir"' EXIT
 
