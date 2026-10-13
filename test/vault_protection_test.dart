@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/storage/secure_key_store.dart';
 import 'package:sygnature_ng/storage/vault_protection.dart';
@@ -62,13 +62,57 @@ void main() {
       );
     },
   );
+
+  test('distinguishes missing and invalid device vault keys', () async {
+    for (final (key, failure) in [
+      (null, VaultOpenFailure.keyMissing),
+      ('invalid-base64!', VaultOpenFailure.keyInvalid),
+      (base64UrlEncode(List.filled(31, 0)), VaultOpenFailure.keyInvalid),
+    ]) {
+      await expectLater(
+        loadDeviceVaultKeys(keyStore: _MemorySecureKeyStore(key)),
+        throwsA(failure),
+      );
+    }
+  });
+
+  test(
+    'distinguishes cancelled authentication from unavailable storage',
+    () async {
+      for (final (error, failure) in [
+        (
+          PlatformException(
+            code: 'Exception encountered',
+            message: 'Biometric authentication error [10]: cancelled',
+          ),
+          VaultOpenFailure.authenticationCancelled,
+        ),
+        (
+          StateError('temporarily unavailable'),
+          VaultOpenFailure.secureStorageUnavailable,
+        ),
+      ]) {
+        await expectLater(
+          loadDeviceVaultKeys(
+            keyStore: _MemorySecureKeyStore(null, error: error),
+          ),
+          throwsA(failure),
+        );
+      }
+    },
+  );
 }
 
-class _MemorySecureKeyStore(String value) implements SecureKeyStore {
+class _MemorySecureKeyStore(String? value, {this.error})
+    implements SecureKeyStore {
   String? _value = value;
+  final Object? error;
 
   @override
-  Future<String?> read(String key) async => _value;
+  Future<String?> read(String key) async {
+    if (error != null) throw error!;
+    return _value;
+  }
 
   @override
   Future<void> write(String key, String value) async => _value = value;

@@ -2,12 +2,25 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import 'hive_storage_initializer.dart';
 import 'secure_key_store.dart';
 
 enum VaultProtectionMode { system, device }
+
+enum VaultOpenFailure implements Exception {
+  authenticationCancelled,
+  secureStorageUnavailable,
+  keyMissing,
+  keyInvalid,
+  vaultCorrupt,
+  unsupportedSchema;
+
+  bool get canRetry =>
+      this == authenticationCancelled || this == secureStorageUnavailable;
+}
 
 class const VaultProtectionConfig({required final VaultProtectionMode mode}) {
   static const _modeKey = 'mode';
@@ -17,9 +30,7 @@ class const VaultProtectionConfig({required final VaultProtectionMode mode}) {
     final mode = VaultProtectionMode.values
         .where((value) => value.name == modeName)
         .firstOrNull;
-    if (mode == null) {
-      throw StateError('The vault protection mode is invalid.');
-    }
+    if (mode == null) throw VaultOpenFailure.vaultCorrupt;
     return VaultProtectionConfig(mode: mode);
   }
 
@@ -36,15 +47,21 @@ class VaultProtectionStore(final Box<dynamic> _box) {
   static const _configKey = 'vault_protection';
 
   static Future<VaultProtectionStore> open() async {
-    await HiveStorageInitializer.initialize(boxName: _boxName);
-    return VaultProtectionStore(await Hive.openBox<dynamic>(_boxName));
+    try {
+      await HiveStorageInitializer.initialize(boxName: _boxName);
+      return VaultProtectionStore(await Hive.openBox<dynamic>(_boxName));
+    } on HiveError {
+      throw VaultOpenFailure.vaultCorrupt;
+    } on Object {
+      throw VaultOpenFailure.secureStorageUnavailable;
+    }
   }
 
   VaultProtectionConfig? get config {
     final raw = _box.get(_configKey);
     if (raw == null) return null;
     if (raw is! Map) {
-      throw StateError('The vault protection settings are invalid.');
+      throw VaultOpenFailure.vaultCorrupt;
     }
     return VaultProtectionConfig.fromJson(raw);
   }
@@ -71,9 +88,11 @@ const _deviceVaultKeyName = 'sygnature_device_vault_key_v1';
 Future<VaultKeyMaterial> createDeviceVaultKeys({
   required SecureKeyStore keyStore,
 }) async {
-  await keyStore.write(
-    _deviceVaultKeyName,
-    base64UrlEncode(Hive.generateSecureKey()),
+  await _deviceKeyStoreOperation(
+    () => keyStore.write(
+      _deviceVaultKeyName,
+      base64UrlEncode(Hive.generateSecureKey()),
+    ),
   );
   // Verify the newly stored key through the authenticated read path. This is
   // deliberately called only when onboarding first persists the mnemonic.
@@ -83,22 +102,44 @@ Future<VaultKeyMaterial> createDeviceVaultKeys({
 Future<VaultKeyMaterial> loadDeviceVaultKeys({
   required SecureKeyStore keyStore,
 }) async {
-  final encoded = await keyStore.read(_deviceVaultKeyName);
+  final encoded = await _deviceKeyStoreOperation(
+    () => keyStore.read(_deviceVaultKeyName),
+  );
   if (encoded == null) {
-    throw StateError('The device vault encryption key is unavailable.');
+    throw VaultOpenFailure.keyMissing;
   }
-  return _expandRootKey(base64Url.decode(encoded));
+  try {
+    return await _expandRootKey(base64Url.decode(encoded));
+  } on VaultOpenFailure {
+    rethrow;
+  } on Object {
+    throw VaultOpenFailure.keyInvalid;
+  }
 }
 
 Future<VaultKeyMaterial> _expandRootKey(Uint8List rootKey) async {
+  if (rootKey.length != 32) throw VaultOpenFailure.keyInvalid;
   final secretKey = SecretKeyData(rootKey, overwriteWhenDestroyed: true);
   try {
-    if (rootKey.length != 32) {
-      throw StateError('Invalid device vault key length.');
-    }
     return await _expandVaultKeyMaterial(secretKey);
   } finally {
     secretKey.destroy();
+  }
+}
+
+Future<T> _deviceKeyStoreOperation<T>(Future<T> Function() operation) async {
+  try {
+    return await operation();
+  } on PlatformException catch (error) {
+    final cancelled = RegExp(r'Biometric authentication error \[(5|10|13)\]')
+        .hasMatch(error.message ?? '');
+    throw cancelled
+        ? VaultOpenFailure.authenticationCancelled
+        : VaultOpenFailure.secureStorageUnavailable;
+  } on VaultOpenFailure {
+    rethrow;
+  } on Object {
+    throw VaultOpenFailure.secureStorageUnavailable;
   }
 }
 

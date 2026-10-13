@@ -162,13 +162,14 @@ class _SygnatureAppState extends State<SygnatureApp> {
           controller = await _createDeferredDeviceController(store, keyStore);
         }
         _controller = Future.value(controller);
-      } catch (error, stackTrace) {
+      } on VaultOpenFailure catch (error) {
+        AppLogger.warn('[VAULT] Device vault failed (${error.name}).');
+        rethrow;
+      } on Object catch (error) {
         AppLogger.warn(
-          '[VAULT] Device unlock failed',
-          error: error,
-          stackTrace: stackTrace,
+          '[VAULT] Device secure storage failed (${error.runtimeType}).',
         );
-        throw const _DeviceVaultUnlockFailure();
+        throw VaultOpenFailure.secureStorageUnavailable;
       }
       return store;
     }
@@ -446,7 +447,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
     _ => 'The invitation is invalid, expired or belongs to another wallet.',
   };
 
-  void _retryDeviceVaultUnlock() {
+  void _retryVaultOpen() {
     setState(() {
       _protectionStore = _initializeVault();
     });
@@ -473,10 +474,11 @@ class _SygnatureAppState extends State<SygnatureApp> {
       future: protectionStore,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          final error = snapshot.error;
           return _StartupError(
-            error: snapshot.error,
-            onRetry: snapshot.error is _DeviceVaultUnlockFailure
-                ? _retryDeviceVaultUnlock
+            error: error,
+            onRetry: error is VaultOpenFailure && error.canRetry
+                ? _retryVaultOpen
                 : null,
           );
         }
@@ -547,6 +549,33 @@ class _StartupError extends StatelessWidget {
   final Object? error;
   final VoidCallback? onRetry;
 
+  String get title => switch (error) {
+    VaultOpenFailure.keyMissing ||
+    VaultOpenFailure.keyInvalid ||
+    VaultOpenFailure.vaultCorrupt ||
+    VaultOpenFailure.unsupportedSchema => 'Vault recovery required',
+    VaultOpenFailure.authenticationCancelled => 'Unlock cancelled',
+    VaultOpenFailure _ => 'Vault unavailable',
+    _ => 'Unable to open vault',
+  };
+
+  String get message => switch (error) {
+    VaultOpenFailure.authenticationCancelled =>
+      'Device authentication was cancelled.',
+    VaultOpenFailure.secureStorageUnavailable =>
+      'Secure storage is temporarily unavailable.',
+    VaultOpenFailure.keyMissing ||
+    VaultOpenFailure.keyInvalid ||
+    VaultOpenFailure.vaultCorrupt =>
+      'The encrypted vault cannot be opened. Keep the application data intact '
+          'until you can restore it from backup.',
+    VaultOpenFailure.unsupportedSchema =>
+      'This vault was created with an unsupported storage version.',
+    _ =>
+      'Check secure storage support on this device and restart the '
+          'application.',
+  };
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: Center(
@@ -566,18 +595,9 @@ class _StartupError extends StatelessWidget {
                     color: AppColors.greenDark,
                   ),
                   const SizedBox(height: 18),
-                  Text(
-                    onRetry == null ? 'Unable to open vault' : 'Unlock failed',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
+                  Text(title, style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 10),
-                  Text(
-                    onRetry == null
-                        ? 'Check secure storage support on this device and '
-                              'restart the application.'
-                        : 'Device authentication was cancelled or failed.',
-                    textAlign: TextAlign.center,
-                  ),
+                  Text(message, textAlign: TextAlign.center),
                   if (onRetry case final retry?) ...[
                     const SizedBox(height: 20),
                     FilledButton.icon(
@@ -609,8 +629,6 @@ class _StartupError extends StatelessWidget {
     ),
   );
 }
-
-class const _DeviceVaultUnlockFailure() implements Exception;
 
 final class _DeferredDeviceVault(this._protectionStore, this._keyStore) {
   final VaultProtectionStore _protectionStore;

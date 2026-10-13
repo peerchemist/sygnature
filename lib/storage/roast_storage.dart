@@ -48,7 +48,6 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   static const _storage = EncryptedHiveBox(
     name: 'sygnature_roast_private_v1',
     cipherKeyName: 'sygnature_roast_hive_key_v1',
-    invalidKeyMessage: 'Invalid encrypted ROAST storage key length.',
   );
   static const _signingOperationsKey = 'wallet-signing-operations-v1';
   static const _serverStateStorageVersion = 1;

@@ -24,11 +24,13 @@ void main() {
   late Directory directory;
   late Map<String, String> keys;
   late List<MethodCall> storageCalls;
+  PlatformException? deviceStorageError;
 
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('sygnature-startup-');
     keys = {'notifications.desktop_enabled': 'false'};
     storageCalls = [];
+    deviceStorageError = null;
     binding.defaultBinaryMessenger.setMockMethodCallHandler(
       pathChannel,
       (_) async => directory.path,
@@ -55,6 +57,10 @@ void main() {
       final storedKey = authenticated ? 'device:$key' : key;
       switch (call.method) {
         case 'read':
+          if (authenticated) {
+            final error = deviceStorageError;
+            if (error != null) throw error;
+          }
           return keys[storedKey];
         case 'write':
           keys[storedKey] = args['value'] as String;
@@ -76,10 +82,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  Future<WalletController> startApp(
-    WidgetTester tester,
-    Finder destination,
-  ) async {
+  Future<void> pumpUntil(WidgetTester tester, Finder destination) async {
     await tester.runAsync(() async {
       await tester.pumpWidget(const SygnatureApp());
       for (var attempt = 0; attempt < 100; attempt++) {
@@ -89,6 +92,14 @@ void main() {
       }
     });
     expect(destination, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  }
+
+  Future<WalletController> startApp(
+    WidgetTester tester,
+    Finder destination,
+  ) async {
+    await pumpUntil(tester, destination);
     final controller = switch (tester.widget(destination)) {
       OnboardingScreen(:final controller) => controller,
       WalletHome(:final controller) => controller,
@@ -206,6 +217,44 @@ void main() {
     );
     expect(Hive.isBoxOpen('sygnature_private_v1'), isTrue);
     expect(find.text('Protect your vault'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Android cancellation remains retryable', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.runAsync(() async {
+      final store = await VaultProtectionStore.open();
+      await store.configureDevice();
+    });
+    deviceStorageError = PlatformException(
+      code: 'Exception encountered',
+      message: 'Biometric authentication error [10]: cancelled',
+    );
+
+    await pumpUntil(tester, find.text('Unlock cancelled'));
+
+    expect(find.text('Device authentication was cancelled.'), findsOneWidget);
+    expect(find.byKey(const Key('device-vault-retry')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Android missing key requires recovery instead of retry', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.runAsync(() async {
+      final store = await VaultProtectionStore.open();
+      await store.configureDevice();
+    });
+
+    await pumpUntil(tester, find.text('Vault recovery required'));
+
+    expect(find.textContaining('vault cannot be opened'), findsOneWidget);
+    expect(find.byKey(const Key('device-vault-retry')), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     debugDefaultTargetPlatformOverride = null;
   });

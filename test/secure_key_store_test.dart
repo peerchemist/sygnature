@@ -100,6 +100,17 @@ void main() {
     expect(await restored.read('iroh-key'), 'iroh-secret');
     expect(backingStore.readKeys, ['sygnature_secure_keyring_v1']);
   });
+
+  test('reports an invalid consolidated keyring format', () async {
+    final backingStore = _MemorySecureKeyStore({
+      'sygnature_secure_keyring_v1': 'not-json',
+    });
+
+    await expectLater(
+      KeyringSecureKeyStore(backingStore).read('wallet-key'),
+      throwsFormatException,
+    );
+  });
 }
 
 class _MemorySecureKeyStore(final Map<String, String> values)

@@ -5,12 +5,12 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import 'hive_storage_initializer.dart';
 import 'secure_key_store.dart';
+import 'vault_protection.dart';
 
 /// Opens encrypted storage using either an explicit key or system secure storage.
 class const EncryptedHiveBox({
   required final String name,
   required final String cipherKeyName,
-  required final String invalidKeyMessage,
 }) {
   Future<Box<dynamic>> open({
     SecureKeyStore? keyStore,
@@ -30,25 +30,65 @@ class const EncryptedHiveBox({
 
   Future<Box<dynamic>?> openExisting({required SecureKeyStore keyStore}) async {
     if (!await exists()) return null;
-    final encodedKey = await keyStore.read(cipherKeyName);
+    final encodedKey = await _keyStoreOperation(
+      () => keyStore.read(cipherKeyName),
+    );
     if (encodedKey == null) return null;
-    return _open(base64Url.decode(encodedKey));
+    return _open(_decodeKey(encodedKey));
   }
 
   Future<Uint8List> _loadOrCreateKey(SecureKeyStore keyStore) async {
-    var encodedKey = await keyStore.read(cipherKeyName);
+    var encodedKey = await _keyStoreOperation(
+      () => keyStore.read(cipherKeyName),
+    );
     if (encodedKey == null) {
       if (await Hive.boxExists(name)) {
-        throw StateError('The existing encrypted storage key is unavailable.');
+        throw VaultOpenFailure.keyMissing;
       }
       encodedKey = base64UrlEncode(Hive.generateSecureKey());
-      await keyStore.write(cipherKeyName, encodedKey);
+      await _keyStoreOperation(
+        () => keyStore.write(cipherKeyName, encodedKey!),
+      );
     }
-    return base64Url.decode(encodedKey);
+    return _decodeKey(encodedKey);
   }
 
-  Future<Box<dynamic>> _open(Uint8List key) {
-    if (key.length != 32) throw StateError(invalidKeyMessage);
-    return Hive.openBox<dynamic>(name, encryptionCipher: HiveAesCipher(key));
+  Future<T> _keyStoreOperation<T>(Future<T> Function() operation) async {
+    try {
+      return await operation();
+    } on FormatException {
+      throw VaultOpenFailure.keyInvalid;
+    } on VaultOpenFailure {
+      rethrow;
+    } on Object {
+      throw VaultOpenFailure.secureStorageUnavailable;
+    }
+  }
+
+  Uint8List _decodeKey(String encoded) {
+    late final Uint8List key;
+    try {
+      key = base64Url.decode(encoded);
+    } on Object {
+      throw VaultOpenFailure.keyInvalid;
+    }
+    if (key.length != 32) throw VaultOpenFailure.keyInvalid;
+    return key;
+  }
+
+  Future<Box<dynamic>> _open(Uint8List key) async {
+    if (key.length != 32) {
+      throw VaultOpenFailure.keyInvalid;
+    }
+    try {
+      return await Hive.openBox<dynamic>(
+        name,
+        encryptionCipher: HiveAesCipher(key),
+      );
+    } on HiveError {
+      throw VaultOpenFailure.vaultCorrupt;
+    } on Object {
+      throw VaultOpenFailure.secureStorageUnavailable;
+    }
   }
 }

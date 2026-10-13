@@ -5,6 +5,7 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import '../models/wallet_vault.dart';
 import 'encrypted_hive_box.dart';
 import 'secure_key_store.dart';
+import 'vault_protection.dart';
 
 export 'secure_key_store.dart';
 
@@ -49,7 +50,6 @@ class HiveWalletRepository._(final Box<dynamic> _box)
   static const _storage = EncryptedHiveBox(
     name: 'sygnature_private_v1',
     cipherKeyName: 'sygnature_hive_key_v1',
-    invalidKeyMessage: 'Invalid encrypted vault key length.',
   );
   static const _vaultKey = 'wallet_vault';
 
@@ -75,9 +75,18 @@ class HiveWalletRepository._(final Box<dynamic> _box)
     final raw = _box.get(_vaultKey);
     if (raw == null) return null;
     if (raw is! Map) {
-      throw StateError('Wallet vault has an invalid format.');
+      throw VaultOpenFailure.vaultCorrupt;
     }
-    return WalletVault.fromJson(raw);
+    if (raw['schemaVersion'] != WalletVault.schemaVersion) {
+      throw VaultOpenFailure.unsupportedSchema;
+    }
+    try {
+      return WalletVault.fromJson(raw);
+    } on VaultOpenFailure {
+      rethrow;
+    } on Object {
+      throw VaultOpenFailure.vaultCorrupt;
+    }
   }
 
   @override

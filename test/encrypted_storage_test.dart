@@ -8,6 +8,7 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/storage/hive_storage_initializer.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
+import 'package:sygnature_ng/storage/vault_protection.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 const _walletBox = 'sygnature_private_v1';
@@ -159,6 +160,33 @@ void main() {
     },
   );
 
+  test('distinguishes unsupported and corrupt wallet records', () async {
+    final wallet = await HiveWalletRepository.openWithCipherKey(Uint8List(32));
+    final box = Hive.box<dynamic>(_walletBox);
+
+    await box.put('wallet_vault', {'schemaVersion': 2});
+    await expectLater(
+      wallet.load(),
+      throwsA(VaultOpenFailure.unsupportedSchema),
+    );
+
+    await box.put('wallet_vault', {'schemaVersion': WalletVault.schemaVersion});
+    await expectLater(wallet.load(), throwsA(VaultOpenFailure.vaultCorrupt));
+  });
+
+  test('reports encrypted data opened with the wrong key as corrupt', () async {
+    final wallet = await HiveWalletRepository.openWithCipherKey(Uint8List(32));
+    await wallet.save(_vault);
+    await Hive.close();
+
+    await expectLater(
+      HiveWalletRepository.openWithCipherKey(
+        Uint8List.fromList(List.filled(32, 1)),
+      ),
+      throwsA(VaultOpenFailure.vaultCorrupt),
+    );
+  });
+
   for (final roast in [false, true]) {
     final name = roast ? 'ROAST' : 'wallet';
     final keyName = roast ? _roastKeyName : _walletKeyName;
@@ -176,7 +204,7 @@ void main() {
       final savedKey = keys.values.remove(keyName)!;
       final writes = keys.writes;
 
-      await expectLater(open(keys), throwsA(isA<StateError>()));
+      await expectLater(open(keys), throwsA(VaultOpenFailure.keyMissing));
       expect(Hive.isBoxOpen(boxName), isFalse);
       expect(await file.readAsBytes(), before);
       expect(keys.writes, writes);
@@ -187,37 +215,25 @@ void main() {
       expect(Hive.isBoxOpen(boxName), isTrue);
     });
 
-    test('rejects malformed $name keys without replacing them', () async {
-      final keys = _MemorySecureKeyStore()..values[keyName] = 'invalid-base64!';
-      await expectLater(open(keys), throwsA(isA<FormatException>()));
-      expect(keys.values[keyName], 'invalid-base64!');
-      expect(keys.writes, 0);
-      expect(Hive.isBoxOpen(boxName), isFalse);
-    });
-
-    test('rejects $name keys with an invalid length', () async {
-      final encoded = base64UrlEncode(Uint8List(31));
-      final keys = _MemorySecureKeyStore()..values[keyName] = encoded;
-      await expectLater(
-        open(keys),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            roast
-                ? 'Invalid encrypted ROAST storage key length.'
-                : 'Invalid encrypted vault key length.',
-          ),
-        ),
-      );
-      expect(keys.values[keyName], encoded);
-      expect(keys.writes, 0);
-      expect(Hive.isBoxOpen(boxName), isFalse);
-    });
+    for (final (description, encoded) in [
+      ('malformed', 'invalid-base64!'),
+      ('wrong-length', base64UrlEncode(Uint8List(31))),
+    ]) {
+      test('rejects $description $name keys without replacing them', () async {
+        final keys = _MemorySecureKeyStore()..values[keyName] = encoded;
+        await expectLater(open(keys), throwsA(VaultOpenFailure.keyInvalid));
+        expect(keys.values[keyName], encoded);
+        expect(keys.writes, 0);
+        expect(Hive.isBoxOpen(boxName), isFalse);
+      });
+    }
 
     test('does not create a $name box if saving its key fails', () async {
       final keys = _MemorySecureKeyStore()..failWrites = true;
-      await expectLater(open(keys), throwsA(isA<StateError>()));
+      await expectLater(
+        open(keys),
+        throwsA(VaultOpenFailure.secureStorageUnavailable),
+      );
       expect(keys.values, isEmpty);
       expect(await Hive.boxExists(boxName), isFalse);
     });

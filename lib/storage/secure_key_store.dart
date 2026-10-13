@@ -117,7 +117,7 @@ class KeyringSecureKeyStore(final SecureKeyStore _storage)
       }
       return _values = decoded.cast<String, String>();
     } on Object {
-      throw StateError('The secure keyring has an invalid format.');
+      throw const FormatException('Invalid secure keyring format.');
     }
   }
 
