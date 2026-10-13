@@ -15,9 +15,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/build_macos [--arch arm64|x86_64] [--output PATH] [FLUTTER_BUILD_OPTIONS]
 
-Builds the macOS release app and packages it in a compressed DMG for testers.
-Uses ad-hoc signing; no Apple signing certificate or provisioning profile is
-required. Testers may need to allow the app in Privacy & Security on first launch.
+Builds, Developer ID signs, and notarizes a compressed DMG for testers.
+Requires MACOS_SIGNING_IDENTITY, APPLE_TEAM_ID, and NOTARYTOOL_PROFILE.
+Optionally set MACOS_SIGNING_KEYCHAIN to an isolated signing Keychain.
 Additional options are passed to `flutter build macos`, for example:
 
   scripts/build_macos --no-pub --build-name 0.9.1 --build-number 3
@@ -75,7 +75,14 @@ if [[ -z "$output_path" || "$output_path" != *.dmg ]]; then
   exit 2
 fi
 
-for tool in flutter xcodebuild codesign hdiutil ditto; do
+for variable in MACOS_SIGNING_IDENTITY APPLE_TEAM_ID NOTARYTOOL_PROFILE; do
+  if [[ -z "${!variable:-}" ]]; then
+    echo "error: required signing configuration missing: $variable" >&2
+    exit 1
+  fi
+done
+
+for tool in flutter xcodebuild codesign hdiutil ditto xcrun python3; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "error: required command not found: $tool" >&2
     exit 1
@@ -87,8 +94,7 @@ if [[ "$output_path" != /* ]]; then
   output_path="$project_dir/$output_path"
 fi
 
-# Use ad-hoc signing while preserving the app's sandbox and network entitlements.
-# Hardened runtime library validation rejects frameworks without a Team ID.
+# Compile without signing, then sign each component with the Developer ID below.
 # Bash 3.2 treats an empty array as unset under `set -u`.
 flutter build macos --release --config-only ${flutter_args[@]+"${flutter_args[@]}"}
 xcodebuild \
@@ -98,11 +104,13 @@ xcodebuild \
   -configuration Release \
   -derivedDataPath "$project_dir/build/macos" \
   -destination "generic/platform=macOS" \
-  CODE_SIGN_IDENTITY=- \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGN_IDENTITY= \
   CODE_SIGN_STYLE=Manual \
   DEVELOPMENT_TEAM= \
   PROVISIONING_PROFILE_SPECIFIER= \
-  ENABLE_HARDENED_RUNTIME=NO \
+  ENABLE_HARDENED_RUNTIME=YES \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   ONLY_ACTIVE_ARCH=YES \
   ARCHS="$architecture"
 
@@ -120,17 +128,39 @@ readonly staging_dir="$temporary_dir/dmg"
 readonly temporary_dmg="$temporary_dir/Sygnature-macOS.dmg"
 mkdir -p -- "$staging_dir" "$(dirname -- "$output_path")"
 ditto "$app_path" "$staging_dir/Sygnature.app"
-# Xcode can preserve a development signature on cached plugin frameworks even
-# when the runner is built ad hoc. Re-sign the complete staged bundle without
-# hardened runtime, since ad-hoc signatures cannot satisfy its Team ID checks.
-codesign \
-  --force \
-  --deep \
-  --sign - \
-  --options 0 \
-  --entitlements "$project_dir/macos/Runner/Release.entitlements" \
-  "$staging_dir/Sygnature.app"
+python3 "$script_dir/sign_macos.py" "$staging_dir/Sygnature.app" \
+  "$project_dir/macos/Runner/Release.entitlements"
+
+notary_args=(--keychain-profile "$NOTARYTOOL_PROFILE")
+signing_args=(--sign "$MACOS_SIGNING_IDENTITY" --timestamp)
+if [[ -n "${MACOS_SIGNING_KEYCHAIN:-}" ]]; then
+  notary_args+=(--keychain "$MACOS_SIGNING_KEYCHAIN")
+  signing_args+=(--keychain "$MACOS_SIGNING_KEYCHAIN")
+fi
+
+notarize() {
+  local artifact="$1" result="$2"
+  # Parse status even when submit exits successfully: only Accepted may ship.
+  xcrun notarytool submit "$artifact" "${notary_args[@]}" --wait \
+    --timeout 20m --output-format json > "$result"
+  python3 - "$result" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as stream:
+    result = json.load(stream)
+print("Notarization:", result.get("id"), result.get("status"))
+if result.get("status") != "Accepted":
+    raise SystemExit("Apple did not accept the submission; no DMG will be published.")
+PY
+}
+
+# Staple the app before packaging so the installed app also has an offline ticket.
+ditto -c -k --keepParent "$staging_dir/Sygnature.app" "$temporary_dir/app.zip"
+notarize "$temporary_dir/app.zip" "$temporary_dir/app-notarization.json"
+xcrun stapler staple "$staging_dir/Sygnature.app"
+xcrun stapler validate "$staging_dir/Sygnature.app"
 codesign --verify --deep --strict "$staging_dir/Sygnature.app"
+spctl --assess --type execute --verbose=2 "$staging_dir/Sygnature.app"
 ln -s /Applications "$staging_dir/Applications"
 
 hdiutil create \
@@ -141,8 +171,26 @@ hdiutil create \
   -format UDZO \
   "$temporary_dmg"
 
+codesign "${signing_args[@]}" "$temporary_dmg"
+codesign --verify --strict "$temporary_dmg"
+notarize "$temporary_dmg" "$temporary_dir/dmg-notarization.json"
+xcrun stapler staple "$temporary_dmg"
+xcrun stapler validate "$temporary_dmg"
+codesign --verify --strict "$temporary_dmg"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$temporary_dmg"
+
+# Verify the app actually packaged in the final image, not just the staging copy.
+mkdir "$temporary_dir/mounted"
+hdiutil attach -quiet -readonly -nobrowse -mountpoint "$temporary_dir/mounted" "$temporary_dmg"
+trap 'hdiutil detach -quiet "$temporary_dir/mounted" || true; rm -rf -- "$temporary_dir"' EXIT
+codesign --verify --deep --strict "$temporary_dir/mounted/Sygnature.app"
+xcrun stapler validate "$temporary_dir/mounted/Sygnature.app"
+spctl --assess --type execute --verbose=2 "$temporary_dir/mounted/Sygnature.app"
+hdiutil detach -quiet "$temporary_dir/mounted"
+trap 'rm -rf -- "$temporary_dir"' EXIT
+
 mv -f -- "$temporary_dmg" "$output_path"
 
 echo "macOS DMG: $output_path"
 echo "Architecture: $architecture"
-echo "Note: this ad-hoc signed build is not notarized. If blocked on first launch, use System Settings > Privacy & Security > Open Anyway."
+echo "Developer ID signature, hardened runtime, notarization, stapling, and Gatekeeper checks passed."

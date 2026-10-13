@@ -6,7 +6,7 @@ these builds are defined in [GitHub Actions](../.github/workflows).
 The Linux, Windows and macOS build workflows run for every pushed Git tag and
 can also be started manually. The Android workflow is temporarily manual-only.
 Together they upload an Android APK, Linux Flatpak, Windows x64 bundle and macOS
-ARM64 DMG as workflow artifacts. Manual triggers are useful for testing a
+ARM64 and Intel DMGs as workflow artifacts. Manual triggers are useful for testing a
 release build or warming its dependency caches before creating a tag.
 
 Tag builds also create a GitHub Release and attach the Flatpak, DMG and Windows
@@ -106,28 +106,54 @@ scripts/build_windows stop
 
 ## macOS DMG
 
-On macOS with Xcode and Flutter 3.47.5 installed, run:
+The macOS workflow requires five repository secrets: `APPLE_CERTIFICATE_BASE64`
+(the base64-encoded Developer ID Application `.p12`, including its private key),
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD` (an Apple ID
+app-specific password), and `APPLE_TEAM_ID`. Create the certificate in Xcode's
+Accounts settings and export it from Keychain Access. Never commit credentials.
+
+Both architecture jobs import the identity into an isolated temporary Keychain,
+validate notarization credentials, and build using the existing Flutter/Xcode
+process. The script signs native code and enclosing bundles from the inside out,
+with secure timestamps and hardened runtime, preserving the main app's sandbox
+and network entitlements. It notarizes and staples the app before creating the
+DMG, then signs, notarizes, and staples the DMG. Signature, stapling, and Gatekeeper
+checks must pass before artifact upload. A separate release job waits for both
+architecture jobs to succeed before publishing the macOS assets. Other platform
+workflows can still independently create a shared GitHub Release.
+
+For a local build, save notarization credentials using the secure interactive
+prompt (substitute your Apple Developer account email):
 
 ```sh
+xcrun notarytool store-credentials Sygnature-GitHub-Actions \
+  --apple-id YOUR_APPLE_ID --team-id V274DD3UKN
+```
+
+Then select your Developer ID identity from `security find-identity -v -p
+codesigning` and run:
+
+```sh
+export MACOS_SIGNING_IDENTITY='Developer ID Application: Alchemy d.o.o. (V274DD3UKN)'
+export APPLE_TEAM_ID=V274DD3UKN
+export NOTARYTOOL_PROFILE=Sygnature-GitHub-Actions
 flutter pub get
 scripts/build_macos --no-pub
 ```
 
-The result is `build/Sygnature-macOS.dmg`, containing the ARM64 `Sygnature.app`
-and an Applications shortcut. Pass `--arch x86_64` to build for an Intel Mac;
-use `--output` to give that DMG a distinct name. Both architectures target
-macOS 12.0 or newer. Xcode ad-hoc signs the app with its sandbox and network
-entitlements; the script then re-signs the complete staged bundle with one
-ad-hoc identity and verifies it before packaging. No Apple signing certificate
-or provisioning profile is required, including on CI runners.
-The testing build disables hardened runtime so macOS can load its ad-hoc signed
-frameworks, which have no Apple Team ID. The app sandbox remains enabled.
+The result is `build/Sygnature-macOS.dmg`, containing `Sygnature.app` and an
+Applications shortcut. Both architectures target macOS 12.0 or newer. Use
+`--arch x86_64` for Intel, and `--output PATH.dmg` to choose another output path.
+Additional options, such as `--build-name` and `--build-number`, go to Flutter.
+Missing signing credentials or rejected notarization fail the build; there is
+no ad-hoc distribution fallback.
 
-The app is not notarized. Testers should drag it into Applications and try to
-open it. If macOS blocks it, use **System Settings > Privacy & Security > Open
-Anyway**. For distribution without this manual approval, use a Developer ID
-signing and notarization workflow.
+Manual runs upload workflow artifacts. Tags also publish release assets; tags
+containing a hyphen create prereleases. GitHub Release assets inherit repository
+visibility, so a prerelease on a public repository is still publicly accessible.
+For a private beta on a public repository, use a manual run and control access
+to the downloaded DMGs separately.
 
-Use `--output PATH.dmg` to choose another output path. The GitHub Actions
-workflow builds and publishes separate `arm64` and `x86_64` DMGs. Additional
-arguments, such as `--build-name` and `--build-number`, are passed to Flutter.
+Automated signature and Gatekeeper checks do not verify installation or launch.
+Before sending a beta to testers, download the DMG through a browser on a clean
+Mac, install it through Finder, and launch it normally with Gatekeeper enabled.
