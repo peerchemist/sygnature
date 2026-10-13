@@ -99,13 +99,13 @@ class const RoastSetupPanel({
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: AppColors.lime,
+                    color: AppColors.of(context).lime,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(
+                  child: Icon(
                     Icons.hub_outlined,
-                    color: AppColors.greenDark,
+                    color: AppColors.of(context).greenDark,
                     size: 22,
                   ),
                 ),
@@ -123,8 +123,8 @@ class const RoastSetupPanel({
                       const SizedBox(height: 3),
                       Text(
                         _statusText(setup, enrolledSigners),
-                        style: const TextStyle(
-                          color: AppColors.inkMuted,
+                        style: TextStyle(
+                          color: AppColors.of(context).inkMuted,
                           fontSize: 12,
                           height: 1.35,
                         ),
@@ -161,8 +161,8 @@ class const RoastSetupPanel({
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: AppColors.canvas,
-                  border: Border.all(color: AppColors.line),
+                  color: AppColors.of(context).canvas,
+                  border: Border.all(color: AppColors.of(context).line),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Column(
@@ -172,10 +172,10 @@ class const RoastSetupPanel({
                       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                       child: Row(
                         children: [
-                          const Text(
+                          Text(
                             'SIGNERS',
                             style: TextStyle(
-                              color: AppColors.inkMuted,
+                              color: AppColors.of(context).inkMuted,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.9,
@@ -186,8 +186,8 @@ class const RoastSetupPanel({
                             message: setup.groupFingerprintHex ?? 'Pending',
                             child: Text(
                               'GROUP  ${_short(setup.groupFingerprintHex ?? 'pending')}',
-                              style: const TextStyle(
-                                color: AppColors.inkMuted,
+                              style: TextStyle(
+                                color: AppColors.of(context).inkMuted,
                                 fontFamily: 'monospace',
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
@@ -228,15 +228,15 @@ class const RoastSetupPanel({
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.canvas,
-                  border: Border.all(color: AppColors.line),
+                  color: AppColors.of(context).canvas,
+                  border: Border.all(color: AppColors.of(context).line),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.construction_rounded,
-                      color: AppColors.warningDark,
+                      color: AppColors.of(context).warningDark,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -244,8 +244,8 @@ class const RoastSetupPanel({
                         setup.role == RoastSetupRole.host
                             ? 'Complete the signer roster to start the swarm.'
                             : 'Import your participant-bound invite to join the swarm.',
-                        style: const TextStyle(
-                          color: AppColors.inkMuted,
+                        style: TextStyle(
+                          color: AppColors.of(context).inkMuted,
                           fontSize: 12,
                           height: 1.4,
                         ),
@@ -262,18 +262,18 @@ class const RoastSetupPanel({
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.dangerSurface,
+                  color: AppColors.of(context).dangerSurface,
                   border: Border.all(
-                    color: AppColors.danger.withValues(alpha: 0.3),
+                    color: AppColors.of(context).danger.withValues(alpha: 0.3),
                   ),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.error_outline_rounded,
-                      color: AppColors.danger,
+                      color: AppColors.of(context).danger,
                       size: 20,
                     ),
                     const SizedBox(width: 10),
@@ -281,10 +281,10 @@ class const RoastSetupPanel({
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'ACTION REQUIRED',
                             style: TextStyle(
-                              color: AppColors.danger,
+                              color: AppColors.of(context).danger,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.8,
@@ -293,8 +293,8 @@ class const RoastSetupPanel({
                           const SizedBox(height: 3),
                           Text(
                             errorMessage,
-                            style: const TextStyle(
-                              color: AppColors.ink,
+                            style: TextStyle(
+                              color: AppColors.of(context).ink,
                               fontSize: 12,
                               height: 1.4,
                             ),
@@ -640,25 +640,25 @@ class _CoordinatorConnectionStatusState
         'Switching coordinator',
         'The signer is stopped while the approved selection is saved.',
         Icons.sync_rounded,
-        AppColors.warningDark,
+        AppColors.of(context).warningDark,
       ),
       RoastCoordinatorLocalState.connected => (
         'Signer connected',
         'This device is connected to its saved coordinator.',
         Icons.link_rounded,
-        AppColors.success,
+        AppColors.of(context).success,
       ),
       RoastCoordinatorLocalState.stopped => (
         'Signer stopped',
         'This device is not currently connected to its saved coordinator.',
         Icons.link_off_rounded,
-        AppColors.inkMuted,
+        AppColors.of(context).inkMuted,
       ),
       RoastCoordinatorLocalState.recoveryRequired => (
         'Coordinator recovery required',
         'The signer is stopped. Use the durable selection shown below.',
         Icons.warning_amber_rounded,
-        AppColors.danger,
+        AppColors.of(context).danger,
       ),
     };
     return Container(
@@ -686,8 +686,8 @@ class _CoordinatorConnectionStatusState
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  style: const TextStyle(
-                    color: AppColors.inkMuted,
+                  style: TextStyle(
+                    color: AppColors.of(context).inkMuted,
                     fontSize: 12,
                   ),
                 ),
@@ -695,8 +695,8 @@ class _CoordinatorConnectionStatusState
                   const SizedBox(height: 5),
                   Text(
                     'Coordinator ID ${RoastSetupPanel._short(widget.endpointId!)}',
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
+                    style: TextStyle(
+                      color: AppColors.of(context).inkMuted,
                       fontFamily: 'monospace',
                       fontSize: 10,
                     ),
@@ -726,25 +726,29 @@ class const RoastDkgRequestCard({
     final busy = controller.roastOperationInProgress(setup.id);
     return Card(
       key: const Key('roast-dkg-request-card'),
-      color: AppColors.warning,
+      color: AppColors.of(context).warning,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: AppColors.warningDark),
+        side: BorderSide(color: AppColors.of(context).warningDark),
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.key_rounded, color: AppColors.warningDark, size: 22),
+                Icon(
+                  Icons.key_rounded,
+                  color: AppColors.of(context).warningDark,
+                  size: 22,
+                ),
                 SizedBox(width: 9),
                 Expanded(
                   child: Text(
                     'DKG REQUEST · ACTION REQUIRED',
                     style: TextStyle(
-                      color: AppColors.warningDark,
+                      color: AppColors.of(context).warningDark,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.7,
@@ -764,8 +768,8 @@ class const RoastDkgRequestCard({
               '${setup.pendingDkgThreshold ?? 0} required · creator '
               '${RoastSetupPanel._creatorLabel(setup)} · expires '
               '${setup.pendingDkgExpiry?.toLocal() ?? 'unknown'}',
-              style: const TextStyle(
-                color: AppColors.ink,
+              style: TextStyle(
+                color: AppColors.of(context).ink,
                 fontFamily: 'monospace',
                 fontSize: 11,
                 height: 1.4,
@@ -825,7 +829,9 @@ class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
     if (_dismissed) return const SizedBox.shrink();
 
     final complete = widget.joined >= widget.total;
-    final color = complete ? AppColors.success : AppColors.forest;
+    final color = complete
+        ? AppColors.of(context).success
+        : AppColors.of(context).forest;
     final progress = widget.total == 0
         ? 0.0
         : (widget.joined / widget.total).clamp(0.0, 1.0).toDouble();
@@ -839,7 +845,9 @@ class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
           width: double.infinity,
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: complete ? AppColors.successSurface : AppColors.surface,
+            color: complete
+                ? AppColors.of(context).successSurface
+                : AppColors.of(context).surface,
             border: Border.all(color: color.withValues(alpha: 0.28)),
             borderRadius: BorderRadius.circular(8),
           ),
@@ -854,11 +862,11 @@ class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
                     color: color,
                   ),
                   const SizedBox(width: 8),
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'SIGNER ENROLLMENT',
                       style: TextStyle(
-                        color: AppColors.inkMuted,
+                        color: AppColors.of(context).inkMuted,
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.8,
@@ -889,7 +897,10 @@ class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
                 complete
                     ? 'All signers have joined the room.'
                     : '${widget.joined} of ${widget.total} signers have joined the room.',
-                style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                style: TextStyle(
+                  color: AppColors.of(context).inkMuted,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -909,7 +920,7 @@ class const _DismissButton({
     onPressed: onPressed,
     icon: const Icon(Icons.close_rounded),
     iconSize: 16,
-    color: AppColors.inkMuted,
+    color: AppColors.of(context).inkMuted,
     padding: EdgeInsets.zero,
     visualDensity: VisualDensity.compact,
     constraints: const BoxConstraints.tightFor(width: 24, height: 24),
@@ -926,15 +937,15 @@ class const _SwarmHealth({
     final healthy = online == total;
     final hasQuorum = online >= requiredSigners;
     final color = healthy
-        ? AppColors.success
+        ? AppColors.of(context).success
         : hasQuorum
-        ? AppColors.warningDark
-        : AppColors.danger;
+        ? AppColors.of(context).warningDark
+        : AppColors.of(context).danger;
     final surface = healthy
-        ? AppColors.successSurface
+        ? AppColors.of(context).successSurface
         : hasQuorum
-        ? AppColors.warning
-        : AppColors.dangerSurface;
+        ? AppColors.of(context).warning
+        : AppColors.of(context).dangerSurface;
     final label = healthy
         ? 'Healthy'
         : hasQuorum
@@ -1016,10 +1027,10 @@ class const _SwarmHealth({
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'SWARM HEALTH',
                     style: TextStyle(
-                      color: AppColors.inkMuted,
+                      color: AppColors.of(context).inkMuted,
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.9,
@@ -1050,8 +1061,8 @@ class const _SwarmHealth({
                   const SizedBox(height: 4),
                   Text(
                     detail,
-                    style: const TextStyle(
-                      color: AppColors.ink,
+                    style: TextStyle(
+                      color: AppColors.of(context).ink,
                       fontSize: 11,
                       height: 1.35,
                     ),
@@ -1059,8 +1070,8 @@ class const _SwarmHealth({
                   const SizedBox(height: 2),
                   Text(
                     '$requiredSigners required to sign',
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
+                    style: TextStyle(
+                      color: AppColors.of(context).inkMuted,
                       fontSize: 10,
                     ),
                   ),
@@ -1081,7 +1092,9 @@ class const _RoastParticipantRow({
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final color = online ? AppColors.success : AppColors.danger;
+    final color = online
+        ? AppColors.of(context).success
+        : AppColors.of(context).danger;
     return Semantics(
       label: '${participant.name}, ${online ? 'online' : 'offline'}',
       child: Padding(
@@ -1124,8 +1137,8 @@ class const _RoastParticipantRow({
                           child: Text(
                             participant.name,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.ink,
+                            style: TextStyle(
+                              color: AppColors.of(context).ink,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -1139,13 +1152,13 @@ class const _RoastParticipantRow({
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: AppColors.lime,
+                              color: AppColors.of(context).lime,
                               borderRadius: BorderRadius.circular(3),
                             ),
-                            child: const Text(
+                            child: Text(
                               'YOU',
                               style: TextStyle(
-                                color: AppColors.greenDark,
+                                color: AppColors.of(context).greenDark,
                                 fontSize: 8,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -1159,8 +1172,8 @@ class const _RoastParticipantRow({
                       message: participant.publicKeyHex,
                       child: Text(
                         RoastSetupPanel._short(participant.publicKeyHex),
-                        style: const TextStyle(
-                          color: AppColors.inkMuted,
+                        style: TextStyle(
+                          color: AppColors.of(context).inkMuted,
                           fontFamily: 'monospace',
                           fontSize: 10,
                         ),
@@ -1193,15 +1206,15 @@ class const _RoastBadge({required final RoastSetup setup})
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
-      color: AppColors.green.withValues(alpha: 0.13),
+      color: AppColors.of(context).green.withValues(alpha: 0.13),
       borderRadius: BorderRadius.circular(4),
     ),
     child: Text(
       setup.isWaitingForInvitation
           ? 'ROAST'
           : 'ROAST · ${setup.threshold} of ${setup.participantCount}',
-      style: const TextStyle(
-        color: AppColors.greenDark,
+      style: TextStyle(
+        color: AppColors.of(context).greenDark,
         fontSize: 11,
         fontWeight: FontWeight.w700,
       ),

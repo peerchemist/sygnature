@@ -86,10 +86,10 @@ class _RoastCoordinatorSwitchDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'The destination must already serve this exact ROAST group. '
                 'An invitation or imported address is not approval.',
-                style: TextStyle(color: AppColors.inkMuted),
+                style: TextStyle(color: AppColors.of(context).inkMuted),
               ),
               const SizedBox(height: 16),
               _CoordinatorEndpointBox(
@@ -151,14 +151,20 @@ class _RoastCoordinatorSwitchDialogState
                 ),
               ),
               if (sameIdentity)
-                const Text(
+                Text(
                   'The endpoint identity is unchanged. Only reconnect address '
                   'hints will be updated.',
-                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.of(context).inkMuted,
+                    fontSize: 12,
+                  ),
                 ),
               if (_error != null) ...[
                 const SizedBox(height: 10),
-                Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                Text(
+                  _error!,
+                  style: TextStyle(color: AppColors.of(context).danger),
+                ),
               ],
             ],
           ),
@@ -194,8 +200,8 @@ class const _CoordinatorEndpointBox({
     width: double.infinity,
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: AppColors.canvas,
-      border: Border.all(color: AppColors.line),
+      color: AppColors.of(context).canvas,
+      border: Border.all(color: AppColors.of(context).line),
       borderRadius: BorderRadius.circular(6),
     ),
     child: Column(
@@ -203,8 +209,8 @@ class const _CoordinatorEndpointBox({
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppColors.inkMuted,
+          style: TextStyle(
+            color: AppColors.of(context).inkMuted,
             fontSize: 10,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.7,

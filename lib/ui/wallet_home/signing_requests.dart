@@ -45,10 +45,10 @@ Future<void> _showRoastRequests(
                   ],
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Approve only after verifying the exact signed message or '
                   'every transaction recipient, amount, fee and change output.',
-                  style: TextStyle(color: AppColors.inkMuted),
+                  style: TextStyle(color: AppColors.of(context).inkMuted),
                 ),
                 const SizedBox(height: 16),
                 Flexible(
@@ -116,9 +116,9 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
     final waitingForDecision = request.status == 'waiting';
     final progress = request.progress;
     final progressColor = switch (progress.stage) {
-      'completed' => AppColors.success,
-      'failed' => AppColors.danger,
-      _ => AppColors.warningDark,
+      'completed' => AppColors.of(context).success,
+      'failed' => AppColors.of(context).danger,
+      _ => AppColors.of(context).warningDark,
     };
     return Card(
       key: ValueKey('roast-signing-request-${request.idHex}'),
@@ -129,9 +129,9 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
           children: [
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.approval_outlined,
-                  color: AppColors.danger,
+                  color: AppColors.of(context).danger,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
@@ -142,8 +142,8 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                     'rejected' => 'REJECTED',
                     _ => 'ACTION REQUIRED',
                   }}',
-                  style: const TextStyle(
-                    color: AppColors.danger,
+                  style: TextStyle(
+                    color: AppColors.of(context).danger,
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.6,
@@ -163,7 +163,10 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                         'shared group key'
                   : 'Requested by $requesterLabel · '
                         '${request.masterGroupKeys.length} input(s)',
-              style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+              style: TextStyle(
+                color: AppColors.of(context).inkMuted,
+                fontSize: 12,
+              ),
             ),
             const SizedBox(height: 12),
             Container(
@@ -196,7 +199,7 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                   Text(
                     '${progress.contributingParticipants.length}/'
                     '${progress.threshold} required signers',
-                    style: const TextStyle(color: AppColors.ink),
+                    style: TextStyle(color: AppColors.of(context).ink),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -205,8 +208,8 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                       'rejected' => 'rejected',
                       _ => 'awaiting decision',
                     }}',
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
+                    style: TextStyle(
+                      color: AppColors.of(context).inkMuted,
                       fontSize: 12,
                     ),
                   ),
@@ -220,17 +223,17 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.canvas,
-                  border: Border.all(color: AppColors.line),
+                  color: AppColors.of(context).canvas,
+                  border: Border.all(color: AppColors.of(context).line),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'EXACT MESSAGE TO SIGN',
                       style: TextStyle(
-                        color: AppColors.ink,
+                        color: AppColors.of(context).ink,
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.5,
@@ -249,19 +252,20 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.08),
+                  color: AppColors.of(context).warning.withValues(alpha: 0.08),
                   border: Border.all(
-                    color: AppColors.warning.withValues(alpha: 0.35),
+                    color: AppColors.of(context).warning
+                        .withValues(alpha: 0.35),
                   ),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'REQUEST NOTE · AUTHENTICATED',
                       style: TextStyle(
-                        color: AppColors.warningDark,
+                        color: AppColors.of(context).warningDark,
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.5,
@@ -301,7 +305,10 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(
+                _error!,
+                style: TextStyle(color: AppColors.of(context).danger),
+              ),
             ],
             if (waitingForDecision) ...[
               const SizedBox(height: 12),

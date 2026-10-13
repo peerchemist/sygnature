@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:sygnature_ng/controllers/theme_controller.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
@@ -29,6 +31,55 @@ void main() {
     await controller.load();
     return controller;
   }
+
+  testWidgets('theme follows the system and can be overridden in settings', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    final controller = await createController();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    Brightness brightness() =>
+        Theme.of(tester.element(find.byType(Scaffold).last)).brightness;
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+      ThemeMode.system,
+    );
+    expect(brightness(), Brightness.dark);
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await tester.pumpAndSettle();
+    expect(brightness(), Brightness.light);
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+    expect(brightness(), Brightness.dark);
+    expect(
+      await const FlutterSecureStorage().read(key: ThemeController.storageKey),
+      'dark',
+    );
+
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+    expect(brightness(), Brightness.light);
+
+    await tester.tap(find.text('System'));
+    await tester.pumpAndSettle();
+    expect(brightness(), Brightness.dark);
+    expect(
+      await const FlutterSecureStorage().read(key: ThemeController.storageKey),
+      'system',
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('creates a derived wallet and supports derived sub-wallets', (
     tester,
@@ -658,10 +709,7 @@ void main() {
     expect(find.text('Recent activity'), findsOneWidget);
     expect(find.text('Transaction confirmed'), findsOneWidget);
     expect(find.byKey(const Key('activity-main-transaction')), findsOneWidget);
-    expect(
-      find.byKey(const Key('activity-savings-transaction')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('activity-savings-transaction')), findsNothing);
     expect(find.text('EXPIRED'), findsOneWidget);
     expect(
       find.byKey(

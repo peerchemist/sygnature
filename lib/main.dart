@@ -9,6 +9,7 @@ import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'controllers/wallet_controller.dart';
+import 'controllers/theme_controller.dart';
 import 'models/mnemonic_seed.dart';
 import 'models/roast_setup.dart';
 import 'services/app_logger.dart';
@@ -79,6 +80,7 @@ class const SygnatureApp({
 }
 
 class _SygnatureAppState extends State<SygnatureApp> {
+  final ThemeController _themeController = ThemeController();
   final AppNotifications _notifications = AppNotifications();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final Future<void> _notificationsReady = _notifications.initialize();
@@ -93,6 +95,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void initState() {
     super.initState();
+    unawaited(_themeController.initialize());
     final controllerFactory = widget.controllerFactory;
     if (controllerFactory == null) {
       _publicFeedStore = getApplicationSupportDirectory().then(
@@ -276,6 +279,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void dispose() {
     _disposed = true;
+    _themeController.dispose();
     unawaited(_closePublicFeedPolling());
     unawaited(_incomingLinkSubscription?.cancel());
     final controller = _controller;
@@ -455,12 +459,20 @@ class _SygnatureAppState extends State<SygnatureApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _navigatorKey,
-      title: 'Sygnature',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      home: _buildHome(),
+    return AppThemeScope(
+      notifier: _themeController,
+      child: ValueListenableBuilder<ThemeMode>(
+        valueListenable: _themeController,
+        builder: (context, mode, _) => MaterialApp(
+          navigatorKey: _navigatorKey,
+          title: 'Sygnature',
+          debugShowCheckedModeBanner: false,
+          theme: buildAppTheme(),
+          darkTheme: buildAppTheme(brightness: Brightness.dark),
+          themeMode: mode,
+          home: _buildHome(),
+        ),
+      ),
     );
   }
 
@@ -589,10 +601,10 @@ class _StartupError extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.lock_outline_rounded,
                     size: 42,
-                    color: AppColors.greenDark,
+                    color: AppColors.of(context).greenDark,
                   ),
                   const SizedBox(height: 18),
                   Text(title, style: Theme.of(context).textTheme.titleLarge),
@@ -613,8 +625,8 @@ class _StartupError extends StatelessWidget {
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: AppColors.inkMuted,
+                      style: TextStyle(
+                        color: AppColors.of(context).inkMuted,
                         fontFamily: 'monospace',
                         fontSize: 11,
                       ),

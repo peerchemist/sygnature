@@ -63,7 +63,7 @@ class const WalletHome({
         }
         return Scaffold(
           appBar: AppBar(
-            backgroundColor: AppColors.canvas,
+            backgroundColor: AppColors.of(context).canvas,
             surfaceTintColor: Colors.transparent,
             title: const BrandMark(),
             actions: [
@@ -113,7 +113,7 @@ class const _WalletSidebar({
 
   Widget _buildContent(BuildContext context) {
     return Material(
-      color: AppColors.surface,
+      color: AppColors.of(context).surface,
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
@@ -124,11 +124,11 @@ class const _WalletSidebar({
               const SizedBox(height: 32),
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'WALLETS',
                       style: TextStyle(
-                        color: AppColors.inkMuted,
+                        color: AppColors.of(context).inkMuted,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 1.2,
@@ -261,7 +261,7 @@ class const _WalletListTile({
     };
 
     return Material(
-      color: selected ? AppColors.lime : Colors.transparent,
+      color: selected ? AppColors.of(context).lime : Colors.transparent,
       borderRadius: BorderRadius.circular(4),
       child: InkWell(
         onTap: onTap,
@@ -274,15 +274,17 @@ class const _WalletListTile({
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: selected ? AppColors.surface : AppColors.canvas,
-                  border: Border.all(color: AppColors.line),
+                  color: selected
+                      ? AppColors.of(context).surface
+                      : AppColors.of(context).canvas,
+                  border: Border.all(color: AppColors.of(context).line),
                   borderRadius: BorderRadius.circular(3),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   '${displayIndex + 1}'.padLeft(2, '0'),
                   style: TextStyle(
-                    color: AppColors.forest,
+                    color: AppColors.of(context).forest,
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                   ),
@@ -300,7 +302,7 @@ class const _WalletListTile({
                             account.name,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: AppColors.ink,
+                              color: AppColors.of(context).ink,
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                             ),
@@ -314,12 +316,12 @@ class const _WalletListTile({
                           ),
                           decoration: BoxDecoration(
                             color: isRoast
-                                ? AppColors.forest
-                                : AppColors.canvas,
+                                ? AppColors.of(context).forest
+                                : AppColors.of(context).canvas,
                             border: Border.all(
                               color: isRoast
-                                  ? AppColors.forest
-                                  : AppColors.line,
+                                  ? AppColors.of(context).forest
+                                  : AppColors.of(context).line,
                             ),
                             borderRadius: BorderRadius.circular(3),
                           ),
@@ -333,8 +335,8 @@ class const _WalletListTile({
                                 : 'LOCAL',
                             style: TextStyle(
                               color: isRoast
-                                  ? Colors.white
-                                  : AppColors.inkMuted,
+                                  ? Theme.of(context).colorScheme.onPrimary
+                                  : AppColors.of(context).inkMuted,
                               fontSize: 9,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.5,
@@ -355,7 +357,7 @@ class const _WalletListTile({
                                 : accountStatus,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: AppColors.inkMuted,
+                              color: AppColors.of(context).inkMuted,
                               fontSize: 12,
                             ),
                           ),
@@ -376,17 +378,17 @@ class const _WalletListTile({
                                       key: ValueKey(
                                         'wallet-${account.id}-active-signing-requests',
                                       ),
-                                      style: const TextStyle(
-                                        color: AppColors.inkMuted,
+                                      style: TextStyle(
+                                        color: AppColors.of(context).inkMuted,
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
-                                  const Text(
+                                  Text(
                                     ' · ',
                                     style: TextStyle(
-                                      color: AppColors.inkMuted,
+                                      color: AppColors.of(context).inkMuted,
                                       fontSize: 10,
                                     ),
                                   ),
@@ -399,8 +401,8 @@ class const _WalletListTile({
                                       ),
                                       style: TextStyle(
                                         color: awaitingLocalApprovalCount > 0
-                                            ? AppColors.danger
-                                            : AppColors.inkMuted,
+                                            ? AppColors.of(context).danger
+                                            : AppColors.of(context).inkMuted,
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
                                       ),
@@ -617,10 +619,10 @@ class const _CompactDashboardHeader({
               children: [
                 header,
                 const SizedBox(height: 18),
-                const Text(
+                Text(
                   'RECEIVE ADDRESS',
                   style: TextStyle(
-                    color: AppColors.inkMuted,
+                    color: AppColors.of(context).inkMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.8,
@@ -724,18 +726,18 @@ class const _RoastPriorityRequests({
     key: const Key('roast-priority-requests'),
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Row(
+      Row(
         children: [
           Icon(
             Icons.notifications_active_outlined,
-            color: AppColors.danger,
+            color: AppColors.of(context).danger,
             size: 20,
           ),
           SizedBox(width: 8),
           Text(
             'ROAST SIGNING REQUESTS',
             style: TextStyle(
-              color: AppColors.danger,
+              color: AppColors.of(context).danger,
               fontSize: 11,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.9,
@@ -784,12 +786,14 @@ class _MobileWalletPicker extends StatelessWidget {
                     context,
                     () => controller.selectAccount(index),
                   ),
-                  selectedColor: AppColors.forest,
+                  selectedColor: AppColors.of(context).forest,
                   labelStyle: TextStyle(
-                    color: selected ? Colors.white : AppColors.ink,
+                    color: selected
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : AppColors.of(context).ink,
                     fontWeight: FontWeight.w700,
                   ),
-                  side: const BorderSide(color: AppColors.line),
+                  side: BorderSide(color: AppColors.of(context).line),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(4),
                   ),
@@ -817,8 +821,8 @@ class _PendingRoastNotice extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
-      color: AppColors.warning.withValues(alpha: 0.13),
-      border: Border.all(color: AppColors.warning),
+      color: AppColors.of(context).warning.withValues(alpha: 0.13),
+      border: Border.all(color: AppColors.of(context).warning),
       borderRadius: BorderRadius.circular(4),
     ),
     child: const Text(
@@ -864,7 +868,9 @@ class _DashboardHeader extends StatelessWidget {
             AccountSyncStatus.error => 'Sync failed',
             AccountSyncStatus.unavailable => 'Unavailable',
           };
-    final statusColor = ready ? AppColors.greenDark : const Color(0xff795400);
+    final statusColor = ready
+        ? AppColors.of(context).greenDark
+        : AppColors.of(context).warningDark;
     return Wrap(
       key: const Key('wallet-dashboard-header'),
       spacing: 16,
@@ -895,8 +901,8 @@ class _DashboardHeader extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: ready
-                    ? AppColors.green.withValues(alpha: 0.13)
-                    : AppColors.warning.withValues(alpha: 0.2),
+                    ? AppColors.of(context).green.withValues(alpha: 0.13)
+                    : AppColors.of(context).warning.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Row(
@@ -927,10 +933,10 @@ class _DashboardHeader extends StatelessWidget {
             PopupMenuButton<String>(
               key: const Key('wallet-settings-button'),
               tooltip: 'Wallet settings',
-              icon: const Icon(
+              icon: Icon(
                 Icons.settings_outlined,
                 size: 20,
-                color: AppColors.inkMuted,
+                color: AppColors.of(context).inkMuted,
               ),
               onSelected: (value) {
                 if (value == 'rename') onRename();
@@ -995,11 +1001,14 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline_rounded, color: Colors.red),
+                      Icon(
+                        Icons.delete_outline_rounded,
+                        color: AppColors.of(context).danger,
+                      ),
                       SizedBox(width: 10),
                       Text('Delete wallet'),
                     ],
@@ -1135,10 +1144,10 @@ class _BalanceCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'BALANCE',
                 style: TextStyle(
-                  color: AppColors.inkMuted,
+                  color: AppColors.of(context).inkMuted,
                   fontSize: 11,
                   letterSpacing: 1.1,
                   fontWeight: FontWeight.w700,
@@ -1147,8 +1156,8 @@ class _BalanceCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 '${_formatPpc(balance.totalSats)} PPC',
-                style: const TextStyle(
-                  color: AppColors.ink,
+                style: TextStyle(
+                  color: AppColors.of(context).ink,
                   fontSize: 34,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.6,
@@ -1168,8 +1177,8 @@ class _BalanceCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       balanceDescription,
-                      style: const TextStyle(
-                        color: AppColors.inkMuted,
+                      style: TextStyle(
+                        color: AppColors.of(context).inkMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -1232,22 +1241,25 @@ class _BalanceCard extends StatelessWidget {
               ),
               if (transactionSigning) ...[
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'A transaction signature request is already in progress. '
                   'Wait for it to finish before creating another one.',
                   key: Key('transaction-signature-request-warning'),
-                  style: TextStyle(color: AppColors.warningDark, fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.of(context).warningDark,
+                    fontSize: 12,
+                  ),
                 ),
               ] else if (hasDismissibleSigningOperation) ...[
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         'A failed approval request is still reserving '
                         'transaction inputs.',
                         style: TextStyle(
-                          color: AppColors.warningDark,
+                          color: AppColors.of(context).warningDark,
                           fontSize: 12,
                         ),
                       ),
@@ -1315,9 +1327,9 @@ class const _AddressCard({required final WalletAccount account})
           children: [
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.account_balance_wallet_outlined,
-                  color: AppColors.greenDark,
+                  color: AppColors.of(context).greenDark,
                 ),
                 const SizedBox(width: 10),
                 Text(
@@ -1344,18 +1356,24 @@ class const _ReceiveAddressBox({required final WalletAccount account})
       width: double.infinity,
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: AppColors.canvas,
-        border: Border.all(color: AppColors.line),
+        color: AppColors.of(context).canvas,
+        border: Border.all(color: AppColors.of(context).line),
         borderRadius: BorderRadius.circular(4),
       ),
       child: address == null
-          ? Text(switch (account.derivationState) {
-              WalletDerivationState.error =>
-                'Address unavailable because derivation failed.',
-              WalletDerivationState.locked =>
-                'Unlock the wallet to access its address.',
-              _ => 'Address unavailable until derivation completes.',
-            }, style: const TextStyle(color: AppColors.inkMuted, fontSize: 13))
+          ? Text(
+              switch (account.derivationState) {
+                WalletDerivationState.error =>
+                  'Address unavailable because derivation failed.',
+                WalletDerivationState.locked =>
+                  'Unlock the wallet to access its address.',
+                _ => 'Address unavailable until derivation completes.',
+              },
+              style: TextStyle(
+                color: AppColors.of(context).inkMuted,
+                fontSize: 13,
+              ),
+            )
           : Row(
               children: [
                 Expanded(
@@ -1448,7 +1466,7 @@ class _DetailRow extends StatelessWidget {
           textAlign: TextAlign.end,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: AppColors.ink,
+            color: AppColors.of(context).ink,
             fontSize: 13,
             fontWeight: FontWeight.w700,
           ),

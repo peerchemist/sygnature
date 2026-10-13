@@ -174,15 +174,15 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.warning,
+                  color: AppColors.of(context).warning,
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       Icons.warning_amber_rounded,
-                      color: AppColors.warningDark,
+                      color: AppColors.of(context).warningDark,
                       size: 20,
                     ),
                     SizedBox(width: 10),
@@ -193,7 +193,7 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                         'reliable ROAST coordination, run the coordinator on '
                         'a desktop or server.',
                         style: TextStyle(
-                          color: AppColors.warningDark,
+                          color: AppColors.of(context).warningDark,
                           fontSize: 12,
                           height: 1.4,
                         ),
@@ -279,11 +279,17 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                   : 'A participant key is generated on this device. Share its '
                         'public card with the host, then paste the invite '
                         'created specifically for this key.',
-              style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+              style: TextStyle(
+                color: AppColors.of(context).inkMuted,
+                fontSize: 12,
+              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(
+                _error!,
+                style: TextStyle(color: AppColors.of(context).danger),
+              ),
             ],
           ],
         ),
@@ -453,7 +459,10 @@ class _RoastInviteWizardState extends State<_RoastInviteWizard> {
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
-                      Text(_error!, style: const TextStyle(color: Colors.red)),
+                      Text(
+                        _error!,
+                        style: TextStyle(color: AppColors.of(context).danger),
+                      ),
                     ],
                   ],
                 ),

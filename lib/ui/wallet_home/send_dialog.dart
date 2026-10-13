@@ -408,7 +408,10 @@ class _SendDialogState extends State<_SendDialog> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 14),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+            Text(
+              _error!,
+              style: TextStyle(color: AppColors.of(context).danger),
+            ),
           ],
         ],
       ),
@@ -424,7 +427,7 @@ class _SendDialogState extends State<_SendDialog> {
             ? 'Confirm every detail. The transaction will be sent to the '
                   'other participants for threshold approval.'
             : 'Confirm every detail before the private key signs this transaction.',
-        style: TextStyle(color: AppColors.inkMuted),
+        style: TextStyle(color: AppColors.of(context).inkMuted),
       ),
       const SizedBox(height: 18),
       _TransactionRow(label: 'From', value: widget.account.name),
@@ -458,25 +461,28 @@ class _SendDialogState extends State<_SendDialog> {
       ),
       if (_submitting && widget.account.keySource == WalletKeySource.roast) ...[
         const SizedBox(height: 12),
-        const Text(
+        Text(
           'You can close this window. The approval request will continue in '
           'the wallet.',
-          style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+          style: TextStyle(color: AppColors.of(context).inkMuted, fontSize: 12),
         ),
       ],
       if (widget.account.keySource == WalletKeySource.roast &&
           !_canRequestRoastApprovals) ...[
         const SizedBox(height: 12),
-        const Text(
+        Text(
           'Request approvals is unavailable because the ROAST signer is not '
           'connected to the coordinator.',
           key: Key('request-approvals-unavailable'),
-          style: TextStyle(color: AppColors.warningDark, fontSize: 12),
+          style: TextStyle(
+            color: AppColors.of(context).warningDark,
+            fontSize: 12,
+          ),
         ),
       ],
       if (_error != null) ...[
         const SizedBox(height: 12),
-        Text(_error!, style: const TextStyle(color: Colors.red)),
+        Text(_error!, style: TextStyle(color: AppColors.of(context).danger)),
       ],
     ],
   );
@@ -501,7 +507,10 @@ class _TransactionRow extends StatelessWidget {
       children: [
         SizedBox(
           width: 100,
-          child: Text(label, style: const TextStyle(color: AppColors.inkMuted)),
+          child: Text(
+            label,
+            style: TextStyle(color: AppColors.of(context).inkMuted),
+          ),
         ),
         Expanded(
           child: Text(

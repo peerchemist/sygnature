@@ -135,8 +135,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           const Spacer(),
                           Text(
                             'SETUP $stepNumber OF 2',
-                            style: const TextStyle(
-                              color: AppColors.inkMuted,
+                            style: TextStyle(
+                              color: AppColors.of(context).inkMuted,
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 1,
@@ -166,7 +166,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       LinearProgressIndicator(
                         value: stepNumber / 2,
                         minHeight: 3,
-                        backgroundColor: AppColors.line,
+                        backgroundColor: AppColors.of(context).line,
                       ),
                       const SizedBox(height: 26),
                       AnimatedSwitcher(
@@ -266,9 +266,9 @@ class _MnemonicStep extends StatelessWidget {
       children: [
         Text('Mnemonic', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           'Choose how to set up the recovery phrase for personal wallets.',
-          style: TextStyle(color: AppColors.inkMuted),
+          style: TextStyle(color: AppColors.of(context).inkMuted),
         ),
         const SizedBox(height: 20),
         SegmentedButton<_MnemonicSource>(
@@ -307,10 +307,10 @@ class _MnemonicStep extends StatelessWidget {
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Phrase length',
                         style: TextStyle(
-                          color: AppColors.inkMuted,
+                          color: AppColors.of(context).inkMuted,
                           fontSize: 12,
                         ),
                       ),
@@ -374,14 +374,18 @@ class _MnemonicStep extends StatelessWidget {
           },
         ),
         const SizedBox(height: 16),
-        _StatusRow(icon: _statusIcon, label: _statusLabel, color: _statusColor),
+        _StatusRow(
+          icon: _statusIcon,
+          label: _statusLabel,
+          color: _statusColor(context),
+        ),
         const SizedBox(height: 8),
         _StatusRow(
           icon: Icons.shield_outlined,
           label: source == _MnemonicSource.generate
               ? 'Recovery words: generated securely on this device'
               : 'Recovery phrase: validated locally on this device',
-          color: AppColors.greenDark,
+          color: AppColors.of(context).greenDark,
         ),
         const SizedBox(height: 12),
         Text(
@@ -390,7 +394,7 @@ class _MnemonicStep extends StatelessWidget {
                     'offline.'
               : 'The phrase is never sent over the network. Select its '
                     'wordlist language before continuing.',
-          style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+          style: TextStyle(color: AppColors.of(context).inkMuted, fontSize: 12),
         ),
         const SizedBox(height: 24),
         Align(
@@ -421,9 +425,11 @@ class _MnemonicStep extends StatelessWidget {
     return 'Wordlist: ${language!.label}, 2048 words';
   }
 
-  Color get _statusColor {
-    if (mnemonicError != null) return Colors.red;
-    return language == null ? AppColors.inkMuted : AppColors.greenDark;
+  Color _statusColor(BuildContext context) {
+    if (mnemonicError != null) return AppColors.of(context).danger;
+    return language == null
+        ? AppColors.of(context).inkMuted
+        : AppColors.of(context).greenDark;
   }
 }
 
@@ -444,8 +450,8 @@ class _StatusRow extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.canvas,
-        border: Border.all(color: AppColors.line),
+        color: AppColors.of(context).canvas,
+        border: Border.all(color: AppColors.of(context).line),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -498,7 +504,7 @@ class _BackupStep extends StatelessWidget {
                     'phrase can spend your funds.'
               : 'Confirm this recovery phrase before storing it in the '
                     'encrypted local vault.',
-          style: const TextStyle(color: AppColors.inkMuted),
+          style: TextStyle(color: AppColors.of(context).inkMuted),
         ),
         if (generated) ...[
           const SizedBox(height: 20),
@@ -508,7 +514,7 @@ class _BackupStep extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            border: Border.all(color: AppColors.line),
+            border: Border.all(color: AppColors.of(context).line),
             borderRadius: BorderRadius.circular(4),
           ),
           child: Column(
@@ -540,7 +546,10 @@ class _BackupStep extends StatelessWidget {
         ),
         if (creationError != null) ...[
           const SizedBox(height: 8),
-          Text(creationError!, style: const TextStyle(color: Colors.red)),
+          Text(
+            creationError!,
+            style: TextStyle(color: AppColors.of(context).danger),
+          ),
         ],
         const SizedBox(height: 24),
         Row(
@@ -576,8 +585,8 @@ class _RecoveryPhrase extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.canvas,
-        border: Border.all(color: AppColors.line),
+        color: AppColors.of(context).canvas,
+        border: Border.all(color: AppColors.of(context).line),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Wrap(
@@ -588,14 +597,14 @@ class _RecoveryPhrase extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: AppColors.line),
+                color: AppColors.of(context).surface,
+                border: Border.all(color: AppColors.of(context).line),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(
                 '${index + 1}. $word',
-                style: const TextStyle(
-                  color: AppColors.ink,
+                style: TextStyle(
+                  color: AppColors.of(context).ink,
                   fontFamily: 'monospace',
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -621,15 +630,18 @@ class _SetupRow extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(color: AppColors.inkMuted, fontSize: 13),
+            style: TextStyle(
+              color: AppColors.of(context).inkMuted,
+              fontSize: 13,
+            ),
           ),
         ),
         Flexible(
           child: Text(
             value,
             textAlign: TextAlign.end,
-            style: const TextStyle(
-              color: AppColors.ink,
+            style: TextStyle(
+              color: AppColors.of(context).ink,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),

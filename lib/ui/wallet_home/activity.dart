@@ -28,26 +28,29 @@ class _ActivityCard extends StatelessWidget {
             ),
             if (activities.isEmpty) ...[
               const SizedBox(height: 30),
-              const Center(
+              Center(
                 child: Column(
                   children: [
                     Icon(
                       Icons.receipt_long_outlined,
                       size: 38,
-                      color: AppColors.inkMuted,
+                      color: AppColors.of(context).inkMuted,
                     ),
                     SizedBox(height: 12),
                     Text(
                       'No activity yet',
                       style: TextStyle(
-                        color: AppColors.ink,
+                        color: AppColors.of(context).ink,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     SizedBox(height: 5),
                     Text(
                       'Wallet events will appear here.',
-                      style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                      style: TextStyle(
+                        color: AppColors.of(context).inkMuted,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -84,7 +87,7 @@ class const _ActivityRow({
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final presentation = _activityPresentation(activity);
+    final presentation = _activityPresentation(context, activity);
     final reference = activity.reference;
     final signedMessage = _signedMessageFromActivity(activity);
     return InkWell(
@@ -132,8 +135,8 @@ class const _ActivityRow({
                         child: Text(
                           presentation.title,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.ink,
+                          style: TextStyle(
+                            color: AppColors.of(context).ink,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -147,13 +150,13 @@ class const _ActivityRow({
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: AppColors.dangerSurface,
+                            color: AppColors.of(context).dangerSurface,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text(
+                          child: Text(
                             'EXPIRED',
                             style: TextStyle(
-                              color: AppColors.danger,
+                              color: AppColors.of(context).danger,
                               fontSize: 9,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.5,
@@ -169,8 +172,8 @@ class const _ActivityRow({
                       details,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.inkMuted,
+                      style: TextStyle(
+                        color: AppColors.of(context).inkMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -179,8 +182,8 @@ class const _ActivityRow({
                     Text(
                       _activityReference(activity.type, reference),
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.inkMuted,
+                      style: TextStyle(
+                        color: AppColors.of(context).inkMuted,
                         fontSize: 12,
                       ),
                     ),
@@ -191,12 +194,15 @@ class const _ActivityRow({
             const SizedBox(width: 12),
             Text(
               _activityTime(activity.occurredAt),
-              style: const TextStyle(color: AppColors.inkMuted, fontSize: 11),
+              style: TextStyle(
+                color: AppColors.of(context).inkMuted,
+                fontSize: 11,
+              ),
             ),
             const SizedBox(width: 4),
-            const Icon(
+            Icon(
               Icons.chevron_right_rounded,
-              color: AppColors.inkMuted,
+              color: AppColors.of(context).inkMuted,
               size: 18,
             ),
           ],
@@ -274,7 +280,7 @@ Future<void> _showActivityDetails(
   required WalletController controller,
   required bool expired,
 }) {
-  final presentation = _activityPresentation(activity);
+  final presentation = _activityPresentation(context, activity);
   final setup = controller.setupForAccount(account);
   final reference = switch (activity.type) {
     WalletActivityType.messageSignatureRequested ||
@@ -384,8 +390,8 @@ class const _ActivityDetail({
       children: [
         Text(
           label.toUpperCase(),
-          style: const TextStyle(
-            color: AppColors.inkMuted,
+          style: TextStyle(
+            color: AppColors.of(context).inkMuted,
             fontSize: 10,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.8,
@@ -394,7 +400,7 @@ class const _ActivityDetail({
         const SizedBox(height: 4),
         SelectableText(
           value,
-          style: const TextStyle(color: AppColors.ink, fontSize: 13),
+          style: TextStyle(color: AppColors.of(context).ink, fontSize: 13),
         ),
       ],
     ),
@@ -402,57 +408,58 @@ class const _ActivityDetail({
 }
 
 ({String title, IconData icon, Color color}) _activityPresentation(
+  BuildContext context,
   WalletActivity activity,
 ) => switch (activity.type) {
   WalletActivityType.signatureRequestReceived => (
     title: 'Signature request received',
     icon: Icons.mark_email_unread_outlined,
-    color: AppColors.greenDark,
+    color: AppColors.of(context).greenDark,
   ),
   WalletActivityType.signatureRequestApproved => (
     title: 'Signature request approved',
     icon: Icons.check_circle_outline,
-    color: AppColors.success,
+    color: AppColors.of(context).success,
   ),
   WalletActivityType.signatureRequestRejected => (
     title: 'Signature request rejected',
     icon: Icons.cancel_outlined,
-    color: AppColors.danger,
+    color: AppColors.of(context).danger,
   ),
   WalletActivityType.signatureRequestCancelled => (
     title: 'Signature request cancelled',
     icon: Icons.cancel_schedule_send_outlined,
-    color: AppColors.warningDark,
+    color: AppColors.of(context).warningDark,
   ),
   WalletActivityType.signatureRequestExpired => (
     title: 'Signature request expired',
     icon: Icons.schedule_outlined,
-    color: AppColors.warningDark,
+    color: AppColors.of(context).warningDark,
   ),
   WalletActivityType.dkgStarted => (
     title: 'Shared key creation started',
     icon: Icons.hub_outlined,
-    color: AppColors.greenDark,
+    color: AppColors.of(context).greenDark,
   ),
   WalletActivityType.dkgCompleted => (
     title: 'Shared key created',
     icon: Icons.key_outlined,
-    color: AppColors.success,
+    color: AppColors.of(context).success,
   ),
   WalletActivityType.dkgFailed => (
     title: 'Shared key creation failed',
     icon: Icons.error_outline,
-    color: AppColors.danger,
+    color: AppColors.of(context).danger,
   ),
   WalletActivityType.transactionSignatureRequested => (
     title: 'Transaction signature requested',
     icon: Icons.pending_actions_outlined,
-    color: AppColors.greenDark,
+    color: AppColors.of(context).greenDark,
   ),
   WalletActivityType.transactionSigned => (
     title: 'Transaction signed',
     icon: Icons.draw_outlined,
-    color: AppColors.greenDark,
+    color: AppColors.of(context).greenDark,
   ),
   WalletActivityType.transactionBroadcast => (
     title: switch (activity.transactionStatus) {
@@ -475,13 +482,13 @@ class const _ActivityDetail({
     },
     color: switch (activity.transactionStatus) {
       WalletTransactionStatus.broadcasting ||
-      WalletTransactionStatus.mempool => AppColors.warningDark,
-      WalletTransactionStatus.failed => AppColors.danger,
+      WalletTransactionStatus.mempool => AppColors.of(context).warningDark,
+      WalletTransactionStatus.failed => AppColors.of(context).danger,
       WalletTransactionStatus.dropped ||
-      WalletTransactionStatus.conflicted => AppColors.danger,
+      WalletTransactionStatus.conflicted => AppColors.of(context).danger,
       WalletTransactionStatus.broadcast ||
       WalletTransactionStatus.confirmed ||
-      null => AppColors.success,
+      null => AppColors.of(context).success,
     },
   ),
   WalletActivityType.transactionReceived => (
@@ -498,18 +505,18 @@ class const _ActivityDetail({
     color:
         activity.transactionStatus == WalletTransactionStatus.dropped ||
             activity.transactionStatus == WalletTransactionStatus.conflicted
-        ? AppColors.danger
-        : AppColors.success,
+        ? AppColors.of(context).danger
+        : AppColors.of(context).success,
   ),
   WalletActivityType.messageSignatureRequested => (
     title: 'Message signature requested',
     icon: Icons.pending_actions_outlined,
-    color: AppColors.greenDark,
+    color: AppColors.of(context).greenDark,
   ),
   WalletActivityType.messageSigned => (
     title: 'Message signed',
     icon: Icons.verified_outlined,
-    color: AppColors.success,
+    color: AppColors.of(context).success,
   ),
 };
 

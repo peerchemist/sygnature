@@ -16,7 +16,7 @@ class const AboutScreen({super.key}) extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: AppColors.canvas,
+        backgroundColor: AppColors.of(context).canvas,
         surfaceTintColor: Colors.transparent,
         title: const Text('About'),
       ),
@@ -40,7 +40,9 @@ class const AboutScreen({super.key}) extends StatelessWidget {
                             'Version $sygnatureVersionString',
                             key: const Key('about-version'),
                             style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: AppColors.inkMuted),
+                                ?.copyWith(
+                                  color: AppColors.of(context).inkMuted,
+                                ),
                           ),
                           const SizedBox(height: 24),
                           Text(

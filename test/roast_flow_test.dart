@@ -489,7 +489,7 @@ void main() {
             ),
           )
           .color,
-      AppColors.success,
+      AppColors.of(tester.element(health)).success,
     );
 
     String? copiedPublicKey;
@@ -620,7 +620,7 @@ void main() {
             ),
           )
           .color,
-      AppColors.danger,
+      AppColors.of(tester.element(health)).danger,
     );
     expect(find.text('null'), findsNothing);
 

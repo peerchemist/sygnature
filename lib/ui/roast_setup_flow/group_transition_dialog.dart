@@ -145,11 +145,11 @@ class _RoastGroupTransitionDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'This creates a successor wallet with a new shared key. The '
                 'current wallet stays active and its balance is not moved '
                 'automatically.',
-                style: TextStyle(color: AppColors.inkMuted),
+                style: TextStyle(color: AppColors.of(context).inkMuted),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -260,15 +260,21 @@ class _RoastGroupTransitionDialogState
                     : (value) => setState(() => _threshold = value!),
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Share the generated participant-bound invitations. Once '
                 'everyone is online, start key creation from the successor '
                 'wallet.',
-                style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                style: TextStyle(
+                  color: AppColors.of(context).inkMuted,
+                  fontSize: 12,
+                ),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                Text(
+                  _error!,
+                  style: TextStyle(color: AppColors.of(context).danger),
+                ),
               ],
             ],
           ),

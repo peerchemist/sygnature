@@ -48,7 +48,7 @@ class const _SettingsScreen({
     ],
     builder: (context, _) => Scaffold(
       appBar: AppBar(
-        backgroundColor: AppColors.canvas,
+        backgroundColor: AppColors.of(context).canvas,
         surfaceTintColor: Colors.transparent,
         title: const Text('Settings'),
       ),
@@ -61,6 +61,48 @@ class const _SettingsScreen({
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (AppThemeScope.maybeOf(context) case final theme?) ...[
+                    Text(
+                      'Appearance',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Choose a theme, or follow your device settings.',
+                    ),
+                    const SizedBox(height: 12),
+                    SegmentedButton<ThemeMode>(
+                      key: const Key('theme-mode-toggle'),
+                      segments: const [
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          label: Text('System'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          label: Text('Light'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          label: Text('Dark'),
+                        ),
+                      ],
+                      selected: {theme.value},
+                      onSelectionChanged: (selection) async {
+                        final saved = await theme.setMode(selection.single);
+                        if (!saved && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Theme changed, but the preference could not be saved.',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    const Divider(height: 32),
+                  ],
                   ListTile(
                     key: const Key('backup-button'),
                     contentPadding: EdgeInsets.zero,
@@ -95,7 +137,7 @@ class const _SettingsScreen({
                   Text(
                     'NETWORK',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AppColors.inkMuted,
+                      color: AppColors.of(context).inkMuted,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.1,
                     ),
@@ -116,7 +158,7 @@ class const _SettingsScreen({
                   Text(
                     'NOTIFICATIONS',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: AppColors.inkMuted,
+                      color: AppColors.of(context).inkMuted,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.1,
                     ),
@@ -216,7 +258,7 @@ class const _SettingsScreen({
                     Text(
                       'ROAST EVENT NOTIFICATIONS',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: AppColors.inkMuted,
+                        color: AppColors.of(context).inkMuted,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 1.1,
                       ),
@@ -282,9 +324,9 @@ class const _SettingsScreen({
                   const Divider(height: 32),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(
+                    leading: Icon(
                       Icons.delete_outline_rounded,
-                      color: Colors.red,
+                      color: AppColors.of(context).danger,
                     ),
                     title: const Text('Remove local wallet'),
                     subtitle: Text(
@@ -313,7 +355,12 @@ class const _SettingsScreen({
                                   ),
                                   FilledButton(
                                     style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.red,
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .error,
+                                      foregroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .onError,
                                     ),
                                     onPressed: () =>
                                         Navigator.pop(dialogContext, true),

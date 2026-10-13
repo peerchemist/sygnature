@@ -218,10 +218,10 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'The exact text is signed by the shared group key. It is not a '
           'Peercoin transaction or an address-ownership proof.',
-          style: TextStyle(color: AppColors.inkMuted),
+          style: TextStyle(color: AppColors.of(context).inkMuted),
         ),
         const SizedBox(height: 16),
         TextFormField(
@@ -274,7 +274,7 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Text(_error!, style: const TextStyle(color: AppColors.danger)),
+          Text(_error!, style: TextStyle(color: AppColors.of(context).danger)),
         ],
       ],
     ),
@@ -284,18 +284,21 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Text(
+      Text(
         'Confirm the exact text below. Whitespace and line endings are part '
         'of the signature.',
-        style: TextStyle(color: AppColors.inkMuted),
+        style: TextStyle(color: AppColors.of(context).inkMuted),
       ),
       const SizedBox(height: 16),
       if (!_canRequestSignatures) ...[
-        const Text(
+        Text(
           'Request signatures is unavailable because the ROAST signer is not '
           'connected to the coordinator.',
           key: Key('request-message-signatures-unavailable'),
-          style: TextStyle(color: AppColors.warningDark, fontSize: 12),
+          style: TextStyle(
+            color: AppColors.of(context).warningDark,
+            fontSize: 12,
+          ),
         ),
         const SizedBox(height: 16),
       ],
@@ -314,7 +317,7 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
       ),
       if (_error != null) ...[
         const SizedBox(height: 12),
-        Text(_error!, style: const TextStyle(color: AppColors.danger)),
+        Text(_error!, style: TextStyle(color: AppColors.of(context).danger)),
       ],
     ],
   );
@@ -337,9 +340,9 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
           width: double.infinity,
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppColors.greenDark.withValues(alpha: 0.07),
+            color: AppColors.of(context).greenDark.withValues(alpha: 0.07),
             border: Border.all(
-              color: AppColors.greenDark.withValues(alpha: 0.25),
+              color: AppColors.of(context).greenDark.withValues(alpha: 0.25),
             ),
             borderRadius: BorderRadius.circular(8),
           ),
@@ -350,14 +353,14 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
                 children: [
                   Icon(
                     sent ? Icons.outgoing_mail : Icons.sync_rounded,
-                    color: AppColors.greenDark,
+                    color: AppColors.of(context).greenDark,
                     size: 20,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     sent ? 'Signature request sent' : 'Sending request…',
-                    style: const TextStyle(
-                      color: AppColors.greenDark,
+                    style: TextStyle(
+                      color: AppColors.of(context).greenDark,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -369,7 +372,7 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
                     ? 'The request was sent to the other signers. Waiting '
                           'for enough responses to complete the signature.'
                     : 'Submitting the request to the signer group.',
-                style: const TextStyle(color: AppColors.inkMuted),
+                style: TextStyle(color: AppColors.of(context).inkMuted),
               ),
               const SizedBox(height: 14),
               Row(
@@ -385,8 +388,8 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
                         : sent
                         ? 'WAITING'
                         : 'SENDING',
-                    style: const TextStyle(
-                      color: AppColors.inkMuted,
+                    style: TextStyle(
+                      color: AppColors.of(context).inkMuted,
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.7,
@@ -419,11 +422,11 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
           'The request remains active for up to '
           '${_requestTimeout.inMinutes} minutes. You can close this window; '
           'signing will continue in the background.',
-          style: const TextStyle(color: AppColors.inkMuted, fontSize: 12),
+          style: TextStyle(color: AppColors.of(context).inkMuted, fontSize: 12),
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Text(_error!, style: const TextStyle(color: AppColors.danger)),
+          Text(_error!, style: TextStyle(color: AppColors.of(context).danger)),
         ],
       ],
     );
@@ -433,9 +436,9 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Row(
+      Row(
         children: [
-          Icon(Icons.verified_rounded, color: AppColors.success),
+          Icon(Icons.verified_rounded, color: AppColors.of(context).success),
           SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -477,8 +480,8 @@ class const _MessageBox({
     width: double.infinity,
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: AppColors.canvas,
-      border: Border.all(color: AppColors.line),
+      color: AppColors.of(context).canvas,
+      border: Border.all(color: AppColors.of(context).line),
       borderRadius: BorderRadius.circular(8),
     ),
     child: Column(
@@ -486,8 +489,8 @@ class const _MessageBox({
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppColors.inkMuted,
+          style: TextStyle(
+            color: AppColors.of(context).inkMuted,
             fontSize: 10,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.6,

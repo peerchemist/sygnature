@@ -222,7 +222,10 @@ Future<void> _confirmDeleteWallet(
           child: const Text('Cancel'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+          ),
           onPressed: () => Navigator.pop(dialogContext, true),
           child: const Text('Delete wallet'),
         ),
@@ -379,9 +382,9 @@ Future<void> _showArchivedWallets(
                                 controller,
                                 account,
                               ),
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.delete_outline_rounded,
-                                color: Colors.red,
+                                color: AppColors.of(context).danger,
                               ),
                             ),
                           ],

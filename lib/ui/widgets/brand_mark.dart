@@ -10,7 +10,7 @@ class BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = light ? Colors.white : AppColors.ink;
+    final foreground = light ? Colors.white : AppColors.of(context).ink;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -18,13 +18,15 @@ class BrandMark extends StatelessWidget {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: light ? Colors.white : AppColors.forest,
+            color: light ? Colors.white : AppColors.of(context).forest,
             borderRadius: BorderRadius.circular(4),
           ),
           child: Icon(
             Icons.account_balance_wallet_outlined,
             size: 18,
-            color: light ? AppColors.forest : Colors.white,
+            color: light
+                ? const Color(0xff24583b)
+                : Theme.of(context).colorScheme.onPrimary,
           ),
         ),
         if (!compact) ...[

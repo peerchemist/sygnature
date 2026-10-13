@@ -57,11 +57,14 @@ class const _RoastInvitationsDialog({
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Copied means the invitation was placed on this device\'s '
                   'clipboard. Mark it as sent after sharing it through your '
                   'trusted channel. Joined is verified by the coordinator.',
-                  style: TextStyle(color: AppColors.inkMuted, fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.of(context).inkMuted,
+                    fontSize: 12,
+                  ),
                 ),
                 if (next != null) ...[
                   const SizedBox(height: 16),
@@ -128,32 +131,32 @@ class const _RoastInvitationRow({
       RoastInvitationDisplayStatus.ready => (
         'INVITE READY',
         Icons.mail_outline_rounded,
-        AppColors.inkMuted,
+        AppColors.of(context).inkMuted,
       ),
       RoastInvitationDisplayStatus.copied => (
         'COPIED',
         Icons.copy_rounded,
-        AppColors.warningDark,
+        AppColors.of(context).warningDark,
       ),
       RoastInvitationDisplayStatus.sent => (
         'SENT',
         Icons.outgoing_mail,
-        AppColors.warningDark,
+        AppColors.of(context).warningDark,
       ),
       RoastInvitationDisplayStatus.joined => (
         'JOINED',
         Icons.check_circle_outline_rounded,
-        AppColors.success,
+        AppColors.of(context).success,
       ),
       RoastInvitationDisplayStatus.expired => (
         'EXPIRED',
         Icons.schedule_rounded,
-        AppColors.danger,
+        AppColors.of(context).danger,
       ),
       RoastInvitationDisplayStatus.revoked => (
         'REVOKED',
         Icons.block_rounded,
-        AppColors.danger,
+        AppColors.of(context).danger,
       ),
     };
     final canCopy =

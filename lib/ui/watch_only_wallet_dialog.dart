@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_theme.dart';
+
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_network.dart';
 
@@ -140,7 +142,10 @@ class _WatchOnlyWalletDialogState extends State<WatchOnlyWalletDialog> {
               ),
               if (_error case final error?) ...[
                 const SizedBox(height: 8),
-                Text(error, style: const TextStyle(color: Colors.red)),
+                Text(
+                  error,
+                  style: TextStyle(color: AppColors.of(context).danger),
+                ),
               ],
             ],
           ),
