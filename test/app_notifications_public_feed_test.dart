@@ -114,6 +114,109 @@ void main() {
     delivery.dispose();
   });
 
+  test(
+    'macOS requests permission after initialization returns false',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      MacOSFlutterLocalNotificationsPlugin.registerWith();
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+        call,
+      ) async {
+        pluginCalls.add(call);
+        return call.method != 'initialize';
+      });
+
+      final delivery = AppNotifications();
+      await delivery.initialize();
+      expect(delivery.systemEnabled, isTrue);
+      expect(pluginCalls.map((call) => call.method), [
+        'initialize',
+        'requestPermissions',
+      ]);
+      expect((pluginCalls.last.arguments as Map)['alert'], isTrue);
+      delivery.dispose();
+    },
+  );
+
+  test(
+    'macOS can enable a previously disabled notification preference',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      MacOSFlutterLocalNotificationsPlugin.registerWith();
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+        call,
+      ) async {
+        storageCalls.add(call);
+        return call.method == 'read' &&
+                (call.arguments as Map)['key'] ==
+                    'notifications.desktop_enabled'
+            ? 'false'
+            : null;
+      });
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+        call,
+      ) async {
+        pluginCalls.add(call);
+        return call.method != 'initialize';
+      });
+
+      final delivery = AppNotifications();
+      await delivery.initialize();
+      expect(delivery.systemEnabled, isFalse);
+      expect(pluginCalls, isEmpty);
+      expect(await delivery.setSystemEnabled(true), isTrue);
+      expect(delivery.systemEnabled, isTrue);
+      delivery.setSoundEnabled(false);
+      expect(await delivery.sendTest(), isTrue);
+      expect(pluginCalls.map((call) => call.method), [
+        'initialize',
+        'requestPermissions',
+        'show',
+      ]);
+      delivery.dispose();
+    },
+  );
+
+  test('macOS denied permission keeps notifications disabled', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    MacOSFlutterLocalNotificationsPlugin.registerWith();
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+      call,
+    ) async {
+      pluginCalls.add(call);
+      return false;
+    });
+
+    final delivery = AppNotifications();
+    await delivery.initialize();
+    expect(delivery.systemEnabled, isFalse);
+    expect(await delivery.setSystemEnabled(true), isFalse);
+    expect(delivery.systemEnabled, isFalse);
+    expect(pluginCalls.map((call) => call.method), [
+      'initialize',
+      'requestPermissions',
+      'requestPermissions',
+    ]);
+    delivery.dispose();
+  });
+
+  test('macOS background initialization does not request permission', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    MacOSFlutterLocalNotificationsPlugin.registerWith();
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+      call,
+    ) async {
+      pluginCalls.add(call);
+      return call.method != 'initialize';
+    });
+
+    final delivery = AppNotifications();
+    await delivery.initialize(requestPermission: false);
+    expect(pluginCalls.map((call) => call.method), ['initialize']);
+    expect(delivery.systemEnabled, isTrue);
+    delivery.dispose();
+  });
+
   test('background plugin failure propagates without persisting a disabled preference', () async {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(
       notifications,

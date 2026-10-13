@@ -233,7 +233,13 @@ class AppNotifications({
             ),
           ),
         );
-        _pluginInitialized = initialized ?? false;
+        // On macOS this result describes permission, not initialization.
+        // With all automatic permission requests disabled, the native plugin
+        // initializes successfully but returns false. Request permission below
+        // when needed instead of treating that response as a startup failure.
+        _pluginInitialized =
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            (initialized ?? false);
       }
       if (!_pluginInitialized) return false;
       if (requestPermission) {
