@@ -802,7 +802,7 @@ extension WalletSigningController on WalletController {
     return true;
   }
 
-  Future<void> _announceRoastAction(String id) async {
+  Future<void> _announceRoastAction(String id, VoidCallback? notify) async {
     if (!_announcedRoastActions.add(id)) return;
     try {
       await _updateVault((current) {
@@ -822,6 +822,6 @@ extension WalletSigningController on WalletController {
         stackTrace: stackTrace,
       );
     }
-    onRoastActionRequired?.call();
+    notify?.call();
   }
 }

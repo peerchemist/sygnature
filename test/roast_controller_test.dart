@@ -1360,7 +1360,7 @@ void main() {
     final controller = _controller(
       runtime: runtime,
       role: RoastSetupRole.host,
-      onRoastActionRequired: () => notificationCount++,
+      onDkgRequest: () => notificationCount++,
     );
 
     await controller.load();
@@ -1472,7 +1472,12 @@ void main() {
   test('ignores foreign keys and continues after an event failure', () async {
     final runtime = _FakeRoastRuntime();
     final keyService = _FakeRoastKeyService()..failNextDerivation = true;
-    final controller = _controller(runtime: runtime, keyService: keyService);
+    var groupCreatedCount = 0;
+    final controller = _controller(
+      runtime: runtime,
+      keyService: keyService,
+      onRoastGroupCreated: () => groupCreatedCount++,
+    );
     await controller.load();
     await _flushEvents();
 
@@ -1497,6 +1502,7 @@ void main() {
     );
     await _flushEvents();
     expect(controller.roastSetups.single.status, RoastSetupStatus.error);
+    expect(groupCreatedCount, 0);
 
     runtime.emit(
       RoastRuntimeSnapshotEvent(
@@ -1521,6 +1527,7 @@ void main() {
 
     expect(controller.roastSetups.single.status, RoastSetupStatus.active);
     expect(controller.accounts.single.address, 'pc1pshared');
+    expect(groupCreatedCount, 1);
     expect(
       controller.activitiesFor(controller.accounts.single).single.type,
       WalletActivityType.dkgCompleted,
@@ -1540,6 +1547,7 @@ void main() {
     await _flushEvents();
     expect(controller.vault, same(vault));
     expect(notifications, 0);
+    expect(groupCreatedCount, 1);
 
     controller.dispose();
   });
@@ -1552,7 +1560,7 @@ void main() {
       runtime: runtime,
       electrumx: electrumx,
       active: true,
-      onRoastActionRequired: () => notificationCount++,
+      onRoastSigningRequest: () => notificationCount++,
     );
     await controller.load();
     await _flushEvents();
@@ -1641,7 +1649,7 @@ void main() {
       repository: repository,
       runtime: firstRuntime,
       active: true,
-      onRoastActionRequired: () => notificationCount++,
+      onRoastSigningRequest: () => notificationCount++,
     );
     await first.load();
     await _flushEvents();
@@ -1663,7 +1671,7 @@ void main() {
       repository: repository,
       runtime: secondRuntime,
       active: true,
-      onRoastActionRequired: () => notificationCount++,
+      onRoastSigningRequest: () => notificationCount++,
     );
     await second.load();
     await _flushEvents();
@@ -2768,7 +2776,9 @@ WalletController _controller({
   _FakeElectrumxService? electrumx,
   bool active = false,
   List<WalletActivity> activities = const [],
-  void Function()? onRoastActionRequired,
+  void Function()? onRoastSigningRequest,
+  void Function()? onDkgRequest,
+  void Function()? onRoastGroupCreated,
 }) {
   final walletRepository = repository ?? MemoryWalletRepository();
   walletRepository.value ??= WalletVault(
@@ -2800,7 +2810,9 @@ WalletController _controller({
     roastKeyService: keyService ?? _FakeRoastKeyService(),
     roastSigningOperations: operationRepository,
     networkServiceFactory: electrumx == null ? null : (_) async => electrumx,
-    onRoastActionRequired: onRoastActionRequired,
+    onRoastSigningRequest: onRoastSigningRequest,
+    onDkgRequest: onDkgRequest,
+    onRoastGroupCreated: onRoastGroupCreated,
   );
 }
 

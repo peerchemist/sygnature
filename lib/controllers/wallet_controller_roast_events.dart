@@ -180,7 +180,10 @@ extension WalletRoastEventController on WalletController {
           ),
         );
         if (event.failure == null && event.stage == 'waiting') {
-          await _announceRoastAction('dkg:${setup.id}:${event.proposalHex}');
+          await _announceRoastAction(
+            'dkg:${setup.id}:${event.proposalHex}',
+            onDkgRequest,
+          );
         }
         await _recordSetupActivity(
           setup,
@@ -195,6 +198,13 @@ extension WalletRoastEventController on WalletController {
         );
       case RoastRuntimeKeyEvent():
         if (event.keyName != setup.keyName) return;
+        final groupWasActive =
+            setup.groupKeyHex == event.groupKeyHex &&
+            accounts.any(
+              (account) =>
+                  account.sourceId == setup.id &&
+                  account.derivationState == WalletDerivationState.ready,
+            );
         await _updateSetup(
           setup.id,
           (setup) => setup.copyWith(
@@ -213,6 +223,12 @@ extension WalletRoastEventController on WalletController {
           type: WalletActivityType.dkgCompleted,
           reference: event.keyName,
         );
+        if (!groupWasActive) {
+          await _announceRoastAction(
+            'group-created:${setup.id}:${event.keyName}',
+            onRoastGroupCreated,
+          );
+        }
       case RoastRuntimeFailureEvent()
           when event.operation == RoastRuntimeOperation.signatures ||
               event.operation == RoastRuntimeOperation.signingPersistence:
@@ -302,7 +318,10 @@ extension WalletRoastEventController on WalletController {
           );
           _roastSigningRequests[requestKey] = inboxItem;
           if (isNew && event.request.status == 'waiting') {
-            await _announceRoastAction('signatures:$requestKey');
+            await _announceRoastAction(
+              'signatures:$requestKey',
+              onRoastSigningRequest,
+            );
             final transactionRecipients = [
               if (event.request.kind == RoastSigningRequestKind.transaction)
                 for (final output in event.request.outputs)

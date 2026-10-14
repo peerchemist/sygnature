@@ -3,6 +3,33 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/services/app_notifications.dart';
+import 'package:sygnature_ng/services/ui_sounds.dart';
+
+class _RecordingUiSounds extends UiSounds {
+  final cues = <UiSoundCue>[];
+
+  @override
+  void coinsReceived({double volume = 0.5}) =>
+      cues.add(UiSoundCue.coinsReceived);
+
+  @override
+  void signingRequest({double volume = 0.5}) =>
+      cues.add(UiSoundCue.signingRequest);
+
+  @override
+  void dkgRequest({double volume = 0.5}) => cues.add(UiSoundCue.dkgRequest);
+
+  @override
+  void roastGroupCreated({double volume = 0.5}) =>
+      cues.add(UiSoundCue.roastGroupCreated);
+
+  @override
+  void notificationTest({double volume = 0.5}) =>
+      cues.add(UiSoundCue.notificationTest);
+
+  @override
+  Future<void> dispose() async {}
+}
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -64,6 +91,29 @@ void main() {
       expect(details['playSound'], isFalse);
     }
     expect(delivery.systemEnabled, isTrue);
+    delivery.dispose();
+  });
+
+  test('foreground wallet events use distinct generated sound cues', () async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+      call,
+    ) async {
+      storageCalls.add(call);
+      return (call.arguments as Map)['key'] == 'notifications.desktop_enabled'
+          ? 'false'
+          : null;
+    });
+    final sounds = _RecordingUiSounds();
+    final delivery = AppNotifications(sounds: sounds);
+    await delivery.initialize();
+
+    delivery.coinsReceived();
+    delivery.roastSigningRequest();
+    delivery.dkgRequest();
+    delivery.roastGroupCreated();
+    expect(await delivery.sendTest(), isFalse);
+
+    expect(sounds.cues, UiSoundCue.values);
     delivery.dispose();
   });
 

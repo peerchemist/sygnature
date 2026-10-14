@@ -109,7 +109,9 @@ class WalletController extends ChangeNotifier {
     this.networkServiceFactory,
     this.onCoinsReceived,
     this.publicFeedStore,
-    this.onRoastActionRequired,
+    this.onRoastSigningRequest,
+    this.onDkgRequest,
+    this.onRoastGroupCreated,
     WalletKeyService? keyService,
     WalletTransactionService? transactionService,
     RoastRuntime? roastRuntime,
@@ -144,7 +146,9 @@ class WalletController extends ChangeNotifier {
   final WalletBackupService? _backupService;
   final WalletNetworkServiceFactory? networkServiceFactory;
   final VoidCallback? onCoinsReceived;
-  final VoidCallback? onRoastActionRequired;
+  final VoidCallback? onRoastSigningRequest;
+  final VoidCallback? onDkgRequest;
+  final VoidCallback? onRoastGroupCreated;
   final WalletKeyService _keyService;
   final WalletTransactionService _transactionService;
   final RoastRuntime? _roastRuntime;

@@ -252,7 +252,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
             PeercoinNetworks.fromWalletNetwork(network),
           ),
       onCoinsReceived: _notifications.coinsReceived,
-      onRoastActionRequired: _notifications.roastActionRequired,
+      onRoastSigningRequest: _notifications.roastSigningRequest,
+      onDkgRequest: _notifications.dkgRequest,
+      onRoastGroupCreated: _notifications.roastGroupCreated,
     );
     await controller.load(restoreSigningOperations: restorePrivateState);
     return controller;

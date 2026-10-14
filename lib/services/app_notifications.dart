@@ -129,11 +129,25 @@ class AppNotifications({
   void coinsReceived() => _deliver(
     title: 'Coins received',
     body: 'New funds were received by your wallet.',
+    sound: _uiSounds.coinsReceived,
   );
 
-  void roastActionRequired() => _deliver(
-    title: 'Action required',
+  void roastSigningRequest() => _deliver(
+    title: 'Signing request',
     body: 'A ROAST signing request is waiting for your approval.',
+    sound: _uiSounds.signingRequest,
+  );
+
+  void dkgRequest() => _deliver(
+    title: 'Key generation request',
+    body: 'A DKG request is waiting for your approval.',
+    sound: _uiSounds.dkgRequest,
+  );
+
+  void roastGroupCreated() => _deliver(
+    title: 'ROAST group ready',
+    body: 'The new ROAST group was created successfully.',
+    sound: _uiSounds.roastGroupCreated,
   );
 
   /// Public metadata never identifies a transaction or an approval action.
@@ -149,7 +163,7 @@ class AppNotifications({
   }
 
   Future<bool> sendTest() async {
-    if (_soundEnabled) _uiSounds.message(volume: _soundVolume);
+    if (_soundEnabled) _uiSounds.notificationTest(volume: _soundVolume);
     if (!_systemEnabled || !supportsSystemNotifications) return false;
     return _show(
       title: 'Sygnature notifications',
@@ -157,8 +171,12 @@ class AppNotifications({
     );
   }
 
-  void _deliver({required String title, required String body}) {
-    if (_soundEnabled) _uiSounds.message(volume: _soundVolume);
+  void _deliver({
+    required String title,
+    required String body,
+    required void Function({double volume}) sound,
+  }) {
+    if (_soundEnabled) sound(volume: _soundVolume);
     if (_systemEnabled && supportsSystemNotifications) {
       unawaited(_show(title: title, body: body));
     }

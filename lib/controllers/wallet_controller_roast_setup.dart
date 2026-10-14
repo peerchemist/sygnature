@@ -1239,6 +1239,13 @@ extension WalletRoastSetupController on WalletController {
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
       }
+      final groupWasActive =
+          setup.groupKeyHex == snapshot.groupKeyHex &&
+          accounts.any(
+            (account) =>
+                account.sourceId == setup.id &&
+                account.derivationState == WalletDerivationState.ready,
+          );
       await _updateSetup(
         setup.id,
         (setup) => setup.copyWith(
@@ -1271,11 +1278,18 @@ extension WalletRoastSetupController on WalletController {
           pendingDkgProposalHex != null) {
         await _announceRoastAction(
           'dkg:${connected.id}:$pendingDkgProposalHex',
+          onDkgRequest,
         );
       }
       if (snapshot.groupKeyHex != null) {
         await _activateRoastAccount(connected, snapshot.groupKeyHex!);
         await _markTransitionReadyForSetup(setup.id);
+        if (!groupWasActive) {
+          await _announceRoastAction(
+            'group-created:${setup.id}:${connected.keyName}',
+            onRoastGroupCreated,
+          );
+        }
       }
     } catch (error) {
       _roastPresence.remove(setup.id);
