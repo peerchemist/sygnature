@@ -196,7 +196,9 @@ class _WalletBackupScreenState extends State<WalletBackupScreen> {
               children: [
                 const Text(
                   'Anyone with this file and its passphrase can recover your wallet and local signing shares. '
-                  'Choose a high-entropy passphrase, such as several randomly chosen words, and store it separately. '
+                  'Each ROAST signer needs a separate, clearly labeled backup; one signer\'s backup cannot replace another\'s. '
+                  'Choose a high-entropy passphrase, such as several randomly chosen words, and store it separately from the backup file. '
+                  'Sygnature cannot recover or reset a lost backup passphrase. '
                   'Spaces, capitalization and Unicode characters must match exactly.',
                 ),
                 const SizedBox(height: 20),
