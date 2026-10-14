@@ -250,15 +250,18 @@ class const _WalletListTile({
     final isCoordinator = setup?.role == RoastSetupRole.host;
     final accountStatus = switch (account.derivationState) {
       WalletDerivationState.pending => 'Pending derivation',
-      WalletDerivationState.ready
-          when syncStatus == AccountSyncStatus.syncing =>
-        'Synchronizing…',
+      WalletDerivationState.error => 'Derivation failed',
+      _ when syncStatus == AccountSyncStatus.syncing => 'Synchronizing…',
+      _ when syncStatus == AccountSyncStatus.error => 'Sync failed',
       WalletDerivationState.ready => '${_formatPpc(balanceSats)} PPC',
       WalletDerivationState.watchOnly =>
         'Watch-only · ${_formatPpc(balanceSats)} PPC',
       WalletDerivationState.locked => 'Locked · ${_formatPpc(balanceSats)} PPC',
-      WalletDerivationState.error => 'Derivation failed',
     };
+    final showSyncStatus =
+        account.address != null &&
+        (syncStatus == AccountSyncStatus.syncing ||
+            syncStatus == AccountSyncStatus.error);
 
     return Material(
       color: selected ? AppColors.of(context).lime : Colors.transparent,
@@ -297,6 +300,15 @@ class const _WalletListTile({
                   children: [
                     Row(
                       children: [
+                        if (showSyncStatus) ...[
+                          _WalletSyncIndicator(
+                            key: ValueKey(
+                              'wallet-${account.id}-${syncStatus.name}',
+                            ),
+                            status: syncStatus,
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         Expanded(
                           child: Text(
                             account.name,
@@ -350,6 +362,7 @@ class const _WalletListTile({
                       children: [
                         Expanded(
                           child: Text(
+                            key: ValueKey('wallet-${account.id}-status'),
                             setup != null && account.address == null
                                 ? setup!.isWaitingForInvitation
                                       ? 'Resume setup'
@@ -357,7 +370,9 @@ class const _WalletListTile({
                                 : accountStatus,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: AppColors.of(context).inkMuted,
+                              color: syncStatus == AccountSyncStatus.error
+                                  ? AppColors.of(context).danger
+                                  : AppColors.of(context).inkMuted,
                               fontSize: 12,
                             ),
                           ),
@@ -762,7 +777,13 @@ class _MobileWalletPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SelectorBuilder(
     listenable: controller,
-    select: () => [...controller.accounts, controller.selectedAccount?.id],
+    select: () => [
+      for (final account in controller.accounts) ...[
+        account,
+        controller.syncStatusFor(account),
+      ],
+      controller.selectedAccount?.id,
+    ],
     builder: (context, _) => _buildContent(context),
   );
 
@@ -777,11 +798,31 @@ class _MobileWalletPicker extends StatelessWidget {
               itemCount: controller.accounts.length,
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
+                final account = controller.accounts[index];
                 final selected = index == controller.selectedAccountIndex;
+                final syncStatus = controller.syncStatusFor(account);
+                final showSyncStatus =
+                    account.address != null &&
+                    (syncStatus == AccountSyncStatus.syncing ||
+                        syncStatus == AccountSyncStatus.error);
                 return ChoiceChip(
                   selected: selected,
                   showCheckmark: false,
-                  label: Text(controller.accounts[index].name),
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(account.name),
+                      if (showSyncStatus) ...[
+                        const SizedBox(width: 7),
+                        _WalletSyncIndicator(
+                          key: ValueKey(
+                            'wallet-${account.id}-${syncStatus.name}',
+                          ),
+                          status: syncStatus,
+                        ),
+                      ],
+                    ],
+                  ),
                   onSelected: (_) => _runWalletAction(
                     context,
                     () => controller.selectAccount(index),
@@ -811,6 +852,34 @@ class _MobileWalletPicker extends StatelessWidget {
       ),
     );
   }
+}
+
+class const _WalletSyncIndicator({
+  super.key,
+  required final AccountSyncStatus status,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => switch (status) {
+    AccountSyncStatus.syncing => Tooltip(
+      message: 'Wallet is synchronizing',
+      child: SizedBox.square(
+        dimension: 13,
+        child: CircularProgressIndicator(
+          strokeWidth: 1.8,
+          color: AppColors.of(context).warningDark,
+        ),
+      ),
+    ),
+    AccountSyncStatus.error => Tooltip(
+      message: 'Wallet synchronization failed',
+      child: Icon(
+        Icons.error_outline_rounded,
+        size: 15,
+        color: AppColors.of(context).danger,
+      ),
+    ),
+    _ => const SizedBox.shrink(),
+  };
 }
 
 class _PendingRoastNotice extends StatelessWidget {
