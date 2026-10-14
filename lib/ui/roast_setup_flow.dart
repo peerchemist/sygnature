@@ -49,6 +49,74 @@ List<String> _newParticipantAliases(
   return aliases;
 }
 
+Future<bool> _confirmRoastManifest(
+  BuildContext context,
+  RoastSetup setup, {
+  required String confirmLabel,
+}) async {
+  final fingerprint = setup.groupFingerprintHex;
+  final manifest = [
+    'Network: ${setup.blockchainId} / ${setup.networkId}',
+    'Threshold: ${setup.threshold} of ${setup.participantCount}',
+    'Group ID: ${setup.groupId}',
+    'Fingerprint: ${fingerprint ?? 'unavailable'}',
+    '',
+    'Signers:',
+    for (final participant in setup.participants) ...[
+      '${participant.name}${participant.cardId == setup.localCardId ? ' (you)' : ''}',
+      '  Participant ID: ${participant.identifierHex}',
+      '  Public key: ${participant.publicKeyHex}',
+    ],
+  ].join('\n');
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          key: const Key('roast-manifest-confirmation'),
+          title: const Text('Verify group manifest'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Compare the fingerprint and signer keys with every '
+                    'participant over a trusted channel. Do not continue if '
+                    'any value differs.',
+                  ),
+                  const SizedBox(height: 16),
+                  SelectableText(
+                    manifest,
+                    key: const Key('roast-manifest-details'),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm-roast-manifest'),
+              onPressed: fingerprint == null
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
 class const RoastSetupPanel({
   super.key,
   required final WalletController controller,
@@ -465,10 +533,23 @@ class const RoastSetupPanel({
                         setup.participantCount ||
                     controller.onlineSignerCount(setup) < setup.participantCount
                 ? null
-                : () => _perform(
-                    context,
-                    () => controller.startRoastDkg(setup.id),
-                  ),
+                : () async {
+                    final confirmed = await _confirmRoastManifest(
+                      context,
+                      setup,
+                      confirmLabel: 'I verified — create request',
+                    );
+                    if (confirmed && context.mounted) {
+                      await _perform(
+                        context,
+                        () => controller.startRoastDkg(
+                          setup.id,
+                          confirmedGroupFingerprintHex:
+                              setup.groupFingerprintHex!,
+                        ),
+                      );
+                    }
+                  },
             child: const Text('Create shared key'),
           ),
       ];
@@ -792,11 +873,24 @@ class const RoastDkgRequestCard({
                 FilledButton(
                   onPressed: busy
                       ? null
-                      : () => RoastSetupPanel._perform(
-                          context,
-                          () => controller.acceptRoastDkg(setup.id),
-                        ),
-                  child: const Text('Approve key creation'),
+                      : () async {
+                          final confirmed = await _confirmRoastManifest(
+                            context,
+                            setup,
+                            confirmLabel: 'I verified — approve',
+                          );
+                          if (confirmed && context.mounted) {
+                            await RoastSetupPanel._perform(
+                              context,
+                              () => controller.acceptRoastDkg(
+                                setup.id,
+                                confirmedGroupFingerprintHex:
+                                    setup.groupFingerprintHex!,
+                              ),
+                            );
+                          }
+                        },
+                  child: const Text('Review group manifest'),
                 ),
               ],
             ),

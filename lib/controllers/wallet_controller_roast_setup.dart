@@ -1041,9 +1041,13 @@ extension WalletRoastSetupController on WalletController {
           'Verify that it serves this exact group, then retry explicitly.',
   };
 
-  Future<void> startRoastDkg(String setupId) async {
+  Future<void> startRoastDkg(
+    String setupId, {
+    required String confirmedGroupFingerprintHex,
+  }) async {
     await _guardRoastOperation(setupId, () async {
       final setup = _setupById(setupId);
+      _requireRoastManifestConfirmation(setup, confirmedGroupFingerprintHex);
       if (setup.role != RoastSetupRole.host) {
         throw StateError('Only the setup host can start key creation.');
       }
@@ -1112,9 +1116,13 @@ extension WalletRoastSetupController on WalletController {
     });
   }
 
-  Future<void> acceptRoastDkg(String setupId) async {
+  Future<void> acceptRoastDkg(
+    String setupId, {
+    required String confirmedGroupFingerprintHex,
+  }) async {
     await _guardRoastOperation(setupId, () async {
       final setup = _setupById(setupId);
+      _requireRoastManifestConfirmation(setup, confirmedGroupFingerprintHex);
       final proposal = setup.pendingDkgProposalHex;
       if (proposal == null ||
           setup.pendingDkgName != setup.keyName ||
@@ -1132,6 +1140,20 @@ extension WalletRoastSetupController on WalletController {
       );
       await _roastRuntime!.acceptDkg(setupId, proposal);
     });
+  }
+
+  static void _requireRoastManifestConfirmation(
+    RoastSetup setup,
+    String confirmedGroupFingerprintHex,
+  ) {
+    final fingerprint = setup.groupFingerprintHex;
+    if (fingerprint == null ||
+        fingerprint.isEmpty ||
+        confirmedGroupFingerprintHex != fingerprint) {
+      throw StateError(
+        'Confirm the current ROAST group manifest before key creation.',
+      );
+    }
   }
 
   Future<void> rejectRoastDkg(String setupId) async {

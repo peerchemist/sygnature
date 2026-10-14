@@ -828,7 +828,10 @@ void main() {
         ),
       );
       await _flushEvents();
-      await controller.startRoastDkg(successor.id);
+      await controller.startRoastDkg(
+        successor.id,
+        confirmedGroupFingerprintHex: successor.groupFingerprintHex!,
+      );
 
       expect(runtime.requestedDkgSetupIds, contains(successor.id));
       expect(runtime.lastApprovedDkgDetails?.name, successor.keyName);
@@ -1326,7 +1329,10 @@ void main() {
 
     final setup = controller.roastSetups.single;
     expect(controller.onlineSignerCount(setup), 2);
-    await controller.startRoastDkg(setup.id);
+    await controller.startRoastDkg(
+      setup.id,
+      confirmedGroupFingerprintHex: setup.groupFingerprintHex!,
+    );
     expect(runtime.requestedDkgSetupIds, [setup.id]);
 
     controller.dispose();

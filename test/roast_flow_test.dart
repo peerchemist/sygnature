@@ -522,6 +522,18 @@ void main() {
     expect(find.text('Signer public key copied.'), findsOneWidget);
 
     final setup = controller.roastSetups.single;
+    await tester.tap(find.text('Create shared key'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('roast-manifest-confirmation')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Fingerprint: ${'aa' * 32}'), findsOneWidget);
+    expect(find.textContaining(remoteParticipant.publicKeyHex), findsOneWidget);
+    expect(find.text('I verified — create request'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
     runtime.emit(
       RoastRuntimeDkgEvent(
         setup.id,
@@ -546,7 +558,7 @@ void main() {
     final dashboardHeader = find.byKey(const Key('wallet-dashboard-header'));
     expect(priorityRequests, findsOneWidget);
     expect(find.byKey(const Key('roast-dkg-request-card')), findsOneWidget);
-    expect(find.text('Approve key creation'), findsOneWidget);
+    expect(find.text('Review group manifest'), findsOneWidget);
     expect(
       tester.getTopLeft(priorityRequests).dy,
       lessThan(tester.getTopLeft(dashboardHeader).dy),
@@ -555,6 +567,15 @@ void main() {
       tester.getTopLeft(priorityRequests).dy,
       lessThan(tester.getTopLeft(health).dy),
     );
+    await tester.tap(find.text('Review group manifest'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('roast-manifest-confirmation')),
+      findsOneWidget,
+    );
+    expect(find.text('I verified — approve'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
     runtime.emit(
       RoastRuntimeDkgEvent(
