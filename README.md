@@ -1,15 +1,28 @@
 # Sygnature
 
+Sygnature is a self-custody wallet for people and teams that manage coins
+together. It addresses the same broad need as [Safe{Wallet}](https://safe.global/wallet):
+replacing control by one person or key with a shared approval policy. A group
+chooses how many signers participate and how many must approve each transaction,
+making it suitable for team treasuries, organizations, families and other groups
+that need shared control of their funds.
+
+Instead of an on-chain multisig, Sygnature uses threshold signatures
+to authorize ordinary Taproot transactions. On-chain, the result looks
+like a standard signature from a single signer: the transaction reveals neither
+how many participants belong to the signing group nor how many approvals were
+required. This keeps the group's signing policy private.
+
+Each participant keeps a private signing share on their own device, the complete
+private key is never assembled, and signers coordinate peer-to-peer over
+[Iroh](https://www.iroh.computer/) without a central Sygnature service. The app
+also supports ordinary personal wallets.
+
 > **Alpha software — use at your own risk.** Breaking changes, including changes
 > to storage formats and protocols, are possible at any time. Backward
 > compatibility and data preservation are not guaranteed. The software is
 > provided without warranty of any kind. Do not use it for funds you cannot
 > afford to lose, and keep secure backups of your recovery material.
-
-Sygnature is a cross-platform Peercoin light wallet built with Flutter. Alongside
-ordinary personal wallets, it supports fully peer-to-peer ROAST threshold
-wallets over [Iroh](https://www.iroh.computer/), with no central Sygnature
-service and no participant ever holding the complete private key.
 
 ## Screenshots
 
