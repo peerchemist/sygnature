@@ -144,20 +144,25 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Create a threshold wallet with ROAST. '
-              'No device ever holds the complete private key.',
+              'A ROAST wallet lets multiple people approve transactions '
+              'without any device holding the complete private key.',
             ),
             const SizedBox(height: 18),
+            Text(
+              'How would you like to get started?',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
             SegmentedButton<RoastSetupRole>(
               segments: const [
                 ButtonSegment(
                   value: RoastSetupRole.host,
-                  label: Text('Host coordinator'),
-                  icon: Icon(Icons.dns_outlined),
+                  label: Text('Create wallet'),
+                  icon: Icon(Icons.add_circle_outline_rounded),
                 ),
                 ButtonSegment(
                   value: RoastSetupRole.member,
-                  label: Text('Join setup'),
+                  label: Text('Join wallet'),
                   icon: Icon(Icons.link_rounded),
                 ),
               ],
@@ -166,6 +171,38 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                 _role = value.single;
                 _error = null;
               }),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              key: const Key('roast-role-hint'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: AppColors.of(context).inkMuted,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _role == RoastSetupRole.host
+                        ? 'Start a new shared wallet. Choose how many people '
+                              'will participate and how many approvals are '
+                              'required, then invite each signer. This device '
+                              'will coordinate setup and signing and must stay '
+                              'online.'
+                        : 'Choose this when someone else is creating the '
+                              'wallet. Send them the public key generated on '
+                              'this device, then paste the personal invitation '
+                              'they send back.',
+                    style: TextStyle(
+                      color: AppColors.of(context).inkMuted,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
             ),
             if (_role == RoastSetupRole.host && _isMobilePlatform) ...[
               const SizedBox(height: 12),
@@ -270,20 +307,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                 ],
               ),
             ],
-            const SizedBox(height: 16),
-            Text(
-              _role == RoastSetupRole.host
-                  ? 'This device must stay online while participants create '
-                        'keys or sign. Collect participant cards, then create '
-                        'a separate pubkey-bound invite for each signer.'
-                  : 'A participant key is generated on this device. Share its '
-                        'public card with the host, then paste the invite '
-                        'created specifically for this key.',
-              style: TextStyle(
-                color: AppColors.of(context).inkMuted,
-                fontSize: 12,
-              ),
-            ),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(
@@ -304,7 +327,13 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
       FilledButton(
         key: const Key('create-roast-draft'),
         onPressed: _busy ? null : _create,
-        child: Text(_busy ? 'Creating…' : 'Create setup draft'),
+        child: Text(
+          _busy
+              ? 'Creating…'
+              : _role == RoastSetupRole.host
+              ? 'Create wallet setup'
+              : 'Prepare to join',
+        ),
       ),
     ],
   );

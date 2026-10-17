@@ -89,8 +89,20 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('ROAST shared wallet'));
     await tester.pumpAndSettle();
-    expect(find.text('Host coordinator'), findsOneWidget);
-    expect(find.textContaining('This device must stay online'), findsOneWidget);
+    expect(find.text('Create wallet'), findsOneWidget);
+    expect(find.text('Join wallet'), findsOneWidget);
+    expect(find.textContaining('Start a new shared wallet'), findsOneWidget);
+    expect(find.text('Create wallet setup'), findsOneWidget);
+    await tester.tap(find.text('Join wallet'));
+    await tester.pump();
+    expect(
+      find.textContaining('someone else is creating the wallet'),
+      findsOneWidget,
+    );
+    expect(find.text('Prepare to join'), findsOneWidget);
+    expect(find.byKey(const Key('roast-participant-count')), findsNothing);
+    await tester.tap(find.text('Create wallet'));
+    await tester.pump();
     expect(find.byKey(const Key('roast-participant-name')), findsNothing);
     expect(find.byKey(const Key('roast-setup-back')), findsOneWidget);
 
@@ -312,6 +324,11 @@ void main() {
         null,
       ),
     );
+    expect(
+      find.textContaining('share it with the person creating the wallet'),
+      findsOneWidget,
+    );
+    expect(find.text('Copy my public key'), findsOneWidget);
     await tester.tap(find.text('Paste invite from clipboard'));
     await tester.pumpAndSettle();
 

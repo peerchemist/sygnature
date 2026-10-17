@@ -311,7 +311,10 @@ class const RoastSetupPanel({
                       child: Text(
                         setup.role == RoastSetupRole.host
                             ? 'Complete the signer roster to start the swarm.'
-                            : 'Import your participant-bound invite to join the swarm.',
+                            : 'Copy your public key and share it with the person '
+                                  'creating the wallet. When they send back your '
+                                  'personal invitation, copy it and choose Paste '
+                                  'invite from clipboard.',
                         style: TextStyle(
                           color: AppColors.of(context).inkMuted,
                           fontSize: 12,
