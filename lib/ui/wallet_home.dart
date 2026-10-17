@@ -1136,6 +1136,7 @@ Future<void> _confirmArchiveWallet(
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${account.name} archived.'),
+        persist: false,
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () => _runWalletAction(

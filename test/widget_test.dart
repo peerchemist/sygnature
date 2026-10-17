@@ -432,6 +432,12 @@ void main() {
 
     expect(controller.accounts.map((account) => account.name), ['Main wallet']);
     expect(controller.archivedAccounts.single.id, savingsId);
+    expect(find.text('Savings archived.'), findsOneWidget);
+    expect(tester.widget<SnackBar>(find.byType(SnackBar)).persist, isFalse);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    expect(find.text('Savings archived.'), findsNothing);
 
     await tester.binding.setSurfaceSize(const Size(800, 800));
     await tester.pumpAndSettle();
