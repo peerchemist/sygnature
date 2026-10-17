@@ -103,6 +103,13 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
   @override
   Widget build(BuildContext context) {
     final request = widget.item.request;
+    final account = widget.controller.accounts.firstWhere(
+      (account) => account.sourceId == widget.item.setupId,
+    );
+    final currencyShortName = widget.controller
+        .networkForAccount(account)
+        .currency
+        .shortName;
     final requester = widget.controller.roastSetups
         .where((setup) => setup.id == widget.item.setupId)
         .firstOrNull
@@ -290,12 +297,12 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
                       : 'Recipient',
                   value:
                       '${widget.controller.roastOutputAddress(widget.item, request.outputs[i])}\n'
-                      '${_formatPpc(request.outputs[i].valueSats)} PPC',
+                      '${_formatPpc(request.outputs[i].valueSats)} $currencyShortName',
                   monospace: true,
                 ),
               _TransactionRow(
                 label: 'Network fee',
-                value: '${_formatPpc(request.feeSats)} PPC',
+                value: '${_formatPpc(request.feeSats)} $currencyShortName',
               ),
             ] else
               const SizedBox(height: 12),

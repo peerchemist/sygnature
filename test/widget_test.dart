@@ -126,6 +126,7 @@ void main() {
     expect(find.text('Unavailable'), findsOneWidget);
     expect(find.text('Ready'), findsNothing);
     expect(find.text('Peercoin testnet'), findsOneWidget);
+    expect(find.text('0.00 tPPC'), findsWidgets);
 
     await tester.tap(find.byTooltip('Add sub-wallet'));
     await tester.pumpAndSettle();

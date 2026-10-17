@@ -282,6 +282,10 @@ Future<void> _showActivityDetails(
 }) {
   final presentation = _activityPresentation(context, activity);
   final setup = controller.setupForAccount(account);
+  final currencyShortName = controller
+      .networkForAccount(account)
+      .currency
+      .shortName;
   final reference = switch (activity.type) {
     WalletActivityType.messageSignatureRequested ||
     WalletActivityType.messageSigned => null,
@@ -328,7 +332,7 @@ Future<void> _showActivityDetails(
               if (activity.transactionNetSats case final netSats?)
                 _ActivityDetail(
                   label: netSats >= 0 ? 'Received' : 'Wallet debit',
-                  value: '${_formatPpc(netSats.abs())} PPC',
+                  value: '${_formatPpc(netSats.abs())} $currencyShortName',
                 ),
               for (
                 var index = 0;
@@ -341,12 +345,12 @@ Future<void> _showActivityDetails(
                       : 'Recipient ${index + 1}',
                   value:
                       '${activity.transactionRecipients[index].address}\n'
-                      '${_formatPpc(activity.transactionRecipients[index].amountSats)} PPC',
+                      '${_formatPpc(activity.transactionRecipients[index].amountSats)} $currencyShortName',
                 ),
               if (activity.transactionFeeSats case final feeSats?)
                 _ActivityDetail(
                   label: 'Network fee',
-                  value: '${_formatPpc(feeSats)} PPC',
+                  value: '${_formatPpc(feeSats)} $currencyShortName',
                 ),
               if (activity.details case final details?)
                 _ActivityDetail(

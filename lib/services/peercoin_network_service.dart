@@ -5,6 +5,7 @@ import '../models/wallet_network.dart';
 class PeercoinNetworkPreset extends WalletNetwork {
   const PeercoinNetworkPreset({
     required super.networkId,
+    required super.currency,
     required super.networkLabel,
     required super.derivationPathTemplate,
     required this.coinType,
@@ -24,6 +25,7 @@ class PeercoinNetworkPreset extends WalletNetwork {
 abstract final class PeercoinNetworks {
   static final mainnet = PeercoinNetworkPreset(
     networkId: 'mainnet',
+    currency: WalletCurrency.peercoin,
     networkLabel: 'mainnet',
     coinType: 6,
     network: Network.mainnet,
@@ -32,6 +34,7 @@ abstract final class PeercoinNetworks {
 
   static final testnet = PeercoinNetworkPreset(
     networkId: 'testnet',
+    currency: WalletCurrency.peercoinTestnet,
     networkLabel: 'testnet',
     coinType: 1,
     network: Network.testnet,

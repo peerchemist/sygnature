@@ -1,7 +1,13 @@
+enum WalletCurrency(final String shortName) {
+  peercoin('PPC'),
+  peercoinTestnet('tPPC'),
+}
+
 class WalletNetwork {
   const WalletNetwork({
     required this.blockchainId,
     required this.networkId,
+    required this.currency,
     required this.blockchainLabel,
     required this.networkLabel,
     required this.accountTypeLabel,
@@ -10,6 +16,7 @@ class WalletNetwork {
 
   final String blockchainId;
   final String networkId;
+  final WalletCurrency currency;
   final String blockchainLabel;
   final String networkLabel;
   final String accountTypeLabel;

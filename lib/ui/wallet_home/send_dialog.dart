@@ -80,6 +80,7 @@ class _SendDialogState extends State<_SendDialog> {
     text: '${defaultRoastSigningRequestTimeout.inMinutes}',
   );
   late final int _feeRateSatsPerKb;
+  late final String _currencyShortName;
   Duration _signatureRequestTimeout = defaultRoastSigningRequestTimeout;
   WalletTransactionPreview? _preview;
   String? _error;
@@ -94,6 +95,7 @@ class _SendDialogState extends State<_SendDialog> {
       widget.controller.networkForAccount(widget.account),
     );
     _feeRateSatsPerKb = network.network.feePerKb.toInt();
+    _currencyShortName = network.currency.shortName;
     widget.controller.addListener(_refreshMaximumAvailable);
   }
 
@@ -339,9 +341,9 @@ class _SendDialogState extends State<_SendDialog> {
             controller: _amountController,
             enabled: !_maximum,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Amount',
-              suffixText: 'PPC',
+              suffixText: _currencyShortName,
             ),
             validator: (value) {
               if (_maximum) return null;
@@ -397,12 +399,12 @@ class _SendDialogState extends State<_SendDialog> {
             title: const Text('Send maximum available'),
             subtitle: Text(
               reservedBalanceSats > 0
-                  ? '${_formatPpc(maximumAvailableSats ?? 0)} PPC available '
+                  ? '${_formatPpc(maximumAvailableSats ?? 0)} $_currencyShortName available '
                         'after the network fee · '
-                        '${_formatPpc(reservedBalanceSats)} PPC reserved by ROAST'
+                        '${_formatPpc(reservedBalanceSats)} $_currencyShortName reserved by ROAST'
                   : maximumAvailableSats == null
                   ? 'The network fee is deducted automatically.'
-                  : '${_formatPpc(maximumAvailableSats)} PPC available after '
+                  : '${_formatPpc(maximumAvailableSats)} $_currencyShortName available after '
                         'the network fee.',
             ),
           ),
@@ -438,15 +440,15 @@ class _SendDialogState extends State<_SendDialog> {
       ),
       _TransactionRow(
         label: 'Amount',
-        value: '${_formatPpc(preview.amountSats)} PPC',
+        value: '${_formatPpc(preview.amountSats)} $_currencyShortName',
       ),
       _TransactionRow(
         label: 'Network fee',
-        value: '${_formatPpc(preview.feeSats)} PPC',
+        value: '${_formatPpc(preview.feeSats)} $_currencyShortName',
       ),
       _TransactionRow(
         label: 'Change',
-        value: '${_formatPpc(preview.changeSats)} PPC',
+        value: '${_formatPpc(preview.changeSats)} $_currencyShortName',
       ),
       if (preview.signingMessage.isNotEmpty)
         _TransactionRow(label: 'Message', value: preview.signingMessage),

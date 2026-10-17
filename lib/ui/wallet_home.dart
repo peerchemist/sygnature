@@ -177,6 +177,10 @@ class const _WalletSidebar({
                             index == controller.selectedAccountIndex;
                         return _WalletListTile(
                           account: account,
+                          currencyShortName: controller
+                              .networkForAccount(account)
+                              .currency
+                              .shortName,
                           displayIndex: index,
                           setup: setup,
                           balanceSats: controller.balanceSatsFor(account),
@@ -234,6 +238,7 @@ class const _WalletSidebar({
 
 class const _WalletListTile({
   required final WalletAccount account,
+  required final String currencyShortName,
   required final int displayIndex,
   required final RoastSetup? setup,
   required final int balanceSats,
@@ -253,10 +258,12 @@ class const _WalletListTile({
       WalletDerivationState.error => 'Derivation failed',
       _ when syncStatus == AccountSyncStatus.syncing => 'Synchronizing…',
       _ when syncStatus == AccountSyncStatus.error => 'Sync failed',
-      WalletDerivationState.ready => '${_formatPpc(balanceSats)} PPC',
+      WalletDerivationState.ready =>
+        '${_formatPpc(balanceSats)} $currencyShortName',
       WalletDerivationState.watchOnly =>
-        'Watch-only · ${_formatPpc(balanceSats)} PPC',
-      WalletDerivationState.locked => 'Locked · ${_formatPpc(balanceSats)} PPC',
+        'Watch-only · ${_formatPpc(balanceSats)} $currencyShortName',
+      WalletDerivationState.locked =>
+        'Locked · ${_formatPpc(balanceSats)} $currencyShortName',
     };
     final showSyncStatus =
         account.address != null &&
@@ -1190,19 +1197,23 @@ class _BalanceCard extends StatelessWidget {
         !messageSigning;
     final syncStatus = controller.syncStatusFor(account);
     final balance = controller.balanceFor(account);
+    final currencyShortName = controller
+        .networkForAccount(account)
+        .currency
+        .shortName;
     final balanceDescription = switch (syncStatus) {
       AccountSyncStatus.unavailable =>
         'Value unavailable until synchronization',
       AccountSyncStatus.syncing => 'Synchronizing with ElectrumX…',
       AccountSyncStatus.synced when balance.reservedSats > 0 =>
-        '${_formatPpc(balance.confirmedSats)} PPC confirmed · '
-            '${_formatPpc(balance.reservedSats)} PPC reserved by ROAST',
+        '${_formatPpc(balance.confirmedSats)} $currencyShortName confirmed · '
+            '${_formatPpc(balance.reservedSats)} $currencyShortName reserved by ROAST',
       AccountSyncStatus.synced when balance.pendingSats == 0 =>
-        '${_formatPpc(balance.confirmedSats)} PPC confirmed · '
+        '${_formatPpc(balance.confirmedSats)} $currencyShortName confirmed · '
             '${balance.utxoCount} ${balance.utxoCount == 1 ? 'output' : 'outputs'}',
       AccountSyncStatus.synced =>
-        '${_formatPpc(balance.confirmedSats)} PPC confirmed · '
-            '${_formatPpc(balance.pendingSats)} PPC pending',
+        '${_formatPpc(balance.confirmedSats)} $currencyShortName confirmed · '
+            '${_formatPpc(balance.pendingSats)} $currencyShortName pending',
       AccountSyncStatus.error => 'ElectrumX synchronization failed',
     };
     return Card(
@@ -1224,7 +1235,7 @@ class _BalanceCard extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                '${_formatPpc(balance.totalSats)} PPC',
+                '${_formatPpc(balance.totalSats)} $currencyShortName',
                 style: TextStyle(
                   color: AppColors.of(context).ink,
                   fontSize: 34,
