@@ -500,10 +500,14 @@ class _WalletDashboard extends StatelessWidget {
     final roastSetup = controller.setupForAccount(account);
     final header = _DashboardHeader(
       account: account,
+      networkLabel: controller.networkForAccount(account).label,
       syncStatus: controller.syncStatusFor(account),
       onDelete: () => _confirmDeleteWallet(context, controller, account),
       onArchive: () => _confirmArchiveWallet(context, controller, account),
       onRename: () => _showRenameWallet(context, controller, account),
+      onExtendRecoveryScan: account.keySource != WalletKeySource.watchOnly
+          ? () => _showExtendAddressScanDialog(context, controller, account)
+          : null,
       publicFeedLabel: roastSetup?.role == RoastSetupRole.member
           ? 'Receive background notifications'
           : 'Public operation feed',
@@ -571,7 +575,6 @@ class _WalletDashboard extends StatelessWidget {
                       _CompactDashboardHeader(
                         header: header,
                         account: account,
-                        controller: controller,
                         showDetails: account.address != null,
                       ),
                     if (roastSetup != null) ...[
@@ -600,11 +603,6 @@ class _WalletDashboard extends StatelessWidget {
                               const SizedBox(height: 18),
                               _AddressCard(account: account),
                               const SizedBox(height: 18),
-                              _AccountDetails(
-                                account: account,
-                                controller: controller,
-                              ),
-                              const SizedBox(height: 18),
                             ],
                           );
                         },
@@ -625,40 +623,28 @@ class _WalletDashboard extends StatelessWidget {
 class const _CompactDashboardHeader({
   required final Widget header,
   required final WalletAccount account,
-  required final WalletController controller,
   required final bool showDetails,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       if (constraints.maxWidth < 680 || !showDetails) return header;
-      return Row(
+      return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                header,
-                const SizedBox(height: 18),
-                Text(
-                  'RECEIVE ADDRESS',
-                  style: TextStyle(
-                    color: AppColors.of(context).inkMuted,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                _ReceiveAddressBox(account: account),
-              ],
+          header,
+          const SizedBox(height: 18),
+          Text(
+            'RECEIVE ADDRESS',
+            style: TextStyle(
+              color: AppColors.of(context).inkMuted,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
             ),
           ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: _AccountDetails(account: account, controller: controller),
-          ),
+          const SizedBox(height: 7),
+          _ReceiveAddressBox(account: account),
         ],
       );
     },
@@ -688,13 +674,7 @@ class const _DesktopWalletOverview({
       SizedBox(
         key: const Key('desktop-context-column'),
         width: 340,
-        child: Column(
-          children: [
-            _AddressCard(account: account),
-            const SizedBox(height: 18),
-            _AccountDetails(account: account, controller: controller),
-          ],
-        ),
+        child: Column(children: [_AddressCard(account: account)]),
       ),
     ],
   );
@@ -911,20 +891,24 @@ class _PendingRoastNotice extends StatelessWidget {
 class _DashboardHeader extends StatelessWidget {
   const _DashboardHeader({
     required this.account,
+    required this.networkLabel,
     required this.syncStatus,
     required this.onDelete,
     required this.onArchive,
     required this.onRename,
+    this.onExtendRecoveryScan,
     this.publicFeedLabel = 'Public operation feed',
     this.onOpenPublicFeed,
     this.onChangeSignerGroup,
     this.onSwitchCoordinator,
   });
   final WalletAccount account;
+  final String networkLabel;
   final AccountSyncStatus syncStatus;
   final VoidCallback onDelete;
   final VoidCallback onArchive;
   final VoidCallback onRename;
+  final VoidCallback? onExtendRecoveryScan;
   final String publicFeedLabel;
   final VoidCallback? onOpenPublicFeed;
   final VoidCallback? onChangeSignerGroup;
@@ -963,9 +947,11 @@ class _DashboardHeader extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              account.keySource == WalletKeySource.watchOnly
-                  ? 'Watch-only Peercoin address'
-                  : 'Peercoin account ${account.accountIndex}',
+              '${switch (account.keySource) {
+                WalletKeySource.personal => 'Personal wallet',
+                WalletKeySource.roast => 'Shared wallet',
+                WalletKeySource.watchOnly => 'Watch-only wallet',
+              }} · $networkLabel',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -1019,6 +1005,7 @@ class _DashboardHeader extends StatelessWidget {
                 if (value == 'public-feed') onOpenPublicFeed?.call();
                 if (value == 'signers') onChangeSignerGroup?.call();
                 if (value == 'coordinator') onSwitchCoordinator?.call();
+                if (value == 'recovery-scan') onExtendRecoveryScan?.call();
                 if (value == 'archive') onArchive();
                 if (value == 'delete') onDelete();
               },
@@ -1064,6 +1051,18 @@ class _DashboardHeader extends StatelessWidget {
                         Icon(Icons.swap_horiz_rounded),
                         SizedBox(width: 10),
                         Flexible(child: Text('Change ROAST coordinator')),
+                      ],
+                    ),
+                  ),
+                if (onExtendRecoveryScan != null)
+                  const PopupMenuItem(
+                    key: Key('open-recovery-scan'),
+                    value: 'recovery-scan',
+                    child: Row(
+                      children: [
+                        Icon(Icons.manage_search_rounded),
+                        SizedBox(width: 10),
+                        Text('Recovery scan'),
                       ],
                     ),
                   ),
@@ -1524,8 +1523,7 @@ Future<void> _showExtendAddressScanDialog(
   input.dispose();
   if (value == null || !context.mounted) return;
   try {
-    final upperIndex = int.parse(value);
-    await controller.extendAddressScan(account.id, upperIndex);
+    await controller.extendAddressScan(account.id, int.parse(value));
   } on Object {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1533,101 +1531,6 @@ Future<void> _showExtendAddressScanDialog(
       );
     }
   }
-}
-
-class _AccountDetails extends StatelessWidget {
-  const _AccountDetails({required this.account, required this.controller});
-  final WalletAccount account;
-  final WalletController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      key: const Key('account-details-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Account details',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 18),
-            _DetailRow(
-              label: 'Network',
-              value: controller.networkForAccount(account).label,
-            ),
-            if (account.keySource != WalletKeySource.watchOnly) ...[
-              const SizedBox(height: 13),
-              _DetailRow(
-                label: 'Account index',
-                value: '${account.accountIndex}',
-              ),
-            ],
-            if (account.keySource == WalletKeySource.personal) ...[
-              const SizedBox(height: 13),
-              _DetailRow(
-                label: 'Derivation path',
-                value: account.derivationPath ?? 'Not available',
-              ),
-            ],
-            if (account.keySource != WalletKeySource.watchOnly) ...[
-              const SizedBox(height: 13),
-              _DetailRow(
-                label: 'Allocated addresses',
-                value: '0–${account.highestAllocatedAddressIndex}',
-              ),
-              const SizedBox(height: 13),
-              _DetailRow(
-                label: 'Recovery scan range',
-                value: '0–${controller.addressScanRangeFor(account).through}',
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  key: const Key('extend-address-scan-button'),
-                  onPressed: () => _showExtendAddressScanDialog(
-                    context,
-                    controller,
-                    account,
-                  ),
-                  child: const Text('Extend recovery scan'),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
-      ),
-      Flexible(
-        child: Text(
-          value,
-          textAlign: TextAlign.end,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: AppColors.of(context).ink,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    ],
-  );
 }
 
 Future<void> _showAdaptivePanel(

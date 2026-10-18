@@ -125,7 +125,7 @@ void main() {
     expect(find.text('Main wallet'), findsWidgets);
     expect(find.text('Unavailable'), findsOneWidget);
     expect(find.text('Ready'), findsNothing);
-    expect(find.text('Peercoin testnet'), findsOneWidget);
+    expect(find.text('Personal wallet · Peercoin testnet'), findsOneWidget);
     expect(find.text('0.00 tPPC'), findsWidgets);
 
     await tester.tap(find.byTooltip('Add sub-wallet'));
@@ -149,11 +149,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Wallet 2'), findsWidgets);
-    expect(find.text('Account index'), findsOneWidget);
-    expect(find.text('Peercoin mainnet'), findsOneWidget);
+    expect(find.text('Personal wallet · Peercoin mainnet'), findsOneWidget);
+    expect(find.text('Account index'), findsNothing);
 
     await tester.tap(find.byTooltip('Wallet settings'));
     await tester.pumpAndSettle();
+    expect(find.text('Recovery scan'), findsOneWidget);
     expect(find.text('Delete wallet'), findsOneWidget);
 
     await tester.tap(find.text('Delete wallet'));

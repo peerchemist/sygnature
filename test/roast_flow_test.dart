@@ -1017,9 +1017,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('hides the ROAST derivation path from account details', (
-    tester,
-  ) async {
+  testWidgets('shows simple shared wallet details', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -1035,12 +1033,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Account details'), findsOneWidget);
+    expect(find.text('Shared wallet · Peercoin mainnet'), findsOneWidget);
     expect(find.text('Receive address'), findsOneWidget);
     expect(find.text('Derivation path'), findsNothing);
     expect(find.text('R/0/6/0/0/0/0'), findsNothing);
     final address = find.byKey(const Key('receive-address-value'));
-    final details = find.byKey(const Key('account-details-card'));
     final primaryColumn = find.byKey(const Key('desktop-primary-column'));
     final contextColumn = find.byKey(const Key('desktop-context-column'));
     expect(
@@ -1051,10 +1048,7 @@ void main() {
       tester.getTopLeft(primaryColumn).dy,
       tester.getTopLeft(contextColumn).dy,
     );
-    expect(
-      tester.getTopLeft(address).dy,
-      lessThan(tester.getTopLeft(details).dy),
-    );
+    expect(address, findsOneWidget);
   });
 
   testWidgets('reviews the exact text before requesting message signatures', (
