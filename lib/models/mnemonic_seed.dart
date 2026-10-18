@@ -51,12 +51,49 @@ class MnemonicSession {
   String get phrase => words.join(' ');
 }
 
+enum WalletKeyFailureKind {
+  unsupportedWordCount,
+  entropyUnavailable,
+  invalidMnemonicLength,
+  unknownMnemonicWord,
+  invalidMnemonicChecksum,
+  invalidMnemonic,
+  invalidAccountIndex,
+  derivationFailed,
+}
+
+/// A stable key-operation failure that carries no secret input or native cause.
+final class const WalletKeyFailure(final WalletKeyFailureKind kind)
+    implements Exception {
+  String get message => switch (kind) {
+    WalletKeyFailureKind.unsupportedWordCount =>
+      'Only 12- and 24-word recovery phrases are supported.',
+    WalletKeyFailureKind.entropyUnavailable =>
+      'Secure recovery phrase generation failed.',
+    WalletKeyFailureKind.invalidMnemonicLength =>
+      'Recovery phrase must contain 12 or 24 words.',
+    WalletKeyFailureKind.unknownMnemonicWord =>
+      'Recovery phrase contains a word outside the selected wordlist.',
+    WalletKeyFailureKind.invalidMnemonicChecksum =>
+      'Recovery phrase checksum is invalid.',
+    WalletKeyFailureKind.invalidMnemonic => 'Recovery phrase is invalid.',
+    WalletKeyFailureKind.invalidAccountIndex =>
+      'Wallet account index is invalid.',
+    WalletKeyFailureKind.derivationFailed => 'Wallet key derivation failed.',
+  };
+
+  @override
+  String toString() => message;
+}
+
 class MnemonicValidationResult {
-  const MnemonicValidationResult.valid(this.words) : error = null;
-  const MnemonicValidationResult.invalid(this.error) : words = const [];
+  const MnemonicValidationResult.valid(this.words) : failure = null;
+  const MnemonicValidationResult.invalid(this.failure) : words = const [];
 
   final List<String> words;
-  final String? error;
+  final WalletKeyFailure? failure;
 
-  bool get isValid => error == null;
+  String? get error => failure?.message;
+
+  bool get isValid => failure == null;
 }

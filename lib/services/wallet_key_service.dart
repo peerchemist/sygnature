@@ -9,6 +9,29 @@ import 'peercoin_network_service.dart';
 
 typedef EntropyGenerator = Uint8List Function(int length);
 
+const _unsupportedWordCount = WalletKeyFailure(
+  WalletKeyFailureKind.unsupportedWordCount,
+);
+const _entropyUnavailable = WalletKeyFailure(
+  WalletKeyFailureKind.entropyUnavailable,
+);
+const _invalidMnemonicLength = WalletKeyFailure(
+  WalletKeyFailureKind.invalidMnemonicLength,
+);
+const _unknownMnemonicWord = WalletKeyFailure(
+  WalletKeyFailureKind.unknownMnemonicWord,
+);
+const _invalidMnemonicChecksum = WalletKeyFailure(
+  WalletKeyFailureKind.invalidMnemonicChecksum,
+);
+const _invalidMnemonic = WalletKeyFailure(WalletKeyFailureKind.invalidMnemonic);
+const _invalidAccountIndex = WalletKeyFailure(
+  WalletKeyFailureKind.invalidAccountIndex,
+);
+const _derivationFailed = WalletKeyFailure(
+  WalletKeyFailureKind.derivationFailed,
+);
+
 class DerivedWalletMaterial {
   const DerivedWalletMaterial({
     required this.derivationPath,
@@ -54,20 +77,19 @@ class CoinlibWalletKeyService implements WalletKeyService {
     required int wordCount,
   }) {
     if (wordCount != 12 && wordCount != 24) {
-      throw ArgumentError.value(
-        wordCount,
-        'wordCount',
-        'Only 12- and 24-word BIP-39 phrases are supported.',
-      );
+      throw _unsupportedWordCount;
     }
 
-    final entropy = _entropyGenerator(wordCount == 12 ? 16 : 32);
     final expectedLength = wordCount == 12 ? 16 : 32;
+    late final Uint8List entropy;
+    try {
+      entropy = _entropyGenerator(expectedLength);
+    } on Object {
+      throw _entropyUnavailable;
+    }
     if (entropy.length != expectedLength) {
-      throw StateError(
-        'Entropy generator returned ${entropy.length} bytes; '
-        'expected $expectedLength.',
-      );
+      entropy.fillRange(0, entropy.length, 0);
+      throw _entropyUnavailable;
     }
 
     try {
@@ -77,6 +99,8 @@ class CoinlibWalletKeyService implements WalletKeyService {
         language: language,
         createdInApp: true,
       );
+    } on Object {
+      throw _entropyUnavailable;
     } finally {
       entropy.fillRange(0, entropy.length, 0);
     }
@@ -92,9 +116,7 @@ class CoinlibWalletKeyService implements WalletKeyService {
         ? const <String>[]
         : normalized.split(RegExp(r'\s+'));
     if (inputWords.length != 12 && inputWords.length != 24) {
-      return const MnemonicValidationResult.invalid(
-        'Recovery phrase must contain 12 or 24 words.',
-      );
+      return const MnemonicValidationResult.invalid(_invalidMnemonicLength);
     }
 
     try {
@@ -104,17 +126,13 @@ class CoinlibWalletKeyService implements WalletKeyService {
       );
       return MnemonicValidationResult.valid(List.unmodifiable(parsed.words));
     } on bip39.MnemonicWordNotFoundException {
-      return const MnemonicValidationResult.invalid(
-        'Recovery phrase contains a word outside the selected wordlist.',
-      );
+      return const MnemonicValidationResult.invalid(_unknownMnemonicWord);
     } on bip39.MnemonicInvalidChecksumException {
-      return const MnemonicValidationResult.invalid(
-        'Recovery phrase checksum is invalid.',
-      );
+      return const MnemonicValidationResult.invalid(_invalidMnemonicChecksum);
     } on bip39.MnemonicException {
-      return const MnemonicValidationResult.invalid(
-        'Recovery phrase is invalid.',
-      );
+      return const MnemonicValidationResult.invalid(_invalidMnemonic);
+    } on Object {
+      return const MnemonicValidationResult.invalid(_invalidMnemonic);
     }
   }
 
@@ -126,12 +144,13 @@ class CoinlibWalletKeyService implements WalletKeyService {
     required int accountIndex,
   }) {
     if (accountIndex < 0 || accountIndex >= HDKey.hardenBit) {
-      throw ArgumentError.value(accountIndex, 'accountIndex');
+      throw _invalidAccountIndex;
     }
-    final peercoinNetwork = PeercoinNetworks.fromWalletNetwork(network);
-    final path = network.derivationPathForAccount(accountIndex);
-    final seed = mnemonicToSeed(mnemonic, language: language);
+    Uint8List? seed;
     try {
+      final peercoinNetwork = PeercoinNetworks.fromWalletNetwork(network);
+      final path = network.derivationPathForAccount(accountIndex);
+      seed = mnemonicToSeed(mnemonic, language: language);
       final child = HDPrivateKey.fromSeed(seed).derivePath(path);
       final taproot = Taproot(internalKey: child.publicKey);
       final spendKey = taproot.tweakPrivateKey(child.privateKey);
@@ -145,8 +164,12 @@ class CoinlibWalletKeyService implements WalletKeyService {
         address: address,
         privateKeyHex: bytesToHex(spendKey.data),
       );
+    } on WalletKeyFailure {
+      rethrow;
+    } on Object {
+      throw _derivationFailed;
     } finally {
-      seed.fillRange(0, seed.length, 0);
+      seed?.fillRange(0, seed.length, 0);
     }
   }
 
@@ -159,11 +182,15 @@ class CoinlibWalletKeyService implements WalletKeyService {
         .replaceAll('\u3000', ' ')
         .trim()
         .split(RegExp(r'\s+'));
-    final parsed = bip39.Mnemonic.fromWords(
-      words: words,
-      language: (language ?? MnemonicLanguage.english).bip39Language,
-      passphrase: passphrase,
-    );
-    return Uint8List.fromList(parsed.seed);
+    try {
+      final parsed = bip39.Mnemonic.fromWords(
+        words: words,
+        language: (language ?? MnemonicLanguage.english).bip39Language,
+        passphrase: passphrase,
+      );
+      return Uint8List.fromList(parsed.seed);
+    } on Object {
+      throw _invalidMnemonic;
+    }
   }
 }

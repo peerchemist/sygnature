@@ -87,7 +87,63 @@ void main() {
     );
 
     expect(result.isValid, isFalse);
+    expect(result.failure?.kind, WalletKeyFailureKind.invalidMnemonicChecksum);
     expect(result.error, 'Recovery phrase checksum is invalid.');
+  });
+
+  test('key failures are typed and omit secret exception contents', () {
+    const secret = 'SECRET-MNEMONIC-OR-KEY-MUST-NOT-ESCAPE';
+    final service = CoinlibWalletKeyService(
+      entropyGenerator: (_) => throw StateError(secret),
+    );
+
+    expect(
+      () => service.generateMnemonic(
+        language: MnemonicLanguage.english,
+        wordCount: 12,
+      ),
+      throwsA(
+        isA<WalletKeyFailure>()
+            .having(
+              (failure) => failure.kind,
+              'kind',
+              WalletKeyFailureKind.entropyUnavailable,
+            )
+            .having(
+              (failure) => failure.toString(),
+              'sanitized message',
+              isNot(contains(secret)),
+            ),
+      ),
+    );
+  });
+
+  test('invalid mnemonic derivation returns no mnemonic or native cause', () {
+    const invalidMnemonic =
+        'secret secret secret secret secret secret secret secret '
+        'secret secret secret secret';
+
+    expect(
+      () => CoinlibWalletKeyService().deriveAccount(
+        network: PeercoinNetworks.mainnet,
+        mnemonic: invalidMnemonic,
+        language: MnemonicLanguage.english,
+        accountIndex: 0,
+      ),
+      throwsA(
+        isA<WalletKeyFailure>()
+            .having(
+              (failure) => failure.kind,
+              'kind',
+              WalletKeyFailureKind.invalidMnemonic,
+            )
+            .having(
+              (failure) => failure.toString(),
+              'sanitized message',
+              isNot(contains(invalidMnemonic)),
+            ),
+      ),
+    );
   });
 
   test('derives the official BIP-39 seed', () {
