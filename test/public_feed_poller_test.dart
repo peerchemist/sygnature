@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:iroh_quic/iroh_quic.dart' show IrohKeyException;
-import 'package:noosphere/wire.dart' show ProtocolErrorCode;
+import 'package:noosphere_protocol/wire.dart' show ProtocolErrorCode;
 import 'package:noosphere_client/public_feed.dart';
 import 'package:sygnature_ng/services/public_feed_poller.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';

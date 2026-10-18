@@ -1,8 +1,8 @@
 # Noosphere public operation feed
 
-The wallet pins Noosphere tag `0.1.2`, resolved in the lockfile to commit
-`30d934b3e57ee797cdf2c3d5119ab15d04f33cc4`. See the upstream
-`architecture/public-feed.md`. The coordinator remains responsible for all
+The wallet pins Noosphere tag `0.2.0`, resolved in the lockfile to commit
+`470f2e66c2e6a6f1e4951ba8cabbefff9653f12d`. See the upstream
+`docs/architecture/public-feed.md`. The coordinator remains responsible for all
 ROAST/DKG business logic. This integration uses the existing protobuf public
 client and `noosphere/public-feed/1` ALPN; the wallet does not implement a
 protocol, HTTP route, or signature verifier.
@@ -160,7 +160,7 @@ subprocess also checks that neither FROST nor coinlib native libraries were
 loaded and that no signer sessions, challenges, presence or coordinator snapshot
 changed.
 
-All Noosphere Git dependencies and overrides use the published `0.1.2` tag.
+All Noosphere Git dependencies and overrides use the published `0.2.0` tag.
 The lockfile records its resolved commit, and `flutter pub get` resolves it
 without local path overrides.
 

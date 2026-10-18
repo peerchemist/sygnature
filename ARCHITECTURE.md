@@ -1,7 +1,7 @@
 # Sygnature ROAST messaging architecture
 
 Status: implementation documentation checked against Sygnature and the pinned
-Noosphere revision on 2026-10-07. Sygnature supports participant-bound room
+Noosphere revision on 2026-10-18. Sygnature supports participant-bound room
 enrollment and the preconfigured-roster flow, durable client, room and
 coordinator state, DKG, successor-group transitions, transaction and message
 signing, and retry-safe transaction broadcast persistence. Cross-peer UTXO
@@ -425,10 +425,10 @@ The behavior described above is defined primarily in:
 - `lib/services/roast_runtime_rooms.dart`
 - `lib/services/roast_runtime_signing_mapper.dart`
 - `lib/storage/roast_storage.dart`
-- [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/fafb28dba31a2d3acc17d9c90060a3ad46d7300d):
-  `packages/noosphere/proto/noosphere.proto`,
-  `packages/noosphere/lib/src/framing.dart`,
-  `packages/noosphere/lib/api/`,
+- [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/470f2e66c2e6a6f1e4951ba8cabbefff9653f12d):
+  `packages/noosphere_protocol/proto/noosphere.proto`,
+  `packages/noosphere_protocol/lib/src/wire/framing.dart`,
+  `packages/noosphere_protocol/lib/api/`,
   `packages/noosphere_client/lib/src/iroh/`,
   `packages/noosphere_server/lib/src/iroh/`, and
   `packages/noosphere_server/lib/src/server/`

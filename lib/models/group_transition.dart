@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart' as cl;
-import 'package:noosphere/common.dart';
-import 'package:noosphere/domain.dart';
+import 'package:noosphere_protocol/common.dart';
+import 'package:noosphere_protocol/domain.dart';
 
 const sygnatureWalletTransitionPolicyKind =
     'sygnature/peercoin-wallet-transition';

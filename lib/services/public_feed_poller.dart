@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:iroh_quic/iroh_quic.dart';
-import 'package:noosphere/wire.dart' show ProtocolErrorCode;
+import 'package:noosphere_protocol/wire.dart' show ProtocolErrorCode;
 import 'package:noosphere_client/iroh_transport.dart'
     show PinnedEndpointMismatchException;
 import 'package:noosphere_client/public_feed.dart';

@@ -12,8 +12,8 @@ import 'package:coinlib/coinlib.dart'
         hexToBytes,
         sha256Hash;
 import 'package:flutter/foundation.dart';
-import 'package:noosphere/config.dart' show GroupConfig;
-import 'package:noosphere/domain.dart'
+import 'package:noosphere_protocol/config.dart' show GroupConfig;
+import 'package:noosphere_protocol/domain.dart'
     show
         Expiry,
         GroupTransitionApproval,
