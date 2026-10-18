@@ -116,6 +116,12 @@ void main() {
     );
     expect(
       () => PeercoinElectrumxService.parseEndpoint(
+        'ws://electrum.example.com:50004',
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => PeercoinElectrumxService.parseEndpoint(
         'https://electrum.example.com',
       ),
       throwsFormatException,
@@ -123,6 +129,26 @@ void main() {
     expect(
       () => PeercoinElectrumxService.parseEndpoint('wss:///missing-host'),
       throwsFormatException,
+    );
+  });
+
+  test('rejects an insecure endpoint at the service boundary', () {
+    expect(
+      () => PeercoinElectrumxService(
+        electrumNetwork: PeercoinElectrumxNetworks.mainnet,
+        preferredServer: Uri.parse('ws://electrum.example.com:50004'),
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('rejects persisting an insecure endpoint', () async {
+    await expectLater(
+      PeercoinElectrumxService.setSelectedBackend(
+        PeercoinElectrumxNetworks.mainnet.preset,
+        Uri.parse('ws://electrum.example.com:50004'),
+      ),
+      throwsArgumentError,
     );
   });
 

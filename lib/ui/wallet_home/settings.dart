@@ -426,7 +426,7 @@ Future<void> _showElectrumEndpointSettings(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'Use a ws:// or wss:// endpoint. The current built-in servers '
+                'Use a secure wss:// endpoint. The current built-in servers '
                 'remain available as failover servers.',
               ),
               const SizedBox(height: 20),

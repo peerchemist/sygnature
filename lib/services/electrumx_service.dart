@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/widgets.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -10,6 +11,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/electrumx_utxo.dart';
 import 'app_logger.dart';
 import 'peercoin_network_service.dart';
+
+const allowInsecureElectrumxEndpoints =
+    !kReleaseMode && bool.fromEnvironment('SYGNATURE_ALLOW_INSECURE_ELECTRUM');
 
 class PeercoinElectrumxNetwork {
   const PeercoinElectrumxNetwork({
@@ -154,7 +158,7 @@ class PeercoinElectrumxService
       throw ArgumentError.value(
         this.preferredServer,
         'preferredServer',
-        'ElectrumX endpoint must use ws:// or wss:// and include a host.',
+        _endpointRequirement,
       );
     }
     WidgetsBinding.instance.addObserver(this);
@@ -440,7 +444,7 @@ class PeercoinElectrumxService
     final endpoint = Uri.tryParse(value.trim());
     if (endpoint == null || !_isSupportedEndpoint(endpoint)) {
       throw const FormatException(
-        'Use a WebSocket endpoint beginning with ws:// or wss://.',
+        'Use a secure WebSocket endpoint beginning with wss://.',
       );
     }
     return endpoint;
@@ -451,11 +455,7 @@ class PeercoinElectrumxService
     Uri backend,
   ) async {
     if (!_isSupportedEndpoint(backend)) {
-      throw ArgumentError.value(
-        backend,
-        'backend',
-        'ElectrumX endpoint must use ws:// or wss:// and include a host.',
-      );
+      throw ArgumentError.value(backend, 'backend', _endpointRequirement);
     }
 
     final box = await _openSettingsBox();
@@ -531,8 +531,12 @@ class PeercoinElectrumxService
     return '${preset.id}:$_backendKeySuffix';
   }
 
+  static const _endpointRequirement =
+      'ElectrumX endpoint must use wss:// and include a host.';
+
   static bool _isSupportedEndpoint(Uri endpoint) =>
-      (endpoint.scheme == 'ws' || endpoint.scheme == 'wss') &&
+      (endpoint.scheme == 'wss' ||
+          (allowInsecureElectrumxEndpoints && endpoint.scheme == 'ws')) &&
       endpoint.host.isNotEmpty;
 
   static String _diagnosticEndpoint(Uri endpoint) {
