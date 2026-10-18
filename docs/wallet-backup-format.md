@@ -5,6 +5,19 @@ is `ROASTBAK`. The envelope remains version 1. Payload schema 2 adds
 address-sequence recovery metadata. Other payload schemas are rejected.
 All keys, identifiers and passwords below are public synthetic test data.
 
+## Android migration policy
+
+Sygnature excludes its private application storage from Android cloud backup
+and device-to-device transfer. This includes wallet and ROAST databases, secure
+storage bootstrap data and the isolated public-feed state. Copying an Android
+application sandbox is not a supported wallet or signer migration path.
+
+A user-created `.sygnaturebkp` file is the only supported Android wallet and
+signer migration artifact. It is saved to a location chosen through the system
+file picker and is not part of Sygnature's private application storage. Import
+it into an empty Sygnature installation and reconcile restored ROAST groups as
+described below.
+
 ## Envelope
 
 The file is `header || ciphertext || tag`. Header length is exactly 60 bytes;
