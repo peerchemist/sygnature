@@ -19,6 +19,7 @@ import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/about_screen.dart';
+import 'package:sygnature_ng/ui/onboarding_screen.dart';
 import 'package:sygnature_ng/ui/wallet_home.dart';
 import 'package:sygnature_ng/ui/widgets/middle_ellipsis_text.dart';
 
@@ -31,6 +32,47 @@ void main() {
     await controller.load();
     return controller;
   }
+
+  testWidgets(
+    'Noosphere initialization does not block wallets and can be retried',
+    (tester) async {
+      final controller = await createController();
+      final firstAttempt = Completer<void>();
+      var attempts = 0;
+
+      await tester.pumpWidget(
+        SygnatureApp(
+          controllerFactory: () async => controller,
+          noosphereInitializer: () {
+            attempts++;
+            return attempts == 1 ? firstAttempt.future : Future.value();
+          },
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(OnboardingScreen), findsOneWidget);
+
+      firstAttempt.completeError(StateError('Synthetic native failure'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OnboardingScreen), findsOneWidget);
+      expect(
+        find.text(
+          'Shared wallets could not start. Personal wallets and backups '
+          'remain available.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('noosphere-initialization-retry')));
+      await tester.pumpAndSettle();
+
+      expect(attempts, 2);
+      expect(find.byType(OnboardingScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('theme follows the system and can be overridden in settings', (
     tester,

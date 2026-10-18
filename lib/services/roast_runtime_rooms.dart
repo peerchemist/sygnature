@@ -230,7 +230,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     AppLogger.info(
       '${RoastRuntimeManager._irohScope(setup.id)} Starting room coordinator',
     );
-    await NoosphereFlutter.initialize();
+    await _initializeNative();
     final persistence = await _persistenceFactory.open();
     final secretKey = await _irohSecretKey(setup);
     final rooms = await RoomManager.open(

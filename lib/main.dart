@@ -48,32 +48,27 @@ Future<void> main() async {
   };
   final incomingLinks = AppLinks().uriLinkStream;
   await loadCoinlib();
-  AppLogger.info('[NOOSPHERE] Initializing native runtime');
-  try {
-    await NoosphereFlutter.initialize();
-    AppLogger.info('[NOOSPHERE] Native runtime initialized');
-  } catch (error, stackTrace) {
-    AppLogger.fatal(
-      '[NOOSPHERE] Native runtime initialization failed',
-      error: error,
-      stackTrace: stackTrace,
-    );
-    rethrow;
-  }
+  runApp(
+    SygnatureApp(
+      incomingLinks: incomingLinks,
+      noosphereInitializer: NoosphereFlutter.initialize,
+    ),
+  );
   try {
     await initializeAndroidPublicFeedWork();
   } on Object {
     AppLogger.warn('Unable to schedule Android public feed background work');
   }
-  runApp(SygnatureApp(incomingLinks: incomingLinks));
 }
 
 typedef WalletControllerFactory = Future<WalletController> Function();
+typedef NoosphereInitializer = Future<void> Function();
 
 class const SygnatureApp({
   super.key,
   final WalletControllerFactory? controllerFactory,
   final Stream<Uri>? incomingLinks,
+  final NoosphereInitializer? noosphereInitializer,
 }) extends StatefulWidget {
   @override
   State<SygnatureApp> createState() => _SygnatureAppState();
@@ -83,6 +78,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   final ThemeController _themeController = ThemeController();
   final AppNotifications _notifications = AppNotifications();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey();
   late final Future<void> _notificationsReady = _notifications.initialize();
   Future<VaultProtectionStore>? _protectionStore;
   Future<WalletController>? _controller;
@@ -90,12 +86,16 @@ class _SygnatureAppState extends State<SygnatureApp> {
   Future<PublicFeedStore>? _publicFeedStore;
   PublicFeedPoller? _publicFeedPoller;
   bool _disposed = false;
+  Future<void> _noosphereInitialization = Future.value();
   Future<void> _incomingLinkWork = Future.value();
 
   @override
   void initState() {
     super.initState();
     unawaited(_themeController.initialize());
+    if (widget.noosphereInitializer != null) {
+      _startNoosphereInitialization();
+    }
     final controllerFactory = widget.controllerFactory;
     if (controllerFactory == null) {
       _publicFeedStore = getApplicationSupportDirectory().then(
@@ -115,6 +115,62 @@ class _SygnatureAppState extends State<SygnatureApp> {
         stackTrace: stackTrace,
       ),
     );
+  }
+
+  void _startNoosphereInitialization({bool reconnect = false}) {
+    final initialization = _initializeNoosphere();
+    _noosphereInitialization = initialization;
+    final completion = reconnect
+        ? initialization.then((_) => _reconnectActiveRoastSetups())
+        : initialization;
+    unawaited(
+      completion.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
+  }
+
+  Future<void> _reconnectActiveRoastSetups() async {
+    final controllerFuture = _controller;
+    if (controllerFuture == null) return;
+    await (await controllerFuture).resumeActiveRoastSetups();
+  }
+
+  Future<void> _initializeNoosphere() async {
+    AppLogger.info('[NOOSPHERE] Initializing native runtime');
+    try {
+      await widget.noosphereInitializer!();
+      AppLogger.info('[NOOSPHERE] Native runtime initialized');
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '[NOOSPHERE] Native runtime initialization failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _showNoosphereInitializationError();
+      rethrow;
+    }
+  }
+
+  void _showNoosphereInitializationError() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      final messenger = _messengerKey.currentState;
+      if (messenger == null) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Shared wallets could not start. Personal wallets and backups '
+              'remain available.',
+            ),
+            action: SnackBarAction(
+              key: const Key('noosphere-initialization-retry'),
+              label: 'Try again',
+              onPressed: () => _startNoosphereInitialization(reconnect: true),
+            ),
+          ),
+        );
+    });
   }
 
   Future<void> _startPublicFeedPolling() async {
@@ -245,6 +301,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
         roastPersistence,
         publicFeedStore: _publicFeedStore,
         getWalletBip39Seed: () => _walletBip39Seed(repository),
+        initializeNative: () => _noosphereInitialization,
       ),
       roastSigningOperations: roastPersistence,
       networkServiceFactory: (network) =>
@@ -331,6 +388,11 @@ class _SygnatureAppState extends State<SygnatureApp> {
   }
 
   Future<void> _handleRoastInvitation(String invitation) async {
+    try {
+      await _noosphereInitialization;
+    } on Object {
+      throw _InvitationFailure.runtimeUnavailable;
+    }
     final link = NoosphereRoomInvite.decode(
       invitation,
       prefix: sygnatureRoomInvitePrefix,
@@ -443,6 +505,9 @@ class _SygnatureAppState extends State<SygnatureApp> {
   }
 
   static String _displayError(Object error) => switch (error) {
+    _InvitationFailure.runtimeUnavailable =>
+      'Shared wallets are unavailable until the native service starts. '
+          'Use Try again in the application notice, then reopen this invitation.',
     _InvitationFailure.unsupported =>
       'ROAST invitations are unavailable in this application session.',
     _InvitationFailure.vaultLocked =>
@@ -467,6 +532,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
         valueListenable: _themeController,
         builder: (context, mode, _) => MaterialApp(
           navigatorKey: _navigatorKey,
+          scaffoldMessengerKey: _messengerKey,
           title: 'Sygnature',
           debugShowCheckedModeBanner: false,
           theme: buildAppTheme(),
@@ -663,4 +729,9 @@ final class _DeferredDeviceVault(this._protectionStore, this._keyStore) {
   }
 }
 
-enum _InvitationFailure { vaultLocked, unsupported, signerMismatch }
+enum _InvitationFailure {
+  vaultLocked,
+  runtimeUnavailable,
+  unsupported,
+  signerMismatch,
+}

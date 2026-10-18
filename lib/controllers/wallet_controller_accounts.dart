@@ -79,22 +79,29 @@ extension WalletAccountsController on WalletController {
       await _ensureNetworkService(network);
     }
     await _restartElectrumxSync();
-    if (runtime != null) {
-      final activeSetupIds = accounts
-          .where((account) => account.keySource == WalletKeySource.roast)
-          .map((account) => account.sourceId)
-          .nonNulls
-          .toSet();
+    if (runtime != null) unawaited(resumeActiveRoastSetups());
+  }
+
+  Future<void> resumeActiveRoastSetups() async {
+    final activeSetupIds = accounts
+        .where(
+          (account) =>
+              !account.isArchived && account.keySource == WalletKeySource.roast,
+        )
+        .map((account) => account.sourceId)
+        .nonNulls
+        .toSet();
+    await Future.wait([
       for (final setup in roastSetups.where(
         (item) =>
             item.isFinalized &&
             !item.needsInvitationCreation &&
             !item.requiresBackupReconciliation &&
             activeSetupIds.contains(item.id),
-      )) {
-        unawaited(resumeRoastSetup(setup.id));
-      }
-    }
+      ))
+        resumeRoastSetup(setup.id)
+            .then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    ]);
   }
 
   MnemonicSession generateMnemonic({

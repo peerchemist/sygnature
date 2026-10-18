@@ -35,10 +35,12 @@ final class RoastRuntimeManager(
   RoastPersistenceFactory persistenceFactory, {
   required WalletBip39SeedProvider getWalletBip39Seed,
   final Future<PublicFeedStore>? publicFeedStore,
+  Future<void> Function() initializeNative = NoosphereFlutter.initialize,
   Future<NoosphereWorker> Function() startWorker = NoosphereWorker.start,
 }) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
   final WalletBip39SeedProvider _getWalletBip39Seed = getWalletBip39Seed;
+  final Future<void> Function() _initializeNative = initializeNative;
   final Future<NoosphereWorker> Function() _startWorker = startWorker;
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
@@ -85,9 +87,10 @@ final class RoastRuntimeManager(
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
 
-  Future<NoosphereWorker> _ensureWorker() {
+  Future<NoosphereWorker> _ensureWorker() async {
+    await _initializeNative();
     final existing = _worker;
-    if (existing != null && !existing.isClosed) return Future.value(existing);
+    if (existing != null && !existing.isClosed) return existing;
     return _workerStarting ??= _openWorker().whenComplete(() {
       _workerStarting = null;
     });
