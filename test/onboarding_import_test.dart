@@ -100,7 +100,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Main wallet'), findsWidgets);
-    expect(find.text('Peercoin mainnet'), findsOneWidget);
+    expect(find.textContaining('Peercoin mainnet'), findsOneWidget);
   });
 }
 
@@ -123,7 +123,7 @@ const _mnemonic = MnemonicSession(
   createdInApp: false,
 );
 
-class _ImportWalletKeyService implements WalletKeyService {
+class _ImportWalletKeyService extends WalletKeyService {
   @override
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,

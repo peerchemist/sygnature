@@ -761,7 +761,7 @@ const _mnemonic = MnemonicSession(
   createdInApp: true,
 );
 
-class _FakeWalletKeyService implements WalletKeyService {
+class _FakeWalletKeyService extends WalletKeyService {
   @override
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,

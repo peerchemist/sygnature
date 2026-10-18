@@ -46,7 +46,7 @@ class DerivedWalletMaterial {
   final String privateKeyHex;
 }
 
-abstract interface class WalletKeyService {
+abstract class WalletKeyService {
   MnemonicSession generateMnemonic({
     required MnemonicLanguage language,
     required int wordCount,
@@ -71,9 +71,31 @@ abstract interface class WalletKeyService {
     required int accountIndex,
     required int addressIndex,
   });
+
+  List<DerivedWalletMaterial> deriveAddresses({
+    required WalletNetwork network,
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required int accountIndex,
+    required int firstAddressIndex,
+    required int lastAddressIndex,
+  }) => [
+    for (
+      var addressIndex = firstAddressIndex;
+      addressIndex <= lastAddressIndex;
+      addressIndex++
+    )
+      deriveAddress(
+        network: network,
+        mnemonic: mnemonic,
+        language: language,
+        accountIndex: accountIndex,
+        addressIndex: addressIndex,
+      ),
+  ];
 }
 
-class CoinlibWalletKeyService implements WalletKeyService {
+class CoinlibWalletKeyService extends WalletKeyService {
   CoinlibWalletKeyService({EntropyGenerator? entropyGenerator})
     : _entropyGenerator = entropyGenerator ?? generateRandomBytes;
 
@@ -165,33 +187,53 @@ class CoinlibWalletKeyService implements WalletKeyService {
     required MnemonicLanguage language,
     required int accountIndex,
     required int addressIndex,
+  }) => deriveAddresses(
+    network: network,
+    mnemonic: mnemonic,
+    language: language,
+    accountIndex: accountIndex,
+    firstAddressIndex: addressIndex,
+    lastAddressIndex: addressIndex,
+  ).single;
+
+  @override
+  List<DerivedWalletMaterial> deriveAddresses({
+    required WalletNetwork network,
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required int accountIndex,
+    required int firstAddressIndex,
+    required int lastAddressIndex,
   }) {
     if (accountIndex < 0 || accountIndex >= HDKey.hardenBit) {
       throw _invalidAccountIndex;
     }
-    if (addressIndex < 0 || addressIndex >= HDKey.hardenBit) {
+    if (firstAddressIndex < 0 ||
+        lastAddressIndex < firstAddressIndex ||
+        lastAddressIndex >= HDKey.hardenBit) {
       throw _invalidAccountIndex;
     }
     Uint8List? seed;
     try {
       final peercoinNetwork = PeercoinNetworks.fromWalletNetwork(network);
       final basePath = network.derivationPathForAccount(accountIndex);
-      final path =
-          '${basePath.substring(0, basePath.lastIndexOf('/') + 1)}$addressIndex';
+      final pathPrefix = basePath.substring(0, basePath.lastIndexOf('/') + 1);
       seed = mnemonicToSeed(mnemonic, language: language);
-      final child = HDPrivateKey.fromSeed(seed).derivePath(path);
-      final taproot = Taproot(internalKey: child.publicKey);
-      final spendKey = taproot.tweakPrivateKey(child.privateKey);
-      final address = P2TRAddress.fromTaproot(
-        taproot,
-        hrp: peercoinNetwork.network.bech32Hrp,
-      ).toString();
-
-      return DerivedWalletMaterial(
-        derivationPath: path,
-        address: address,
-        privateKeyHex: bytesToHex(spendKey.data),
-      );
+      final addressParent = HDPrivateKey.fromSeed(seed)
+          .derivePath(basePath.substring(0, basePath.lastIndexOf('/')));
+      return [
+        for (
+          var addressIndex = firstAddressIndex;
+          addressIndex <= lastAddressIndex;
+          addressIndex++
+        )
+          _deriveAddressFromParent(
+            addressParent,
+            addressIndex: addressIndex,
+            path: '$pathPrefix$addressIndex',
+            addressHrp: peercoinNetwork.network.bech32Hrp,
+          ),
+      ];
     } on WalletKeyFailure {
       rethrow;
     } on Object {
@@ -199,6 +241,22 @@ class CoinlibWalletKeyService implements WalletKeyService {
     } finally {
       seed?.fillRange(0, seed.length, 0);
     }
+  }
+
+  static DerivedWalletMaterial _deriveAddressFromParent(
+    HDPrivateKey parent, {
+    required int addressIndex,
+    required String path,
+    required String addressHrp,
+  }) {
+    final child = parent.derive(addressIndex);
+    final taproot = Taproot(internalKey: child.publicKey);
+    final spendKey = taproot.tweakPrivateKey(child.privateKey);
+    return DerivedWalletMaterial(
+      derivationPath: path,
+      address: P2TRAddress.fromTaproot(taproot, hrp: addressHrp).toString(),
+      privateKeyHex: bytesToHex(spendKey.data),
+    );
   }
 
   static Uint8List mnemonicToSeed(

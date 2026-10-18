@@ -117,34 +117,41 @@ extension WalletSyncController on WalletController {
       _addressDerivationCache[account.id] = cached;
     }
     final result = cached!.addresses;
-    for (var index = result.length; index <= highestIndex; index++) {
-      if (pathPrefix == null) break;
-      if (account.keySource == WalletKeySource.personal) {
-        final mnemonic = _vault?.mnemonic;
-        final languageId = _vault?.languageId;
-        if (mnemonic == null || languageId == null) {
-          break;
-        }
-        late final DerivedWalletMaterial derived;
+    if (pathPrefix == null) {
+      return List.unmodifiable(result.take(highestIndex + 1));
+    }
+    if (account.keySource == WalletKeySource.personal) {
+      final mnemonic = _vault?.mnemonic;
+      final languageId = _vault?.languageId;
+      if (mnemonic != null &&
+          languageId != null &&
+          result.length <= highestIndex) {
         try {
-          derived = _keyService.deriveAddress(
+          final firstAddressIndex = result.length;
+          final derivedAddresses = _keyService.deriveAddresses(
             network: networkForAccount(account),
             mnemonic: mnemonic,
             language: MnemonicLanguage.byId(languageId),
             accountIndex: account.accountIndex,
-            addressIndex: index,
+            firstAddressIndex: firstAddressIndex,
+            lastAddressIndex: highestIndex,
           );
+          result.addAll([
+            for (final (offset, derived) in derivedAddresses.indexed)
+              (
+                index: firstAddressIndex + offset,
+                address: derived.address,
+                derivationPath: derived.derivationPath,
+                privateKeyHex: derived.privateKeyHex,
+              ),
+          ]);
         } on Object {
-          break;
+          // Return the addresses derived successfully before this request.
         }
-        result.add((
-          index: index,
-          address: derived.address,
-          derivationPath: derived.derivationPath,
-          privateKeyHex: derived.privateKeyHex,
-        ));
-        continue;
       }
+      return List.unmodifiable(result.take(highestIndex + 1));
+    }
+    for (var index = result.length; index <= highestIndex; index++) {
       if (setup?.groupKeyHex == null) break;
       late final RoastDerivedAddress derived;
       try {
