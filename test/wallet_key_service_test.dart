@@ -226,4 +226,31 @@ void main() {
     expect(testnet.derivationPath, "m/86'/1'/0'/0/0");
     expect(testnet.privateKeyHex, isNot(mainnet.privateKeyHex));
   });
+
+  test('increments only the final address path component', () {
+    final service = CoinlibWalletKeyService();
+    const mnemonic =
+        'abandon abandon abandon abandon abandon abandon abandon abandon '
+        'abandon abandon abandon about';
+
+    final receive = service.deriveAddress(
+      network: PeercoinNetworks.mainnet,
+      mnemonic: mnemonic,
+      language: MnemonicLanguage.english,
+      accountIndex: 3,
+      addressIndex: 0,
+    );
+    final change = service.deriveAddress(
+      network: PeercoinNetworks.mainnet,
+      mnemonic: mnemonic,
+      language: MnemonicLanguage.english,
+      accountIndex: 3,
+      addressIndex: 1,
+    );
+
+    expect(receive.derivationPath, "m/86'/6'/3'/0/0");
+    expect(change.derivationPath, "m/86'/6'/3'/0/1");
+    expect(change.address, isNot(receive.address));
+    expect(change.privateKeyHex, isNot(receive.privateKeyHex));
+  });
 }

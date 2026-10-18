@@ -172,6 +172,7 @@ extension WalletActivityController on WalletController {
     int? blockHeight,
     String? details,
     List<String>? inputOutpoints,
+    String? rawTransactionHex,
   }) async {
     try {
       await _updateVault((current) {
@@ -194,6 +195,7 @@ extension WalletActivityController on WalletController {
               transactionStatus: status,
               blockHeight: blockHeight,
               transactionInputOutpoints: inputOutpoints ?? const [],
+              rawTransactionHex: rawTransactionHex,
             ),
           );
           final limited = _limitNonTransactionActivities(activities);
@@ -219,6 +221,7 @@ extension WalletActivityController on WalletController {
             details: keepChainStatus ? null : details,
             clearDetails: keepChainStatus || details == null,
             transactionInputOutpoints: inputOutpoints,
+            rawTransactionHex: rawTransactionHex,
           );
         }
         return current.copyWith(activities: activities);
@@ -240,7 +243,11 @@ extension WalletActivityController on WalletController {
       await _updateVault((current) {
         if (current == null) return current;
         final accountIds = current.accounts
-            .where((account) => account.address == address)
+            .where(
+              (account) =>
+                  ownedAddressesFor(account)
+                      .any((owned) => owned.address == address),
+            )
             .map((account) => account.id)
             .toSet();
         final transactions = <String, ElectrumxTransactionHistoryEntry>{
@@ -482,14 +489,16 @@ extension WalletActivityController on WalletController {
   Future<RoastSigningOperation> _completeRoastSigningOperation(
     RoastSigningOperation operation,
   ) async {
+    final transaction = ThresholdWalletTransaction.fromJson(
+      operation.thresholdTransaction,
+    );
+    final signatures = [
+      for (final signature in operation.signaturesHex) hexToBytes(signature),
+    ];
     final signed = _transactionService.completeThresholdSigning(
-      transaction: ThresholdWalletTransaction.fromJson(
-        operation.thresholdTransaction,
-      ),
-      signatures: [
-        for (final signature in operation.signaturesHex) hexToBytes(signature),
-      ],
-      expectedInternalKeyHex: operation.expectedInternalKeyHex,
+      transaction: transaction,
+      signatures: signatures,
+      expectedInternalKeysHex: operation.expectedInternalKeysHex,
     );
     final completed = operation.copyWith(
       state: RoastSigningOperationState.signed,

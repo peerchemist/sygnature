@@ -1426,6 +1426,10 @@ extension WalletRoastSetupController on WalletController {
                 keyId: setup.keyName,
                 derivationState: WalletDerivationState.ready,
                 derivationPath: derived.pathLabel,
+                addressPathPrefix: derived.pathLabel.substring(
+                  0,
+                  derived.pathLabel.lastIndexOf('/') + 1,
+                ),
                 address: derived.address,
               )
             else

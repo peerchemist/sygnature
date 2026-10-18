@@ -3,9 +3,11 @@ import 'dart:typed_data';
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
+import 'package:sygnature_ng/models/wallet_network.dart';
 import 'package:sygnature_ng/models/wallet_transaction.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
+import 'package:sygnature_ng/services/roast_runtime.dart';
 import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 
 import 'fixtures/peercoin_taproot_transaction_fixture.dart';
@@ -17,6 +19,36 @@ void main() {
   late ECPrivateKey destinationKey;
   late String sourceAddress;
   late String destinationAddress;
+
+  WalletTransactionPreview prepareSingle({
+    required String accountId,
+    required WalletNetwork network,
+    required String sourceAddress,
+    required List<ElectrumxUtxo> availableUtxos,
+    required WalletSendRequest request,
+  }) => service.prepare(
+    accountId: accountId,
+    network: network,
+    sourceAddress: sourceAddress,
+    availableUtxos: availableUtxos,
+    request: request,
+    ownedAddressPaths: {sourceAddress: 'receive-path'},
+    changeAddress: sourceAddress,
+    changeDerivationPath: 'receive-path',
+    changeAddressIndex: 0,
+  );
+
+  SignedWalletTransaction signSingle(
+    WalletNetwork network,
+    WalletTransactionPreview preview,
+    String privateKeyHex,
+  ) => service.sign(
+    network: network,
+    preview: preview,
+    privateKeysByAddress: {
+      for (final utxo in preview.selectedUtxos) utxo.address: privateKeyHex,
+    },
+  );
 
   setUpAll(() async {
     await loadCoinlib();
@@ -33,7 +65,7 @@ void main() {
   });
 
   test('prepares and signs a Taproot key-path spend', () {
-    final preview = service.prepare(
+    final preview = prepareSingle(
       accountId: 'wallet-0',
       network: PeercoinNetworks.mainnet,
       sourceAddress: sourceAddress,
@@ -63,11 +95,7 @@ void main() {
     );
     expect(preview.changeSats, 2000000 - preview.amountSats - preview.feeSats);
 
-    final signed = service.sign(
-      network: PeercoinNetworks.mainnet,
-      preview: preview,
-      privateKeyHex: sourceKeyHex,
-    );
+    final signed = signSingle(PeercoinNetworks.mainnet, preview, sourceKeyHex);
     final transaction = Transaction.fromHex(signed.rawTransactionHex);
 
     expect(transaction.complete, isTrue);
@@ -106,7 +134,7 @@ void main() {
 
     for (final testnetAddress in testnetAddresses) {
       expect(
-        () => service.prepare(
+        () => prepareSingle(
           accountId: 'wallet-0',
           network: PeercoinNetworks.mainnet,
           sourceAddress: sourceAddress,
@@ -135,7 +163,7 @@ void main() {
     ];
 
     for (final destination in destinations) {
-      final preview = service.prepare(
+      final preview = prepareSingle(
         accountId: 'wallet-0',
         network: PeercoinNetworks.mainnet,
         sourceAddress: sourceAddress,
@@ -154,10 +182,10 @@ void main() {
           feeRateSatsPerKb: Network.mainnet.feePerKb.toInt(),
         ),
       );
-      final signed = service.sign(
-        network: PeercoinNetworks.mainnet,
-        preview: preview,
-        privateKeyHex: sourceKeyHex,
+      final signed = signSingle(
+        PeercoinNetworks.mainnet,
+        preview,
+        sourceKeyHex,
       );
       final transaction = Transaction.fromHex(signed.rawTransactionHex);
 
@@ -202,7 +230,7 @@ void main() {
       taproot,
       hrp: Network.mainnet.bech32Hrp,
     ).toString();
-    final preview = service.prepare(
+    final preview = prepareSingle(
       accountId: 'shared-wallet-0',
       network: PeercoinNetworks.mainnet,
       sourceAddress: thresholdAddress,
@@ -243,7 +271,7 @@ void main() {
     final signed = service.completeThresholdSigning(
       transaction: restored,
       signatures: signatures,
-      expectedInternalKeyHex: sourceKey.pubkey.hex,
+      expectedInternalKeysHex: [sourceKey.pubkey.hex],
     );
 
     expect(Transaction.fromHex(signed.rawTransactionHex).complete, isTrue);
@@ -251,7 +279,7 @@ void main() {
       () => service.completeThresholdSigning(
         transaction: unsigned,
         signatures: [SchnorrSignature.sign(destinationKey, Uint8List(32)).data],
-        expectedInternalKeyHex: sourceKey.pubkey.hex,
+        expectedInternalKeysHex: [sourceKey.pubkey.hex],
       ),
       throwsA(isA<WalletTransactionRejected>()),
     );
@@ -282,7 +310,7 @@ void main() {
       fixtureDestinationAddress,
     );
 
-    final preview = service.prepare(
+    final preview = prepareSingle(
       accountId: 'fixture-wallet',
       network: PeercoinNetworks.mainnet,
       sourceAddress: fixtureSourceAddress,
@@ -329,22 +357,22 @@ void main() {
     final thresholdSigned = service.completeThresholdSigning(
       transaction: unsigned,
       signatures: [signature.data],
-      expectedInternalKeyHex: fixtureInternalPublicKeyHex,
+      expectedInternalKeysHex: [fixtureInternalPublicKeyHex],
     );
     expect(thresholdSigned.rawTransactionHex, fixtureSignedTransactionHex);
     expect(thresholdSigned.transactionId, fixtureTransactionId);
 
-    final locallySigned = service.sign(
-      network: PeercoinNetworks.mainnet,
-      preview: preview,
-      privateKeyHex: fixtureSpendPrivateKeyHex,
+    final locallySigned = signSingle(
+      PeercoinNetworks.mainnet,
+      preview,
+      fixtureSpendPrivateKeyHex,
     );
     expect(locallySigned.rawTransactionHex, fixtureSignedTransactionHex);
     expect(locallySigned.transactionId, fixtureTransactionId);
   });
 
   test('maximum spend deducts the fee and creates no change', () {
-    final preview = service.prepare(
+    final preview = prepareSingle(
       accountId: 'wallet-0',
       network: PeercoinNetworks.mainnet,
       sourceAddress: sourceAddress,
@@ -375,11 +403,7 @@ void main() {
     expect(preview.changeSats, 0);
     expect(preview.amountSats + preview.feeSats, 100000);
     expect(preview.selectedUtxos.map((utxo) => utxo.txPos), [0, 1]);
-    final signed = service.sign(
-      network: PeercoinNetworks.mainnet,
-      preview: preview,
-      privateKeyHex: sourceKeyHex,
-    );
+    final signed = signSingle(PeercoinNetworks.mainnet, preview, sourceKeyHex);
     expect(
       Transaction.fromHex(signed.rawTransactionHex).inputs
           .map((input) => input.prevOut.n),
@@ -389,7 +413,7 @@ void main() {
 
   test('rejects amounts that do not leave enough value for the fee', () {
     expect(
-      () => service.prepare(
+      () => prepareSingle(
         accountId: 'wallet-0',
         network: PeercoinNetworks.mainnet,
         sourceAddress: sourceAddress,
@@ -410,5 +434,102 @@ void main() {
       ),
       throwsA(isA<WalletInsufficientFunds>()),
     );
+  });
+
+  test(
+    'signs mixed-index inputs and sends change to an explicit successor',
+    () {
+      final firstKey = ECPrivateKey.fromHex(sourceKeyHex);
+      final secondKey = ECPrivateKey.fromHex('${List.filled(63, '0').join()}3');
+      final changeKey = ECPrivateKey.fromHex('${List.filled(63, '0').join()}4');
+      String addressFor(ECPrivateKey key) => P2TRAddress.fromTweakedKey(
+        key.pubkey,
+        hrp: Network.mainnet.bech32Hrp,
+      ).toString();
+      final firstAddress = addressFor(firstKey);
+      final secondAddress = addressFor(secondKey);
+      final changeAddress = addressFor(changeKey);
+      final preview = service.prepare(
+        accountId: 'wallet-0',
+        network: PeercoinNetworks.mainnet,
+        sourceAddress: firstAddress,
+        availableUtxos: [
+          ElectrumxUtxo(
+            address: firstAddress,
+            txHash: List.filled(64, '1').join(),
+            txPos: 0,
+            height: 10,
+            value: 600000,
+          ),
+          ElectrumxUtxo(
+            address: secondAddress,
+            txHash: List.filled(64, '2').join(),
+            txPos: 1,
+            height: 11,
+            value: 600000,
+          ),
+        ],
+        request: WalletSendRequest(
+          destinationAddress: destinationAddress,
+          amountSats: 1000000,
+          feeRateSatsPerKb: Network.mainnet.feePerKb.toInt(),
+          useNewChangeAddress: true,
+        ),
+        ownedAddressPaths: {
+          firstAddress: "m/86'/6'/0'/0/0",
+          secondAddress: "m/86'/6'/0'/0/1",
+        },
+        changeAddress: changeAddress,
+        changeDerivationPath: "m/86'/6'/0'/0/2",
+        changeAddressIndex: 2,
+      );
+
+      expect(preview.selectedUtxos, hasLength(2));
+      expect(preview.changeAddress, changeAddress);
+      expect(preview.changeAddressIndex, 2);
+      final signed = service.sign(
+        network: PeercoinNetworks.mainnet,
+        preview: preview,
+        privateKeysByAddress: {
+          firstAddress: sourceKeyHex,
+          secondAddress: bytesToHex(secondKey.data),
+        },
+      );
+      final transaction = Transaction.fromHex(signed.rawTransactionHex);
+
+      expect(transaction.complete, isTrue);
+      expect(
+        transaction.outputs.any(
+          (output) => bytesEqual(
+            output.scriptPubKey,
+            Address.fromString(
+              changeAddress,
+              Network.mainnet,
+            ).program.script.compiled,
+          ),
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test('round trips authenticated ROAST change metadata', () {
+    final encoded = encodeRoastTransactionRequestMetadata(
+      RoastTransactionRequestMetadata(
+        message: 'Check the invoice',
+        addressSchemeVersion: 1,
+        accountIndex: 4,
+        changeOutputIndex: 1,
+        changeDerivationPath: const [0, 6, 4, 0, 0, 7],
+      ),
+    );
+    final decoded = decodeRoastTransactionRequestMetadata(encoded)!;
+
+    expect(decoded.message, 'Check the invoice');
+    expect(decoded.addressSchemeVersion, 1);
+    expect(decoded.accountIndex, 4);
+    expect(decoded.changeOutputIndex, 1);
+    expect(decoded.changeDerivationPath, [0, 6, 4, 0, 0, 7]);
+    expect(decodeRoastTransactionRequestMetadata('ordinary note'), isNull);
   });
 }

@@ -87,6 +87,7 @@ class _SendDialogState extends State<_SendDialog> {
   bool _submitting = false;
   bool _cancelling = false;
   bool _maximum = false;
+  bool _useNewChangeAddress = false;
 
   @override
   void initState() {
@@ -133,6 +134,7 @@ class _SendDialogState extends State<_SendDialog> {
               amountSats: 0,
               feeRateSatsPerKb: _feeRateSatsPerKb,
               maximum: true,
+              useNewChangeAddress: _useNewChangeAddress,
             ),
           )
           .amountSats;
@@ -158,6 +160,7 @@ class _SendDialogState extends State<_SendDialog> {
           signingMessage: widget.account.keySource == WalletKeySource.roast
               ? _signingMessageController.text.trim()
               : '',
+          useNewChangeAddress: _useNewChangeAddress,
         ),
       );
       setState(() {
@@ -361,7 +364,7 @@ class _SendDialogState extends State<_SendDialog> {
               textCapitalization: TextCapitalization.sentences,
               minLines: 2,
               maxLines: 4,
-              maxLength: maxRoastSigningMessageBytes,
+              maxLength: maxRoastTransactionSigningMessageBytes,
               decoration: const InputDecoration(
                 labelText: 'Message to signers (optional)',
                 helperText: 'Authenticated with the signing request.',
@@ -369,8 +372,8 @@ class _SendDialogState extends State<_SendDialog> {
               ),
               validator: (value) {
                 final byteLength = utf8.encode(value?.trim() ?? '').length;
-                return byteLength > maxRoastSigningMessageBytes
-                    ? 'Message must be no more than 1 KiB of UTF-8 text.'
+                return byteLength > maxRoastTransactionSigningMessageBytes
+                    ? 'Message is too long for authenticated transaction metadata.'
                     : null;
               },
             ),
@@ -406,6 +409,22 @@ class _SendDialogState extends State<_SendDialog> {
                   ? 'The network fee is deducted automatically.'
                   : '${_formatPpc(maximumAvailableSats)} $_currencyShortName available after '
                         'the network fee.',
+            ),
+          ),
+          SwitchListTile(
+            key: const Key('send-new-change-address-field'),
+            value: _useNewChangeAddress,
+            onChanged: widget.controller.canUseNewChangeAddress(widget.account)
+                ? (value) => setState(() {
+                    _useNewChangeAddress = value;
+                    _error = null;
+                  })
+                : null,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Use a new change address'),
+            subtitle: const Text(
+              'Allocates the next recoverable wallet address only when the '
+              'submitted transaction has change.',
             ),
           ),
           if (_error != null) ...[
@@ -450,6 +469,12 @@ class _SendDialogState extends State<_SendDialog> {
         label: 'Change',
         value: '${_formatPpc(preview.changeSats)} $_currencyShortName',
       ),
+      if (preview.changeAddress case final address?)
+        _TransactionRow(
+          label: 'Change address',
+          value: address,
+          monospace: true,
+        ),
       if (preview.signingMessage.isNotEmpty)
         _TransactionRow(label: 'Message', value: preview.signingMessage),
       if (widget.account.keySource == WalletKeySource.roast)

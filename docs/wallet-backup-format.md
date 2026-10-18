@@ -1,7 +1,8 @@
-# Sygnature encrypted wallet backup, version 1
+# Sygnature encrypted wallet backup, payload version 2
 
 Extension: `.sygnaturebkp`. The extension is a UI convention; the binary magic
-is `ROASTBAK`. This is a new format, with no legacy decoding or migrations.
+is `ROASTBAK`. The envelope remains version 1. Payload schema 2 adds
+address-sequence recovery metadata. Other payload schemas are rejected.
 All keys, identifiers and passwords below are public synthetic test data.
 
 ## Envelope
@@ -94,7 +95,7 @@ milliseconds, from 0 through 8,640,000,000,000,000. Root `created_at` is UTC Uni
 
 ```text
 Root = {
-  "schema_version": 1,
+  "schema_version": 2,
   "created_at": u,
   "wallets": [Wallet],                # zero or one; app has one mnemonic vault
   "groups": [Group]
@@ -123,6 +124,9 @@ Account = {
   "derivation_path": t?,
   "address": t?,
   "private_key": b32?,                # personal Taproot-tweaked spend key only
+  "address_scheme_version": 1,
+  "address_path_prefix": t?,          # path through the final slash
+  "highest_allocated_address_index": u, # 0..2^31-1
   "created_at_ms": u,
   "archived_at_ms": u?
 }
@@ -208,6 +212,14 @@ using the standard BIP-39 seed and BIP-32, then BIP-341 Taproot key-path tweakin
 compare stored path, address and spend private key. Addresses use the network's
 existing Peercoin parameters. Preserve ROAST paths exactly, as `R/n/n/...`;
 these are the existing threshold derivation path, not BIP-32 private derivation.
+Both wallet types use one address sequence per root/group key, network and
+account. Index 0 is the receiving address and indexes 1 through
+`highest_allocated_address_index` are retained change addresses. Personal and
+ROAST derivation increment only the final path component.
+`address_path_prefix` is the receive path through its final slash and
+`address_scheme_version` is 1. Restore validates the receiving address and
+derived child scripts against the backed-up key material before monitoring or
+spending them.
 For a ROAST account, `key_id` is the exact textual application key name and must
 equal its referenced group's `key_name`. Resolve the unique signing key with
 that name and the group's expected key description; its `group_public_key`
@@ -351,6 +363,13 @@ started, also on export failure. Previously offline groups remain offline;
 restored groups requiring reconciliation are never automatically started.
 Reconnect failures are reported separately and do not discard a valid backup.
 
+Restore synchronizes every address through the saved highest index, including
+spent history. Recovery scans may extend beyond that index, but peer-provided
+or user-selected ranges must be bounded. Gaps are valid because cancelled,
+rejected, expired and uncertain operations retain exposed indexes. Blockchain
+history cannot reveal an allocated address that was never used, so an older
+backup may recover funds without reconstructing every exposed index.
+
 Import first authenticates and validates **everything**, displays only counts,
 networks and UTC creation date, then requires explicit confirmation. The file
 digest is rechecked before committing. Current policy is intentionally
@@ -374,7 +393,7 @@ fresh signing nonces with the existing signing implementation.
 
 ## Known-answer vector and example file
 
-The empty-vault example has creation time 0, no wallets and no groups. It was
+The schema-2 empty-vault example has creation time 0, no wallets and no groups. It was
 independently generated using Python argon2-cffi (Argon2 version 19), cbor2
 canonical encoding, and PyNaCl's XChaCha20-Poly1305-IETF. These are test-vector
 tools, not application dependencies. Fixed randomness is **test-only**.
@@ -387,16 +406,16 @@ Salt: 000102030405060708090a0b0c0d0e0f
 Nonce: 101112131415161718191a1b1c1d1e1f2021222324252627
 Derived key: 15479c7cda408971c7d9329ddc7762931436f536daf097e0b300ce0a5f79381e
 CBOR (46 bytes):
-a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e01
+a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e02
 Complete file (122 bytes):
-524f41535442414b010101000100000000000301000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262780df443a76c32b93641f04e893c8239e754d579dd1c2b74b5023f769045c00b2176daf3b132c195a3d7e6d669b8f4691fc0d9a4c02fe7f4009cb503c9e74
+524f41535442414b010101000100000000000301000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262780df443a76c32b93641f04e893c8239e754d579dd1c2b74b5023f769045c00b2176daf3b132c195a3d7e6d669b8c4a55cd2bb786c9a7d26181d9da7ee30a
 ```
 
-`docs/fixtures/empty-v1.sygnaturebkp.hex` contains that complete example in hex.
+`docs/fixtures/empty-v2.sygnaturebkp.hex` contains that complete example in hex.
 Produce the binary file with:
 
 ```sh
-xxd -r -p docs/fixtures/empty-v1.sygnaturebkp.hex empty-v1.sygnaturebkp
+xxd -r -p docs/fixtures/empty-v2.sygnaturebkp.hex empty-v2.sygnaturebkp
 ```
 
 Independent reproduction (requires argon2-cffi, cbor2 and pynacl):
@@ -409,7 +428,7 @@ password = "synthetic backup 🔐".encode("utf-8")
 salt, nonce = bytes(range(16)), bytes(range(16, 40))
 header = b"ROASTBAK" + bytes([1, 1, 1]) + struct.pack(">IIB", 65536, 3, 1) + salt + nonce
 key = hash_secret_raw(password, salt, 3, 65536, 1, 32, Type.ID, version=19)
-plaintext = cbor2.dumps(dict(schema_version=1, created_at=0, wallets=[], groups=[]), canonical=True)
+plaintext = cbor2.dumps(dict(schema_version=2, created_at=0, wallets=[], groups=[]), canonical=True)
 file = header + crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, header, nonce, key)
 print(file.hex())  # synthetic test vector only; never print real wallet plaintext/keys
 ```
@@ -425,8 +444,8 @@ public fixtures, never production wallets.
 
 ## Versioning, UI and verification status
 
-Envelope version and payload schema version are independent and currently both
-1. Unknown versions, fields, protocols, ciphersuites and policy types fail
+Envelope version and payload schema version are independent. They are currently
+1 and 2, respectively. Unknown versions, fields, protocols, ciphersuites and policy types fail
 closed. Incompatible recovery metadata or semantic changes need a new schema
 and/or envelope version; there is no guessing or legacy fallback.
 

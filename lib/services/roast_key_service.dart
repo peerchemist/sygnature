@@ -297,6 +297,9 @@ class RoastKeyService {
             account: accountIndex,
           )
         : _parsePathLabel(pathLabel);
+    if (path.isEmpty) {
+      throw const FormatException('Invalid ROAST derivation path.');
+    }
     final info = deriveThresholdGroupKey(
       groupKey: ECCompressedPublicKey.fromHex(groupKeyHex),
       threshold: threshold,

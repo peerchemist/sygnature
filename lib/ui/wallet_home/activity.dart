@@ -373,6 +373,31 @@ Future<void> _showActivityDetails(
         ),
       ),
       actions: [
+        if (account.keySource == WalletKeySource.personal &&
+            activity.canRetryBroadcast)
+          TextButton(
+            key: const Key('retry-personal-broadcast-button'),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await controller.retryPersonalBroadcast(activity);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Transaction rebroadcast.')),
+                  );
+                }
+              } on Object {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Transaction rebroadcast failed.'),
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Retry broadcast'),
+          ),
         TextButton(
           onPressed: () => Navigator.pop(dialogContext),
           child: const Text('Close'),

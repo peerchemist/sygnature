@@ -406,6 +406,10 @@ void main() {
         amountSats: 1000000,
         feeRateSatsPerKb: 10000,
       ),
+      ownedAddressPaths: {sourceAddress: 'R/0/6/0/0/0/0'},
+      changeAddress: sourceAddress,
+      changeDerivationPath: 'R/0/6/0/0/0/0',
+      changeAddressIndex: 0,
     );
     final transaction = const CoinlibWalletTransactionService()
         .prepareThresholdSigning(
@@ -424,7 +428,12 @@ void main() {
         active: true,
       ).copyWith(groupKeyHex: signingKey.pubkey.hex),
       transaction,
-      const [0, 6, 0, 0, 0, 0],
+      const [
+        [0, 6, 0, 0, 0, 0],
+      ],
+      accountIndex: 0,
+      changeOutputIndex: 1,
+      changeDerivationPath: const [0, 6, 0, 0, 0, 0],
       message: 'Quarterly hosting bill',
     );
     final persisted = SignaturesRequestDetails.fromHex(proposal.proposalHex);
@@ -436,7 +445,10 @@ void main() {
     );
     expect(proposal.expiry.microsecond % 1000, 0);
     expect(proposal.idHex, bytesToHex(persisted.id.toBytes()));
-    expect(persisted.message, 'Quarterly hosting bill');
+    expect(
+      decodeRoastTransactionRequestMetadata(persisted.message)!.message,
+      'Quarterly hosting bill',
+    );
 
     final proposalWithoutMessage = runtime.createTransactionSigningProposal(
       _setup(
@@ -444,12 +456,17 @@ void main() {
         active: true,
       ).copyWith(groupKeyHex: signingKey.pubkey.hex),
       transaction,
-      const [0, 6, 0, 0, 0, 0],
+      const [
+        [0, 6, 0, 0, 0, 0],
+      ],
+      accountIndex: 0,
+      changeOutputIndex: 1,
+      changeDerivationPath: const [0, 6, 0, 0, 0, 0],
     );
     expect(
       SignaturesRequestDetails.fromHex(proposalWithoutMessage.proposalHex)
           .message,
-      isEmpty,
+      startsWith('sygnature-tx-v1:'),
     );
     expect(
       () => runtime.createTransactionSigningProposal(
@@ -458,7 +475,10 @@ void main() {
           active: true,
         ).copyWith(groupKeyHex: signingKey.pubkey.hex),
         transaction,
-        const [0, 6, 0, 0, 0, 0],
+        const [
+          [0, 6, 0, 0, 0, 0],
+        ],
+        accountIndex: 0,
         message: 'è' * (maxRoastSigningMessageBytes ~/ 2 + 1),
       ),
       throwsArgumentError,
@@ -1292,8 +1312,7 @@ void main() {
         accountId: 'shared',
         requestIdHex: 'request',
         proposalHex: 'proposal',
-        expectedInternalKeyHex: 'internal-key',
-        derivationPath: const [0, 6, 0, 0, 0, 0],
+        expectedInternalKeysHex: const ['internal-key'],
         thresholdTransaction: const {},
         reservedOutpoints: const ['funding:0'],
         expiry: DateTime.now().add(const Duration(minutes: 1)),
@@ -1639,6 +1658,88 @@ void main() {
     controller.dispose();
   });
 
+  test(
+    'rejects false change metadata and persists a validated successor',
+    () async {
+      final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+      final electrumx = _FakeElectrumxService();
+      final controller = _controller(
+        runtime: runtime,
+        electrumx: electrumx,
+        keyService: _IndexedRoastKeyService(),
+        active: true,
+      );
+      await controller.load();
+      await _flushEvents();
+      electrumx.emit('pc1pshared', const [
+        ElectrumxUtxo(
+          address: 'pc1pshared',
+          txHash: 'funding',
+          txPos: 0,
+          height: 100,
+          value: 2000000,
+        ),
+      ]);
+      await _flushEvents();
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _signingRequest(
+            'ab' * 16,
+            addressSchemeVersion: 1,
+            accountIndex: 0,
+            changeOutputIndex: 1,
+            changeDerivationPath: const [0, 6, 0, 0, 0, 1],
+            previousOutputValues: const [2000000],
+            outputs: [
+              RoastSigningOutput(
+                valueSats: 1000000,
+                scriptHex: 'destination-script',
+              ),
+              RoastSigningOutput(
+                valueSats: 999000,
+                scriptHex: 'forged-change-script',
+              ),
+            ],
+          ),
+        ),
+      );
+      await _flushEvents();
+      expect(controller.roastSigningRequests, isEmpty);
+      expect(controller.accounts.single.highestAllocatedAddressIndex, 0);
+
+      runtime.emit(
+        RoastRuntimeSigningRequestEvent(
+          'setup',
+          request: _signingRequest(
+            'ac' * 16,
+            addressSchemeVersion: 1,
+            accountIndex: 0,
+            changeOutputIndex: 1,
+            changeDerivationPath: const [0, 6, 0, 0, 0, 1],
+            previousOutputValues: const [2000000],
+            outputs: [
+              RoastSigningOutput(
+                valueSats: 1000000,
+                scriptHex: 'destination-script',
+              ),
+              RoastSigningOutput(
+                valueSats: 999000,
+                scriptHex: 'change-script-1',
+              ),
+            ],
+          ),
+        ),
+      );
+      await _flushEvents();
+
+      expect(controller.roastSigningRequests, hasLength(1));
+      expect(controller.accounts.single.highestAllocatedAddressIndex, 1);
+      controller.dispose();
+    },
+  );
+
   test('persists ROAST notification deduplication across restarts', () async {
     var notificationCount = 0;
     final repository = MemoryWalletRepository();
@@ -1760,6 +1861,10 @@ void main() {
           changeSats: 999000,
           feeRateSatsPerKb: 10000,
           selectedUtxos: [utxo],
+          changeAddress: 'pc1pshared',
+          changeDerivationPath: 'R/0/6/0/0/0/0',
+          changeAddressIndex: 0,
+          inputDerivationPaths: {'pc1pshared': 'R/0/6/0/0/0/0'},
         ),
       ),
       throwsA(
@@ -2241,8 +2346,7 @@ void main() {
       accountId: 'shared',
       requestIdHex: 'request',
       proposalHex: 'proposal',
-      expectedInternalKeyHex: 'internal-key',
-      derivationPath: const [0, 6, 0, 0, 0, 0],
+      expectedInternalKeysHex: const ['internal-key'],
       thresholdTransaction: const {},
       reservedOutpoints: const ['funding:0'],
       expiry: DateTime.now().add(const Duration(minutes: 1)),
@@ -2305,7 +2409,7 @@ void main() {
             keySource: WalletKeySource.roast,
             sourceId: 'setup',
             keyId: 'setup:generation:1',
-            derivationPath: 'R/0/6/0/0/0/0',
+            derivationPath: derived.pathLabel,
             address: sourceAddress,
             createdAt: DateTime.utc(2026),
           ),
@@ -2327,6 +2431,20 @@ void main() {
     );
     await controller.load();
     await _flushEvents();
+    electrumx.emit(sourceAddress, [
+      ElectrumxUtxo(
+        address: sourceAddress,
+        txHash: 'd' * 64,
+        txPos: 0,
+        height: 100,
+        value: 2000000,
+      ),
+    ]);
+    await _flushEvents();
+    expect(
+      controller.availableUtxosFor(controller.accounts.single),
+      hasLength(1),
+    );
     expect(
       controller.onlineSignerCount(controller.roastSetups.single),
       lessThan(controller.roastSetups.single.threshold),
@@ -2351,6 +2469,10 @@ void main() {
         feeRateSatsPerKb: 10000,
         signingMessage: 'Quarterly hosting bill',
       ),
+      ownedAddressPaths: {sourceAddress: derived.pathLabel},
+      changeAddress: sourceAddress,
+      changeDerivationPath: derived.pathLabel,
+      changeAddressIndex: 0,
     );
     final result = await controller.sendTransaction(preview);
 
@@ -2462,6 +2584,16 @@ void main() {
         );
         await controller.load();
         await _flushEvents();
+        electrumx.emit(sourceAddress, [
+          ElectrumxUtxo(
+            address: sourceAddress,
+            txHash: 'd' * 64,
+            txPos: 0,
+            height: 100,
+            value: 2000000,
+          ),
+        ]);
+        await _flushEvents();
         final preview = const CoinlibWalletTransactionService().prepare(
           accountId: 'shared',
           network: PeercoinNetworks.mainnet,
@@ -2480,6 +2612,10 @@ void main() {
             amountSats: 1000000,
             feeRateSatsPerKb: 10000,
           ),
+          ownedAddressPaths: {sourceAddress: 'R/0/6/0/0/0/0'},
+          changeAddress: sourceAddress,
+          changeDerivationPath: 'R/0/6/0/0/0/0',
+          changeAddressIndex: 0,
         );
 
         await expectLater(
@@ -2513,13 +2649,14 @@ void main() {
         );
         expect(restored.state, scenario.state);
         expect(restored.reservesUtxos, failedOperation.reservesUtxos);
-        final legacyJson = failedOperation.toJson()
+        final unsupportedJson = failedOperation.toJson()
           ..remove('schemaVersion')
           ..['state'] = 'interrupted'
           ..['errorMessage'] = 'Signing request failed.';
-        final legacy = RoastSigningOperation.fromJson(legacyJson);
-        expect(legacy.state, RoastSigningOperationState.rejected);
-        expect(legacy.reservesUtxos, isFalse);
+        expect(
+          () => RoastSigningOperation.fromJson(unsupportedJson),
+          throwsFormatException,
+        );
         expect(
           controller.hasDismissibleRoastSigningOperation('shared'),
           scenario.reservesUtxos,
@@ -2552,10 +2689,11 @@ void main() {
     final runtime = _FakeRoastRuntime()
       ..snapshotGroupKey = 'expected-key'
       ..signatureRequestGate = Completer<void>();
+    final electrumx = _FakeElectrumxService();
     final controller = _activeController(
       runtime: runtime,
       operations: operations,
-      electrumx: _FakeElectrumxService(),
+      electrumx: electrumx,
       sourceAddress: sourceAddress,
       derived: RoastDerivedAddress(
         path: const [0, 6, 0, 0, 0, 0],
@@ -2565,6 +2703,16 @@ void main() {
       ),
     );
     await controller.load();
+    await _flushEvents();
+    electrumx.emit(sourceAddress, [
+      ElectrumxUtxo(
+        address: sourceAddress,
+        txHash: 'd' * 64,
+        txPos: 0,
+        height: 100,
+        value: 2000000,
+      ),
+    ]);
     await _flushEvents();
     final preview = const CoinlibWalletTransactionService().prepare(
       accountId: 'shared',
@@ -2584,6 +2732,10 @@ void main() {
         amountSats: 1000000,
         feeRateSatsPerKb: 10000,
       ),
+      ownedAddressPaths: {sourceAddress: 'R/0/6/0/0/0/0'},
+      changeAddress: sourceAddress,
+      changeDerivationPath: 'R/0/6/0/0/0/0',
+      changeAddressIndex: 0,
     );
 
     final sending = controller.sendTransaction(preview);
@@ -2631,8 +2783,7 @@ void main() {
         accountId: 'shared',
         requestIdHex: 'request',
         proposalHex: 'proposal',
-        expectedInternalKeyHex: 'internal-key',
-        derivationPath: const [0, 6, 0, 0, 0, 0],
+        expectedInternalKeysHex: const ['internal-key'],
         thresholdTransaction: const {},
         reservedOutpoints: const ['funding:0'],
         expiry: DateTime.now().subtract(const Duration(minutes: 1)),
@@ -2863,6 +3014,12 @@ RoastSigningRequest _signingRequest(
   int threshold = 2,
   List<String> contributingParticipants = const ['01'],
   DateTime? expiry,
+  List<int> previousOutputValues = const [2000000],
+  List<RoastSigningOutput>? outputs,
+  int addressSchemeVersion = 1,
+  int accountIndex = 0,
+  int? changeOutputIndex,
+  List<int>? changeDerivationPath,
 }) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'dd',
@@ -2883,15 +3040,20 @@ RoastSigningRequest _signingRequest(
   transactionInputCount: 1,
   signedInputIndexes: const [0],
   previousOutputScripts: const ['expected-script'],
+  previousOutputValues: previousOutputValues,
   inputOutpoints: const ['funding:0'],
-  outputs: [
-    RoastSigningOutput(valueSats: 1000000, scriptHex: 'destination-script'),
-  ],
+  outputs:
+      outputs ??
+      [RoastSigningOutput(valueSats: 1000000, scriptHex: 'destination-script')],
   masterGroupKeys: const ['expected-key'],
   derivationPaths: const [
     [0, 6, 0, 0, 0, 0],
   ],
   message: 'Quarterly hosting bill',
+  addressSchemeVersion: addressSchemeVersion,
+  accountIndex: accountIndex,
+  changeOutputIndex: changeOutputIndex,
+  changeDerivationPath: changeDerivationPath,
 );
 
 RoastSigningRequest _messageSigningRequest(
@@ -2921,6 +3083,7 @@ RoastSigningRequest _messageSigningRequest(
   transactionInputCount: 0,
   signedInputIndexes: const [],
   previousOutputScripts: const [],
+  previousOutputValues: const [],
   inputOutpoints: const [],
   outputs: const [],
   masterGroupKeys: const ['expected-key'],
@@ -2957,6 +3120,33 @@ final class _FakeRoastKeyService extends RoastKeyService {
 
   @override
   String addressForScript(network, String scriptHex) => 'pc1pdestination';
+}
+
+final class _IndexedRoastKeyService extends _FakeRoastKeyService {
+  @override
+  RoastDerivedAddress deriveAddress({
+    required String groupKeyHex,
+    required int threshold,
+    required network,
+    required int accountIndex,
+    String? pathLabel,
+  }) {
+    final path = pathLabel == null
+        ? const [0, 6, 0, 0, 0, 0]
+        : pathLabel.split('/').skip(1).map(int.parse).toList(growable: false);
+    final index = path.last;
+    return RoastDerivedAddress(
+      path: path,
+      pathLabel: 'R/${path.join('/')}',
+      address: index == 0 ? 'pc1pshared' : 'pc1pshared$index',
+      internalKeyHex: 'internal-key-$index',
+    );
+  }
+
+  @override
+  String scriptHexForAddress(network, String address) => address == 'pc1pshared'
+      ? 'expected-script'
+      : 'change-script-${address.substring('pc1pshared'.length)}';
 }
 
 NoosphereRoomInvite _roomInvite(
@@ -3109,7 +3299,10 @@ class _FakeRoastRuntime implements RoastRuntime {
   RoastSigningProposal createTransactionSigningProposal(
     setup,
     transaction,
-    List<int> derivationPath, {
+    List<List<int>> derivationPaths, {
+    required int accountIndex,
+    int? changeOutputIndex,
+    List<int>? changeDerivationPath,
     String message = '',
     Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
@@ -3350,7 +3543,7 @@ final class _SigningRoastRuntime(
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   ThresholdWalletTransaction? _transaction;
-  List<int>? _derivationPath;
+  List<List<int>>? _derivationPaths;
   String? signingMessage;
   Duration? signingRequestTimeout;
 
@@ -3384,12 +3577,15 @@ final class _SigningRoastRuntime(
   RoastSigningProposal createTransactionSigningProposal(
     RoastSetup setup,
     ThresholdWalletTransaction transaction,
-    List<int> derivationPath, {
+    List<List<int>> derivationPaths, {
+    required int accountIndex,
+    int? changeOutputIndex,
+    List<int>? changeDerivationPath,
     String message = '',
     Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
     _transaction = transaction;
-    _derivationPath = List.unmodifiable(derivationPath);
+    _derivationPaths = List.unmodifiable(derivationPaths);
     signingMessage = message;
     signingRequestTimeout = timeout;
     return RoastSigningProposal(
@@ -3416,7 +3612,7 @@ final class _SigningRoastRuntime(
     var privateKey = signingKey;
     var groupKey = ECCompressedPublicKey.fromPubkey(signingKey.pubkey);
     var hdInfo = HDKeyInfo.master;
-    for (final index in _derivationPath!) {
+    for (final index in _derivationPaths!.single) {
       final (tweak, nextInfo) = hdInfo.deriveTweakAndInfo(groupKey, index);
       privateKey = privateKey.tweak(tweak)!;
       groupKey = groupKey.tweak(tweak)!;

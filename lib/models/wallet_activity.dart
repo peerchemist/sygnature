@@ -71,7 +71,15 @@ class WalletActivity({
   final int? transactionFeeSats,
   final int? transactionNetSats,
   final List<String> transactionInputOutpoints = const [],
+  final String? rawTransactionHex,
 }) {
+  bool get canRetryBroadcast =>
+      type == WalletActivityType.transactionBroadcast &&
+      reference != null &&
+      rawTransactionHex != null &&
+      (transactionStatus == WalletTransactionStatus.broadcasting ||
+          transactionStatus == WalletTransactionStatus.failed);
+
   WalletActivity copyWith({
     DateTime? expiresAt,
     WalletTransactionStatus? transactionStatus,
@@ -85,6 +93,7 @@ class WalletActivity({
     int? transactionFeeSats,
     int? transactionNetSats,
     List<String>? transactionInputOutpoints,
+    String? rawTransactionHex,
     bool clearDetails = false,
     bool clearBlockHeight = false,
     bool clearTransactionConfirmations = false,
@@ -111,6 +120,7 @@ class WalletActivity({
     transactionNetSats: transactionNetSats ?? this.transactionNetSats,
     transactionInputOutpoints:
         transactionInputOutpoints ?? this.transactionInputOutpoints,
+    rawTransactionHex: rawTransactionHex ?? this.rawTransactionHex,
   );
 
   Map<String, Object?> toJson() => {
@@ -133,6 +143,7 @@ class WalletActivity({
     'transactionFeeSats': transactionFeeSats,
     'transactionNetSats': transactionNetSats,
     'transactionInputOutpoints': transactionInputOutpoints,
+    'rawTransactionHex': rawTransactionHex,
   };
 
   factory WalletActivity.fromJson(Map<Object?, Object?> json) => WalletActivity(
@@ -169,5 +180,6 @@ class WalletActivity({
         ((json['transactionInputOutpoints'] as List?) ?? const [])
             .cast<String>()
             .toList(growable: false),
+    rawTransactionHex: json['rawTransactionHex'] as String?,
   );
 }

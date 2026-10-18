@@ -17,8 +17,7 @@ class RoastSigningOperation({
   required final String accountId,
   required final String requestIdHex,
   required final String proposalHex,
-  required final String expectedInternalKeyHex,
-  required final List<int> derivationPath,
+  required final List<String> expectedInternalKeysHex,
   required final Map<String, Object?> thresholdTransaction,
   required final List<String> reservedOutpoints,
   required final DateTime expiry,
@@ -31,7 +30,7 @@ class RoastSigningOperation({
   final String? errorMessage,
   final bool reservationsReleased = false,
 }) {
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
 
   String get storageId => '$setupId:$requestIdHex';
 
@@ -69,8 +68,7 @@ class RoastSigningOperation({
     accountId: accountId,
     requestIdHex: requestIdHex,
     proposalHex: proposalHex,
-    expectedInternalKeyHex: expectedInternalKeyHex,
-    derivationPath: derivationPath,
+    expectedInternalKeysHex: expectedInternalKeysHex,
     thresholdTransaction: thresholdTransaction,
     reservedOutpoints: reservedOutpoints,
     expiry: expiry,
@@ -90,8 +88,7 @@ class RoastSigningOperation({
     'accountId': accountId,
     'requestIdHex': requestIdHex,
     'proposalHex': proposalHex,
-    'expectedInternalKeyHex': expectedInternalKeyHex,
-    'derivationPath': derivationPath,
+    'expectedInternalKeysHex': expectedInternalKeysHex,
     'thresholdTransaction': thresholdTransaction,
     'reservedOutpoints': reservedOutpoints,
     'expiry': expiry.toUtc().toIso8601String(),
@@ -106,28 +103,22 @@ class RoastSigningOperation({
   };
 
   factory RoastSigningOperation.fromJson(Map<Object?, Object?> json) {
-    var state = RoastSigningOperationState.values.byName(
-      json['state']! as String,
-    );
-    // Older versions recorded a rejected request as an interruption.
-    if (json['schemaVersion'] == null &&
-        state == RoastSigningOperationState.interrupted &&
-        json['errorMessage'] == 'Signing request failed.') {
-      state = RoastSigningOperationState.rejected;
+    if (json['schemaVersion'] != schemaVersion) {
+      throw const FormatException('Unsupported ROAST signing operation.');
     }
     return RoastSigningOperation(
       setupId: json['setupId']! as String,
       accountId: json['accountId']! as String,
       requestIdHex: json['requestIdHex']! as String,
       proposalHex: json['proposalHex']! as String,
-      expectedInternalKeyHex: json['expectedInternalKeyHex']! as String,
-      derivationPath: (json['derivationPath']! as List).cast<int>(),
+      expectedInternalKeysHex: (json['expectedInternalKeysHex']! as List)
+          .cast<String>(),
       thresholdTransaction: Map<String, Object?>.from(
         json['thresholdTransaction']! as Map,
       ),
       reservedOutpoints: (json['reservedOutpoints']! as List).cast<String>(),
       expiry: DateTime.parse(json['expiry']! as String),
-      state: state,
+      state: RoastSigningOperationState.values.byName(json['state']! as String),
       updatedAt: DateTime.parse(json['updatedAt']! as String),
       signaturesHex: ((json['signaturesHex'] as List?) ?? const [])
           .cast<String>(),

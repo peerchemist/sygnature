@@ -5,6 +5,9 @@ RoastSigningRequest _mapSigningRequest(
   required String idHex,
 }) {
   final proposal = request.decodeProposal();
+  final transactionMetadata = decodeRoastTransactionRequestMetadata(
+    proposal.message,
+  );
   final metadata = proposal.metadata;
   final kind = switch (metadata) {
     TaprootTransactionSignatureMetadata() =>
@@ -23,6 +26,7 @@ RoastSigningRequest _mapSigningRequest(
   );
   var signedInputIndexes = const <int>[];
   var previousOutputScripts = const <String>[];
+  var previousOutputValues = const <int>[];
   var inputOutpoints = const <String>[];
   var outputs = const <RoastSigningOutput>[];
   final hasTransactionMetadata =
@@ -55,6 +59,9 @@ RoastSigningRequest _mapSigningRequest(
       previousOutputScripts = [
         for (final output in previousOutputs) bytesToHex(output.scriptPubKey),
       ];
+      previousOutputValues = [
+        for (final output in previousOutputs) output.value.toInt(),
+      ];
     }
     outputs = [
       for (final output in metadata.transaction.outputs)
@@ -86,6 +93,7 @@ RoastSigningRequest _mapSigningRequest(
     transactionInputCount: transactionInputCount,
     signedInputIndexes: signedInputIndexes,
     previousOutputScripts: previousOutputScripts,
+    previousOutputValues: previousOutputValues,
     inputOutpoints: inputOutpoints,
     outputs: outputs,
     masterGroupKeys: [
@@ -95,9 +103,13 @@ RoastSigningRequest _mapSigningRequest(
       for (final signature in proposal.requiredSigs)
         List.unmodifiable(signature.hdDerivation),
     ],
-    message: proposal.message,
+    message: transactionMetadata?.message ?? proposal.message,
     signedMessageText: metadata is MessageSignatureMetadata
         ? metadata.payload.text
         : null,
+    addressSchemeVersion: transactionMetadata?.addressSchemeVersion,
+    accountIndex: transactionMetadata?.accountIndex,
+    changeOutputIndex: transactionMetadata?.changeOutputIndex,
+    changeDerivationPath: transactionMetadata?.changeDerivationPath,
   );
 }

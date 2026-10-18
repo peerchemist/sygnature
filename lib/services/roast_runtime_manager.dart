@@ -503,7 +503,10 @@ final class RoastRuntimeManager(
   RoastSigningProposal createTransactionSigningProposal(
     RoastSetup setup,
     ThresholdWalletTransaction transaction,
-    List<int> derivationPath, {
+    List<List<int>> derivationPaths, {
+    required int accountIndex,
+    int? changeOutputIndex,
+    List<int>? changeDerivationPath,
     String message = '',
     Duration timeout = defaultRoastSigningRequestTimeout,
   }) {
@@ -512,13 +515,44 @@ final class RoastRuntimeManager(
     if (groupKeyHex == null) {
       throw StateError('The shared key is not available.');
     }
+    if (derivationPaths.length != transaction.signatureHashes.length) {
+      throw ArgumentError.value(
+        derivationPaths,
+        'derivationPaths',
+        'Every transaction input must have a derivation path.',
+      );
+    }
+    if (utf8.encode(message).length > maxRoastTransactionSigningMessageBytes) {
+      throw ArgumentError.value(
+        message,
+        'message',
+        'Transaction request message is too large.',
+      );
+    }
+    final authenticatedMessage = encodeRoastTransactionRequestMetadata(
+      RoastTransactionRequestMetadata(
+        message: message,
+        addressSchemeVersion: 1,
+        accountIndex: accountIndex,
+        changeOutputIndex: changeOutputIndex,
+        changeDerivationPath: changeDerivationPath,
+      ),
+    );
+    if (utf8.encode(authenticatedMessage).length >
+        maxRoastSigningMessageBytes) {
+      throw ArgumentError.value(
+        message,
+        'message',
+        'Transaction request metadata is too large.',
+      );
+    }
     final details = SignaturesRequestDetails(
       requiredSigs: [
-        for (final hash in transaction.signatureHashes)
+        for (final (index, hash) in transaction.signatureHashes.indexed)
           SingleSignatureDetails(
             signDetails: SignDetails.keySpend(message: hash),
             groupKey: ECCompressedPublicKey.fromHex(groupKeyHex),
-            hdDerivation: derivationPath,
+            hdDerivation: derivationPaths[index],
           ),
       ],
       metadata: TaprootTransactionSignatureMetadata(
@@ -526,7 +560,7 @@ final class RoastRuntimeManager(
         signDetails: transaction.signDetails,
       ),
       expiry: Expiry(timeout),
-      message: message,
+      message: authenticatedMessage,
     );
     return _signingProposal(details);
   }

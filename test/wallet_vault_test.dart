@@ -31,9 +31,11 @@ void main() {
           transactionConfirmations: 7,
           transactionNetSats: -101000,
           transactionInputOutpoints: const ['funding:0'],
+          rawTransactionHex: 'deadbeef',
         ),
       ],
       announcedRoastActionIds: const ['signatures:setup:request'],
+      changeAllocationOperationIds: const ['allocation-fingerprint'],
     );
 
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
@@ -59,11 +61,13 @@ void main() {
     expect(restored.activities.single.transactionConfirmations, 7);
     expect(restored.activities.single.transactionNetSats, -101000);
     expect(restored.activities.single.transactionInputOutpoints, ['funding:0']);
+    expect(restored.activities.single.rawTransactionHex, 'deadbeef');
     expect(
       restored.activities.single.occurredAt,
       DateTime.utc(2026, 1, 2, 3, 4),
     );
     expect(restored.announcedRoastActionIds, ['signatures:setup:request']);
+    expect(restored.changeAllocationOperationIds, ['allocation-fingerprint']);
   });
 
   test('round trips a completed signed message activity', () {
@@ -124,11 +128,14 @@ void main() {
       'keySource': ?keySource,
       'address': address,
       'privateKeyHex': privateKeyHex,
+      'addressSchemeVersion': 1,
+      'addressPathPrefix': null,
+      'highestAllocatedAddressIndex': 0,
       'createdAt': '2026-01-01T00:00:00.000Z',
     };
 
     final restored = WalletVault.fromJson({
-      'schemaVersion': 1,
+      'schemaVersion': WalletVault.schemaVersion,
       'accounts': [
         account(id: 'ready', address: 'pc1pready', privateKeyHex: 'secret'),
         account(id: 'watch', address: 'pc1pwatch'),
@@ -138,6 +145,7 @@ void main() {
       'nextAccountIndex': 1,
       'roastSetups': const [],
       'activities': const [],
+      'changeAllocationOperationIds': const [],
     });
 
     expect(restored.accounts.map((account) => account.derivationState), [
@@ -190,7 +198,7 @@ void main() {
   });
 
   test('rejects unsupported schemas', () {
-    for (final version in [0, 2, 3, 4, 5, 6]) {
+    for (final version in [0, 1, 3, 4, 5, 6]) {
       expect(
         () => WalletVault.fromJson({'schemaVersion': version}),
         throwsStateError,

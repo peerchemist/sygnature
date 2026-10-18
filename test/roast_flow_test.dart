@@ -1355,6 +1355,7 @@ void main() {
           transactionInputCount: 0,
           signedInputIndexes: const [],
           previousOutputScripts: const [],
+          previousOutputValues: const [],
           inputOutpoints: const [],
           outputs: const [],
           masterGroupKeys: const ['group-key'],
@@ -1755,6 +1756,7 @@ RoastSigningRequest _messageSigningRequest(
   transactionInputCount: 0,
   signedInputIndexes: const [],
   previousOutputScripts: const [],
+  previousOutputValues: const [],
   inputOutpoints: const [],
   outputs: const [],
   masterGroupKeys: const ['group-key'],
@@ -2049,7 +2051,10 @@ class _FakeRoastRuntime implements RoastRuntime {
   RoastSigningProposal createTransactionSigningProposal(
     setup,
     transaction,
-    List<int> derivationPath, {
+    List<List<int>> derivationPaths, {
+    required int accountIndex,
+    int? changeOutputIndex,
+    List<int>? changeDerivationPath,
     String message = '',
     Duration timeout = defaultRoastSigningRequestTimeout,
   }) {

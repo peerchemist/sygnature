@@ -63,6 +63,14 @@ abstract interface class WalletKeyService {
     required MnemonicLanguage language,
     required int accountIndex,
   });
+
+  DerivedWalletMaterial deriveAddress({
+    required WalletNetwork network,
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required int accountIndex,
+    required int addressIndex,
+  });
 }
 
 class CoinlibWalletKeyService implements WalletKeyService {
@@ -142,14 +150,34 @@ class CoinlibWalletKeyService implements WalletKeyService {
     required String mnemonic,
     required MnemonicLanguage language,
     required int accountIndex,
+  }) => deriveAddress(
+    network: network,
+    mnemonic: mnemonic,
+    language: language,
+    accountIndex: accountIndex,
+    addressIndex: 0,
+  );
+
+  @override
+  DerivedWalletMaterial deriveAddress({
+    required WalletNetwork network,
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required int accountIndex,
+    required int addressIndex,
   }) {
     if (accountIndex < 0 || accountIndex >= HDKey.hardenBit) {
+      throw _invalidAccountIndex;
+    }
+    if (addressIndex < 0 || addressIndex >= HDKey.hardenBit) {
       throw _invalidAccountIndex;
     }
     Uint8List? seed;
     try {
       final peercoinNetwork = PeercoinNetworks.fromWalletNetwork(network);
-      final path = network.derivationPathForAccount(accountIndex);
+      final basePath = network.derivationPathForAccount(accountIndex);
+      final path =
+          '${basePath.substring(0, basePath.lastIndexOf('/') + 1)}$addressIndex';
       seed = mnemonicToSeed(mnemonic, language: language);
       final child = HDPrivateKey.fromSeed(seed).derivePath(path);
       final taproot = Taproot(internalKey: child.publicKey);

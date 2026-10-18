@@ -779,11 +779,29 @@ class _FakeWalletKeyService implements WalletKeyService {
     required String mnemonic,
     required MnemonicLanguage language,
     required int accountIndex,
+  }) => deriveAddress(
+    network: network,
+    mnemonic: mnemonic,
+    language: language,
+    accountIndex: accountIndex,
+    addressIndex: 0,
+  );
+
+  @override
+  DerivedWalletMaterial deriveAddress({
+    required WalletNetwork network,
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required int accountIndex,
+    required int addressIndex,
   }) => DerivedWalletMaterial(
-    derivationPath: network.derivationPathForAccount(accountIndex),
+    derivationPath:
+        '${network.derivationPathForAccount(accountIndex).substring(0, network.derivationPathForAccount(accountIndex).lastIndexOf('/') + 1)}$addressIndex',
     address:
-        '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex',
-    privateKeyHex: 'private-key-$accountIndex',
+        '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex${addressIndex == 0 ? '' : '-$addressIndex'}',
+    privateKeyHex: addressIndex == 0
+        ? 'private-key-$accountIndex'
+        : 'private-key-$accountIndex-$addressIndex',
   );
 }
 

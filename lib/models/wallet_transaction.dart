@@ -7,6 +7,7 @@ class WalletSendRequest {
     required this.feeRateSatsPerKb,
     this.maximum = false,
     this.signingMessage = '',
+    this.useNewChangeAddress = false,
   });
 
   final String destinationAddress;
@@ -14,6 +15,7 @@ class WalletSendRequest {
   final int feeRateSatsPerKb;
   final bool maximum;
   final String signingMessage;
+  final bool useNewChangeAddress;
 }
 
 class WalletTransactionPreview {
@@ -27,6 +29,10 @@ class WalletTransactionPreview {
     required this.feeRateSatsPerKb,
     required this.selectedUtxos,
     this.signingMessage = '',
+    required this.changeAddress,
+    required this.changeDerivationPath,
+    required this.changeAddressIndex,
+    required this.inputDerivationPaths,
   });
 
   final String accountId;
@@ -38,6 +44,12 @@ class WalletTransactionPreview {
   final int feeRateSatsPerKb;
   final List<ElectrumxUtxo> selectedUtxos;
   final String signingMessage;
+  final String? changeAddress;
+  final String? changeDerivationPath;
+  final int changeAddressIndex;
+
+  /// Derivation path keyed by every owned input address in this transaction.
+  final Map<String, String> inputDerivationPaths;
 
   int get inputSats =>
       selectedUtxos.fold(0, (total, utxo) => total + utxo.value);

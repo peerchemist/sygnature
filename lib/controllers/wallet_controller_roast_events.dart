@@ -306,7 +306,13 @@ extension WalletRoastEventController on WalletController {
       case RoastRuntimeSigningRequestEvent():
         final requestKey = '${setup.id}:${event.request.idHex}';
         try {
-          _validateRoastSigningRequest(setup, event.request);
+          final learnedIndex = _validateRoastSigningRequest(
+            setup,
+            event.request,
+          );
+          if (learnedIndex != null) {
+            await _persistLearnedRoastAllocation(setup.id, learnedIndex);
+          }
           final account = accounts.firstWhere(
             (item) => item.sourceId == setup.id,
           );
@@ -324,8 +330,8 @@ extension WalletRoastEventController on WalletController {
             );
             final transactionRecipients = [
               if (event.request.kind == RoastSigningRequestKind.transaction)
-                for (final output in event.request.outputs)
-                  if (!isRoastChangeOutput(inboxItem, output))
+                for (final (index, output) in event.request.outputs.indexed)
+                  if (!isRoastChangeOutput(inboxItem, index))
                     WalletActivityRecipient(
                       address: roastOutputAddress(inboxItem, output),
                       amountSats: output.valueSats,

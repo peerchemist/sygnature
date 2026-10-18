@@ -17,8 +17,11 @@ class WalletAccount {
     this.derivationPath,
     this.address,
     this.privateKeyHex,
+    this.addressSchemeVersion = 1,
+    this.addressPathPrefix,
+    this.highestAllocatedAddressIndex = 0,
     this.archivedAt,
-  });
+  }) : assert(highestAllocatedAddressIndex >= 0);
 
   final String id;
   final String name;
@@ -37,6 +40,12 @@ class WalletAccount {
   /// Taproot-tweaked spend key. Kept only inside the encrypted Hive box and
   /// never shown in the UI.
   final String? privateKeyHex;
+
+  /// Recovery metadata for the account's single receive/change sequence.
+  /// Index zero is [address]; later indexes are retained change addresses.
+  final int addressSchemeVersion;
+  final String? addressPathPrefix;
+  final int highestAllocatedAddressIndex;
   final DateTime createdAt;
   final DateTime? archivedAt;
 
@@ -48,6 +57,9 @@ class WalletAccount {
     String? derivationPath,
     String? address,
     String? keyId,
+    int? addressSchemeVersion,
+    String? addressPathPrefix,
+    int? highestAllocatedAddressIndex,
     DateTime? archivedAt,
     bool clearArchivedAt = false,
   }) => WalletAccount(
@@ -63,6 +75,10 @@ class WalletAccount {
     derivationPath: derivationPath ?? this.derivationPath,
     address: address ?? this.address,
     privateKeyHex: privateKeyHex,
+    addressSchemeVersion: addressSchemeVersion ?? this.addressSchemeVersion,
+    addressPathPrefix: addressPathPrefix ?? this.addressPathPrefix,
+    highestAllocatedAddressIndex:
+        highestAllocatedAddressIndex ?? this.highestAllocatedAddressIndex,
     createdAt: createdAt,
     archivedAt: clearArchivedAt ? null : archivedAt ?? this.archivedAt,
   );
@@ -84,11 +100,19 @@ class WalletAccount {
     'derivationPath': derivationPath,
     'address': address,
     'privateKeyHex': privateKeyHex,
+    'addressSchemeVersion': addressSchemeVersion,
+    'addressPathPrefix': addressPathPrefix,
+    'highestAllocatedAddressIndex': highestAllocatedAddressIndex,
     'createdAt': createdAt.toUtc().toIso8601String(),
     'archivedAt': archivedAt?.toUtc().toIso8601String(),
   };
 
   factory WalletAccount.fromJson(Map<Object?, Object?> json) {
+    if (!json.containsKey('addressSchemeVersion') ||
+        !json.containsKey('addressPathPrefix') ||
+        !json.containsKey('highestAllocatedAddressIndex')) {
+      throw StateError('Wallet account address sequence metadata is missing.');
+    }
     final keySource = WalletKeySource.values.byName(
       json['keySource'] as String? ?? WalletKeySource.personal.name,
     );
@@ -122,6 +146,10 @@ class WalletAccount {
       derivationPath: json['derivationPath'] as String?,
       address: address,
       privateKeyHex: privateKeyHex,
+      addressSchemeVersion: json['addressSchemeVersion']! as int,
+      addressPathPrefix: json['addressPathPrefix'] as String?,
+      highestAllocatedAddressIndex:
+          json['highestAllocatedAddressIndex']! as int,
       createdAt: DateTime.parse(json['createdAt']! as String),
       archivedAt: switch (json['archivedAt']) {
         final String value => DateTime.parse(value),

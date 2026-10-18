@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:coinlib/coinlib.dart'
     show
@@ -8,7 +9,8 @@ import 'package:coinlib/coinlib.dart'
         P2TRAddress,
         bytesToHex,
         generateRandomBytes,
-        hexToBytes;
+        hexToBytes,
+        sha256Hash;
 import 'package:flutter/foundation.dart';
 import 'package:noosphere/config.dart' show GroupConfig;
 import 'package:noosphere/domain.dart'
@@ -95,6 +97,13 @@ typedef WalletNetworkServiceFactory = Future<ElectrumxService?> Function(
   WalletNetwork network,
 );
 
+typedef WalletOwnedAddress = ({
+  int index,
+  String address,
+  String derivationPath,
+  String? privateKeyHex,
+});
+
 final class const WalletBusyFailure() implements Exception {
   @override
   String toString() => 'Another wallet operation is in progress. Try again.';
@@ -103,6 +112,8 @@ final class const WalletBusyFailure() implements Exception {
 class WalletController extends ChangeNotifier {
   static const _maxActivityEntries = 100;
   static const _maxAnnouncedRoastActions = 512;
+  static const _defaultAddressRecoveryLookahead = 20;
+  static const _maxAddressRecoveryIndex = 10000;
 
   WalletController(
     this._repository, {
@@ -170,6 +181,9 @@ class WalletController extends ChangeNotifier {
   final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
   final Map<String, Object> _syncErrorsByAddress = {};
   final Set<String> _syncingAddresses = {};
+  final Map<String, int> _addressScanUpperIndexByAccount = {};
+  final Map<String, ({String identity, List<WalletOwnedAddress> addresses})>
+  _addressDerivationCache = {};
   final Set<String> _broadcastingTransactionIds = {};
   final Set<String> _broadcastedTransactionIds = {};
   bool _sending = false;
@@ -269,6 +283,7 @@ class WalletController extends ChangeNotifier {
     _pendingRoastMessageProgress.clear();
     _completedRoastMessages.clear();
     _storedRoastSigningOperations.clear();
+    _addressDerivationCache.clear();
     _roastPresence.clear();
     for (final subscription in _syncSubscriptions.values) {
       unawaited(subscription.cancel());

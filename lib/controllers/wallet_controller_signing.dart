@@ -123,21 +123,8 @@ extension WalletSigningController on WalletController {
     return _roastKeyService.addressForScript(network, output.scriptHex);
   }
 
-  bool isRoastChangeOutput(
-    RoastSigningInboxItem item,
-    RoastSigningOutput output,
-  ) {
-    final account = accounts.firstWhere(
-      (account) => account.sourceId == item.setupId,
-    );
-    final address = account.address;
-    if (address == null) return false;
-    return output.scriptHex ==
-        _roastKeyService.scriptHexForAddress(
-          networkForAccount(account),
-          address,
-        );
-  }
+  bool isRoastChangeOutput(RoastSigningInboxItem item, int outputIndex) =>
+      item.request.changeOutputIndex == outputIndex;
 
   Future<void> refreshBalances() => _restartElectrumxSync();
 
@@ -163,16 +150,66 @@ extension WalletSigningController on WalletController {
         address == null) {
       throw const WalletSigningUnavailable();
     }
+    final owned = ownedAddressesFor(account);
+    if (owned.isEmpty) throw const WalletSigningUnavailable();
+    WalletOwnedAddress change = owned.first;
+    if (request.useNewChangeAddress) {
+      final throughNext = _ownedAddressesThrough(
+        account,
+        account.highestAllocatedAddressIndex + 1,
+      );
+      if (throughNext.length != account.highestAllocatedAddressIndex + 2) {
+        throw const WalletSigningUnavailable();
+      }
+      change = throughNext.last;
+    }
     return _transactionService.prepare(
       accountId: account.id,
       network: networkForAccount(account),
       sourceAddress: address,
       availableUtxos: availableUtxosFor(account),
       request: request,
+      ownedAddressPaths: {
+        for (final item in owned) item.address: item.derivationPath,
+      },
+      changeAddress: change.address,
+      changeDerivationPath: change.derivationPath,
+      changeAddressIndex: change.index,
     );
   }
 
   static String _utxoKey(ElectrumxUtxo utxo) => '${utxo.txHash}:${utxo.txPos}';
+
+  static String _changeAllocationOperationId(
+    WalletTransactionPreview preview,
+  ) => bytesToHex(
+    sha256Hash(
+      Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'account': preview.accountId,
+            'destination': preview.destinationAddress,
+            'amount': preview.amountSats,
+            'fee': preview.feeSats,
+            'feeRate': preview.feeRateSatsPerKb,
+            'change': preview.changeSats,
+            'changeAddress': preview.changeAddress,
+            'changePath': preview.changeDerivationPath,
+            'changeIndex': preview.changeAddressIndex,
+            'message': preview.signingMessage,
+            'inputs': [
+              for (final utxo in preview.selectedUtxos)
+                {
+                  'outpoint': _utxoKey(utxo),
+                  'address': utxo.address,
+                  'value': utxo.value,
+                },
+            ],
+          }),
+        ),
+      ),
+    ),
+  );
 
   Future<RoastSignedMessage> signRoastMessage(
     WalletAccount account, {
@@ -256,12 +293,13 @@ extension WalletSigningController on WalletController {
     }
     _sending = true;
     try {
-      final account = accounts
+      final foundAccount = accounts
           .where((candidate) => candidate.id == preview.accountId)
           .firstOrNull;
-      if (account == null) {
+      if (foundAccount == null) {
         throw const WalletSigningUnavailable();
       }
+      var account = foundAccount;
       if (account.derivationState != WalletDerivationState.ready) {
         throw const WalletSigningUnavailable();
       }
@@ -273,17 +311,82 @@ extension WalletSigningController on WalletController {
           'A transaction input is reserved by another signing request.',
         );
       }
+      final availableByOutpoint = {
+        for (final utxo in availableUtxosFor(account)) _utxoKey(utxo): utxo,
+      };
+      final inputsStillMatch = preview.selectedUtxos.every((utxo) {
+        final current = availableByOutpoint[_utxoKey(utxo)];
+        return current != null &&
+            current.address == utxo.address &&
+            current.value == utxo.value &&
+            preview.inputDerivationPaths.containsKey(utxo.address);
+      });
+      if (!inputsStillMatch) {
+        throw const WalletTransactionRejected(
+          'Wallet funds changed after review. Review the transaction again.',
+        );
+      }
+      if (preview.changeSats > 0 && preview.changeAddressIndex > 0) {
+        final allocationOperationId = _changeAllocationOperationId(preview);
+        final operationIsKnown =
+            _vault?.changeAllocationOperationIds.contains(
+              allocationOperationId,
+            ) ??
+            false;
+        final allocated = _ownedAddressesThrough(
+          account,
+          preview.changeAddressIndex,
+        );
+        final expected = allocated
+            .where((owned) => owned.index == preview.changeAddressIndex)
+            .firstOrNull;
+        if (expected == null ||
+            expected.address != preview.changeAddress ||
+            expected.derivationPath != preview.changeDerivationPath ||
+            preview.changeAddressIndex >
+                account.highestAllocatedAddressIndex + 1 ||
+            preview.changeAddressIndex <=
+                    account.highestAllocatedAddressIndex &&
+                !operationIsKnown) {
+          throw const WalletTransactionRejected(
+            'Wallet state changed after review. Review the transaction again.',
+          );
+        }
+        if (preview.changeAddressIndex > account.highestAllocatedAddressIndex) {
+          await _updateVault((current) {
+            if (current == null) throw StateError('Wallet is not initialized.');
+            return current.copyWith(
+              accounts: [
+                for (final item in current.accounts)
+                  if (item.id == account.id)
+                    item.copyWith(
+                      highestAllocatedAddressIndex: preview.changeAddressIndex,
+                    )
+                  else
+                    item,
+              ],
+              changeAllocationOperationIds: [
+                allocationOperationId,
+                ...current.changeAllocationOperationIds,
+              ].take(512).toList(growable: false),
+            );
+          });
+          account = accounts.firstWhere((item) => item.id == preview.accountId);
+          await _restartElectrumxSync();
+        }
+      }
       final SignedWalletTransaction signed;
       RoastSigningOperation? signingOperation;
       if (account.keySource == WalletKeySource.watchOnly) {
         throw const WalletSigningUnavailable();
       } else if (account.keySource == WalletKeySource.personal) {
-        final privateKeyHex = account.privateKeyHex;
-        if (privateKeyHex == null) throw const WalletSigningUnavailable();
         signed = _transactionService.sign(
           network: networkForAccount(account),
           preview: preview,
-          privateKeyHex: privateKeyHex,
+          privateKeysByAddress: {
+            for (final owned in ownedAddressesFor(account))
+              owned.address: ?owned.privateKeyHex,
+          },
         );
         await _recordActivity(
           id: 'transaction-signed:${account.id}:${signed.transactionId}',
@@ -299,21 +402,54 @@ extension WalletSigningController on WalletController {
         }
         _requireRoastCoordinator(setup);
         final network = networkForAccount(account);
-        final derived = _roastKeyService.deriveAddress(
-          groupKeyHex: setup.groupKeyHex!,
-          threshold: setup.threshold,
-          network: network,
-          accountIndex: account.accountIndex,
-          pathLabel: account.derivationPath,
-        );
+        final ownedByAddress = {
+          for (final owned in ownedAddressesFor(account)) owned.address: owned,
+        };
+        final inputAddresses = [
+          for (final utxo in preview.selectedUtxos)
+            ownedByAddress[utxo.address] ??
+                (throw const WalletTransactionRejected(
+                  'A transaction input does not belong to this wallet.',
+                )),
+        ];
         final transaction = _transactionService.prepareThresholdSigning(
           network: network,
           preview: preview,
         );
+        final paths = [
+          for (final owned in inputAddresses) _roastPath(owned.derivationPath),
+        ];
+        final inputInternalKeys = [
+          for (final path in paths)
+            _roastKeyService
+                .deriveAddress(
+                  groupKeyHex: setup.groupKeyHex!,
+                  threshold: setup.threshold,
+                  network: network,
+                  accountIndex: account.accountIndex,
+                  pathLabel: 'R/${path.join('/')}',
+                )
+                .internalKeyHex,
+        ];
+        final changeOutputIndex = preview.changeAddress == null
+            ? null
+            : transaction.transaction.outputs.lastIndexWhere(
+                (output) =>
+                    bytesToHex(output.scriptPubKey) ==
+                    _roastKeyService.scriptHexForAddress(
+                      network,
+                      preview.changeAddress!,
+                    ),
+              );
         final proposal = runtime.createTransactionSigningProposal(
           setup,
           transaction,
-          derived.path,
+          paths,
+          accountIndex: account.accountIndex,
+          changeOutputIndex: changeOutputIndex == -1 ? null : changeOutputIndex,
+          changeDerivationPath: preview.changeDerivationPath == null
+              ? null
+              : _roastPath(preview.changeDerivationPath!),
           message: preview.signingMessage,
           timeout: signatureRequestTimeout,
         );
@@ -327,8 +463,7 @@ extension WalletSigningController on WalletController {
           accountId: account.id,
           requestIdHex: proposal.idHex,
           proposalHex: proposal.proposalHex,
-          expectedInternalKeyHex: derived.internalKeyHex,
-          derivationPath: List.unmodifiable(derived.path),
+          expectedInternalKeysHex: inputInternalKeys,
           thresholdTransaction: transaction.toJson(),
           reservedOutpoints: [
             for (final utxo in preview.selectedUtxos) _utxoKey(utxo),
@@ -524,6 +659,35 @@ extension WalletSigningController on WalletController {
     );
   }
 
+  Future<WalletSendResult> retryPersonalBroadcast(
+    WalletActivity activity,
+  ) async {
+    final current = _vault?.activities
+        .where((candidate) => candidate.id == activity.id)
+        .firstOrNull;
+    final account = current == null
+        ? null
+        : accounts
+              .where((candidate) => candidate.id == current.accountId)
+              .firstOrNull;
+    if (current == null ||
+        account == null ||
+        account.keySource != WalletKeySource.personal ||
+        !current.canRetryBroadcast) {
+      throw const WalletTransactionRejected(
+        'This transaction cannot be rebroadcast.',
+      );
+    }
+    return _broadcastSigned(
+      account,
+      SignedWalletTransaction(
+        transactionId: current.reference!,
+        rawTransactionHex: current.rawTransactionHex!,
+      ),
+      inputOutpoints: current.transactionInputOutpoints,
+    );
+  }
+
   Future<WalletSendResult> _broadcastSigned(
     WalletAccount account,
     SignedWalletTransaction signed, {
@@ -541,6 +705,7 @@ extension WalletSigningController on WalletController {
         transactionId: signed.transactionId,
         status: WalletTransactionStatus.broadcasting,
         inputOutpoints: inputOutpoints,
+        rawTransactionHex: signed.rawTransactionHex,
       );
       late final String serverTransactionId;
       try {
@@ -663,7 +828,10 @@ extension WalletSigningController on WalletController {
   Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
     if (_backupInProgress) throw const WalletBusyFailure();
     final setup = _setupById(item.setupId);
-    _validateRoastSigningRequest(setup, item.request);
+    final learnedIndex = _validateRoastSigningRequest(setup, item.request);
+    if (learnedIndex != null) {
+      await _persistLearnedRoastAllocation(setup.id, learnedIndex);
+    }
     await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
     final requestKey = '${setup.id}:${item.request.idHex}';
     final current = _roastSigningRequests[requestKey];
@@ -705,7 +873,7 @@ extension WalletSigningController on WalletController {
     _notifyListeners();
   }
 
-  void _validateRoastSigningRequest(
+  int? _validateRoastSigningRequest(
     RoastSetup setup,
     RoastSigningRequest request,
   ) {
@@ -728,63 +896,158 @@ extension WalletSigningController on WalletController {
           'The message signature request does not belong to this setup.',
         );
       }
-      return;
+      return null;
     }
     if (request.kind != RoastSigningRequestKind.transaction ||
         !request.hasTransactionMetadata ||
         !request.usesSupportedSighash ||
-        !request.usesExpectedTaprootTweak) {
+        !request.usesExpectedTaprootTweak ||
+        request.addressSchemeVersion == null ||
+        request.accountIndex == null) {
       throw const WalletTransactionRejected(
         'The transaction signature request has unsupported metadata.',
       );
     }
-    final account = accounts.firstWhere(
-      (item) => item.sourceId == setup.id && item.accountIndex == 0,
-    );
+    final account = accounts
+        .where(
+          (item) =>
+              item.sourceId == setup.id &&
+              item.accountIndex == request.accountIndex,
+        )
+        .firstOrNull;
+    if (account == null) {
+      throw const WalletTransactionRejected(
+        'The signing request does not belong to this wallet.',
+      );
+    }
     final network = networkForAccount(account);
-    final derived = _roastKeyService.deriveAddress(
-      groupKeyHex: setup.groupKeyHex!,
-      threshold: setup.threshold,
-      network: network,
-      accountIndex: account.accountIndex,
-      pathLabel: account.derivationPath,
-    );
-    final expectedScript = _roastKeyService.scriptHexForAddress(
-      network,
-      derived.address,
-    );
+    final derivationPath = account.derivationPath;
+    if (derivationPath == null) {
+      throw const WalletTransactionRejected(
+        'The signing request does not belong to this wallet.',
+      );
+    }
+    final receivePath = _roastPath(derivationPath);
+    bool pathIsAllowed(List<int> path) =>
+        path.length == receivePath.length &&
+        path.isNotEmpty &&
+        path.last >= 0 &&
+        path.last <= account.highestAllocatedAddressIndex + 100 &&
+        listEquals(
+          path.take(path.length - 1).toList(),
+          receivePath.take(receivePath.length - 1).toList(),
+        );
+    final requestedAddressesByPath = <String, RoastDerivedAddress>{};
+    for (final path in request.derivationPaths) {
+      if (!pathIsAllowed(path)) continue;
+      requestedAddressesByPath[path.join('/')] = _roastKeyService.deriveAddress(
+        groupKeyHex: setup.groupKeyHex!,
+        threshold: setup.threshold,
+        network: network,
+        accountIndex: account.accountIndex,
+        pathLabel: 'R/${path.join('/')}',
+      );
+    }
     final validKeys =
         request.masterGroupKeys.isNotEmpty &&
         request.masterGroupKeys.every((key) => key == setup.groupKeyHex);
     final validPaths =
         request.derivationPaths.length == request.masterGroupKeys.length &&
-        request.derivationPaths.every((path) => _samePath(path, derived.path));
+        request.derivationPaths.every(
+          (path) => requestedAddressesByPath.containsKey(path.join('/')),
+        );
     final validInputs =
         request.previousOutputScripts.length == request.transactionInputCount &&
-        request.previousOutputScripts.every(
-          (script) => script == expectedScript,
-        );
+        request.previousOutputScripts.indexed.every((entry) {
+          if (entry.$1 >= request.derivationPaths.length) return false;
+          final derivedAddress =
+              requestedAddressesByPath[request.derivationPaths[entry.$1].join(
+                '/',
+              )];
+          return derivedAddress != null &&
+              entry.$2 ==
+                  _roastKeyService.scriptHexForAddress(
+                    network,
+                    derivedAddress.address,
+                  );
+        });
     final signsEveryInput =
         request.transactionInputCount == request.signedInputIndexes.length &&
         request.transactionInputCount == request.masterGroupKeys.length &&
         request.signedInputIndexes.indexed.every(
           (entry) => entry.$1 == entry.$2,
         );
-    final knownOutpoints = spendableUtxosFor(account).map(_utxoKey).toSet();
+    final knownUtxos = {
+      for (final owned in _addressesForSync(account))
+        for (final utxo
+            in _utxosByAddress[owned.address] ?? const <ElectrumxUtxo>[])
+          if (utxo.isConfirmed) _utxoKey(utxo): utxo,
+    };
     final reservedOutpoints = _reservedOutpointsFor(
       account.id,
       includeIncomingRequests: false,
     );
     final validOutpoints =
         request.inputOutpoints.length == request.transactionInputCount &&
-        request.inputOutpoints.every(knownOutpoints.contains) &&
+        request.inputOutpoints.every(knownUtxos.containsKey) &&
         request.inputOutpoints.every(
           (outpoint) => !reservedOutpoints.contains(outpoint),
         );
+    final validInputValues =
+        request.previousOutputValues.length == request.transactionInputCount &&
+        request.previousOutputValues.indexed.every(
+          (entry) =>
+              knownUtxos[request.inputOutpoints[entry.$1]]?.value == entry.$2,
+        );
+    int? learnedIndex = request.derivationPaths
+        .where(pathIsAllowed)
+        .map((path) => path.last)
+        .where((index) => index > account.highestAllocatedAddressIndex)
+        .fold<int?>(
+          null,
+          (highest, index) =>
+              highest == null || index > highest ? index : highest,
+        );
+    var validChange =
+        request.addressSchemeVersion == account.addressSchemeVersion &&
+        request.accountIndex == account.accountIndex;
+    final changePath = request.changeDerivationPath;
+    final changeOutputIndex = request.changeOutputIndex;
+    if ((changePath == null) != (changeOutputIndex == null)) {
+      validChange = false;
+    } else if (changePath != null && changeOutputIndex != null) {
+      if (!pathIsAllowed(changePath) ||
+          changeOutputIndex < 0 ||
+          changeOutputIndex >= request.outputs.length) {
+        validChange = false;
+      } else {
+        final index = changePath.last;
+        final derivedChange = _roastKeyService.deriveAddress(
+          groupKeyHex: setup.groupKeyHex!,
+          threshold: setup.threshold,
+          network: network,
+          accountIndex: account.accountIndex,
+          pathLabel: 'R/${changePath.join('/')}',
+        );
+        validChange =
+            request.outputs[changeOutputIndex].scriptHex ==
+            _roastKeyService.scriptHexForAddress(
+              network,
+              derivedChange.address,
+            );
+        if (validChange && index > account.highestAllocatedAddressIndex) {
+          if (learnedIndex == null || index > learnedIndex) {
+            learnedIndex = index;
+          }
+        }
+      }
+    }
     if (!validKeys ||
         !validPaths ||
         !validInputs ||
         !validOutpoints ||
+        !validInputValues ||
+        !validChange ||
         !signsEveryInput ||
         request.outputs.isEmpty ||
         request.feeSats < 0) {
@@ -792,15 +1055,37 @@ extension WalletSigningController on WalletController {
         'The signing request does not belong to this wallet.',
       );
     }
+    return learnedIndex;
   }
 
-  static bool _samePath(List<int> first, List<int> second) {
-    if (first.length != second.length) return false;
-    for (var index = 0; index < first.length; index++) {
-      if (first[index] != second[index]) return false;
-    }
-    return true;
+  Future<void> _persistLearnedRoastAllocation(
+    String setupId,
+    int highestIndex,
+  ) async {
+    var changed = false;
+    await _updateVault((current) {
+      if (current == null) return current;
+      return current.copyWith(
+        accounts: [
+          for (final account in current.accounts)
+            if (account.sourceId == setupId &&
+                highestIndex > account.highestAllocatedAddressIndex)
+              () {
+                changed = true;
+                return account.copyWith(
+                  highestAllocatedAddressIndex: highestIndex,
+                );
+              }()
+            else
+              account,
+        ],
+      );
+    });
+    if (changed) await _restartElectrumxSync();
   }
+
+  static List<int> _roastPath(String label) =>
+      label.split('/').skip(1).map(int.parse).toList(growable: false);
 
   Future<void> _announceRoastAction(String id, VoidCallback? notify) async {
     if (!_announcedRoastActions.add(id)) return;

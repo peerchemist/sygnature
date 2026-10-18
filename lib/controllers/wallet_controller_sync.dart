@@ -14,8 +14,158 @@ extension WalletSyncController on WalletController {
       _networkById(account.blockchainId, account.networkId);
 
   List<ElectrumxUtxo> utxosFor(WalletAccount account) {
-    final address = account.address;
-    return address == null ? const [] : _utxosByAddress[address] ?? const [];
+    return [
+      for (final owned in ownedAddressesFor(account))
+        ..._utxosByAddress[owned.address] ?? const <ElectrumxUtxo>[],
+    ];
+  }
+
+  List<WalletOwnedAddress> ownedAddressesFor(WalletAccount account) =>
+      _ownedAddressesThrough(account, account.highestAllocatedAddressIndex);
+
+  ({int from, int through}) addressScanRangeFor(WalletAccount account) =>
+      (from: 0, through: _addressScanUpperIndex(account));
+
+  int _addressScanUpperIndex(WalletAccount account) {
+    final requested = _addressScanUpperIndexByAccount[account.id] ?? 0;
+    return requested > account.highestAllocatedAddressIndex
+        ? requested
+        : account.highestAllocatedAddressIndex;
+  }
+
+  Future<void> extendAddressScan(String accountId, int upperIndex) async {
+    final account = accounts.where((item) => item.id == accountId).firstOrNull;
+    if (account == null) {
+      throw ArgumentError.value(accountId, 'accountId', 'Unknown wallet.');
+    }
+    if (upperIndex <= addressScanRangeFor(account).through ||
+        upperIndex > WalletController._maxAddressRecoveryIndex) {
+      throw ArgumentError.value(
+        upperIndex,
+        'upperIndex',
+        'Must extend the current scan and be no more than '
+            '${WalletController._maxAddressRecoveryIndex}.',
+      );
+    }
+    final derived = _ownedAddressesThrough(account, upperIndex);
+    if (derived.length != upperIndex + 1) {
+      throw const WalletSigningUnavailable();
+    }
+    _addressScanUpperIndexByAccount[account.id] = upperIndex;
+    await _restartElectrumxSync();
+  }
+
+  List<WalletOwnedAddress> _addressesForSync(WalletAccount account) =>
+      _ownedAddressesThrough(account, _addressScanUpperIndex(account));
+
+  bool canUseNewChangeAddress(WalletAccount account) =>
+      account.keySource != WalletKeySource.watchOnly &&
+      account.derivationState == WalletDerivationState.ready &&
+      _ownedAddressesThrough(
+            account,
+            account.highestAllocatedAddressIndex + 1,
+          ).length ==
+          account.highestAllocatedAddressIndex + 2;
+
+  List<WalletOwnedAddress> _ownedAddressesThrough(
+    WalletAccount account,
+    int highestIndex,
+  ) {
+    final receiveAddress = account.address;
+    final receivePath = account.derivationPath;
+    final pathPrefix = account.addressPathPrefix;
+    if (receiveAddress == null) return const [];
+    if (account.keySource == WalletKeySource.watchOnly) {
+      return [
+        (
+          index: 0,
+          address: receiveAddress,
+          derivationPath: receivePath ?? '',
+          privateKeyHex: null,
+        ),
+      ];
+    }
+    if (receivePath == null) return const [];
+    final setup = account.keySource == WalletKeySource.roast
+        ? setupForAccount(account)
+        : null;
+    final cacheIdentity = [
+      account.keySource.name,
+      account.blockchainId,
+      account.networkId,
+      account.accountIndex,
+      receiveAddress,
+      receivePath,
+      pathPrefix ?? '',
+      setup?.groupKeyHex ?? '',
+    ].join('|');
+    var cached = _addressDerivationCache[account.id];
+    if (cached?.identity != cacheIdentity) {
+      cached = (
+        identity: cacheIdentity,
+        addresses: [
+          (
+            index: 0,
+            address: receiveAddress,
+            derivationPath: receivePath,
+            privateKeyHex: account.keySource == WalletKeySource.personal
+                ? account.privateKeyHex
+                : null,
+          ),
+        ],
+      );
+      _addressDerivationCache[account.id] = cached;
+    }
+    final result = cached!.addresses;
+    for (var index = result.length; index <= highestIndex; index++) {
+      if (pathPrefix == null) break;
+      if (account.keySource == WalletKeySource.personal) {
+        final mnemonic = _vault?.mnemonic;
+        final languageId = _vault?.languageId;
+        if (mnemonic == null || languageId == null) {
+          break;
+        }
+        late final DerivedWalletMaterial derived;
+        try {
+          derived = _keyService.deriveAddress(
+            network: networkForAccount(account),
+            mnemonic: mnemonic,
+            language: MnemonicLanguage.byId(languageId),
+            accountIndex: account.accountIndex,
+            addressIndex: index,
+          );
+        } on Object {
+          break;
+        }
+        result.add((
+          index: index,
+          address: derived.address,
+          derivationPath: derived.derivationPath,
+          privateKeyHex: derived.privateKeyHex,
+        ));
+        continue;
+      }
+      if (setup?.groupKeyHex == null) break;
+      late final RoastDerivedAddress derived;
+      try {
+        derived = _roastKeyService.deriveAddress(
+          groupKeyHex: setup!.groupKeyHex!,
+          threshold: setup.threshold,
+          network: networkForAccount(account),
+          accountIndex: account.accountIndex,
+          pathLabel: '$pathPrefix$index',
+        );
+      } on Object {
+        break;
+      }
+      result.add((
+        index: index,
+        address: derived.address,
+        derivationPath: derived.pathLabel,
+        privateKeyHex: null,
+      ));
+    }
+    return List.unmodifiable(result.take(highestIndex + 1));
   }
 
   WalletBalance balanceFor(WalletAccount account) {
@@ -111,25 +261,29 @@ extension WalletSyncController on WalletController {
   }
 
   AccountSyncStatus syncStatusFor(WalletAccount account) {
-    final address = account.address;
-    if (address == null ||
+    final addresses = ownedAddressesFor(account)
+        .map((owned) => owned.address)
+        .toList(growable: false);
+    if (addresses.isEmpty ||
         !_networkServices.containsKey(networkForAccount(account).storageId)) {
       return AccountSyncStatus.unavailable;
     }
-    if (_syncErrorsByAddress.containsKey(address)) {
+    if (addresses.any(_syncErrorsByAddress.containsKey)) {
       return AccountSyncStatus.error;
     }
-    if (_syncingAddresses.contains(address)) {
+    if (addresses.any(_syncingAddresses.contains)) {
       return AccountSyncStatus.syncing;
     }
-    return _utxosByAddress.containsKey(address)
+    return addresses.every(_utxosByAddress.containsKey)
         ? AccountSyncStatus.synced
         : AccountSyncStatus.syncing;
   }
 
   Object? syncErrorFor(WalletAccount account) {
-    final address = account.address;
-    return address == null ? null : _syncErrorsByAddress[address];
+    for (final owned in ownedAddressesFor(account)) {
+      if (_syncErrorsByAddress[owned.address] case final error?) return error;
+    }
+    return null;
   }
 
   Future<void> _ensureNetworkService(WalletNetwork network) async {
@@ -160,10 +314,10 @@ extension WalletSyncController on WalletController {
 
     final addressesByNetwork = <String, Set<String>>{};
     for (final account in accounts) {
-      final address = account.address?.trim();
-      if (address == null || address.isEmpty) continue;
       final networkId = networkForAccount(account).storageId;
-      addressesByNetwork.putIfAbsent(networkId, () => {}).add(address);
+      for (final owned in _addressesForSync(account)) {
+        addressesByNetwork.putIfAbsent(networkId, () => {}).add(owned.address);
+      }
     }
     final addresses = addressesByNetwork.values
         .expand((items) => items)
@@ -239,9 +393,14 @@ extension WalletSyncController on WalletController {
     _utxoReconciliationQueue = _utxoReconciliationQueue
         .then((_) async {
           if (_disposed) return;
+          await _retainDiscoveredAddress(address, utxos, history);
           await _reconcileTransactionStatuses(address, history);
           final accountIds = accounts
-              .where((account) => account.address == address)
+              .where(
+                (account) =>
+                    ownedAddressesFor(account)
+                        .any((owned) => owned.address == address),
+              )
               .map((account) => account.id)
               .toSet();
           final completed = _storedRoastSigningOperations.values
@@ -264,6 +423,43 @@ extension WalletSyncController on WalletController {
         .catchError((Object _) {
           // A sync snapshot should keep running even if persistence is unavailable.
         });
+  }
+
+  Future<void> _retainDiscoveredAddress(
+    String address,
+    List<ElectrumxUtxo> utxos,
+    List<ElectrumxTransactionHistoryEntry> history,
+  ) async {
+    if (utxos.isEmpty && history.isEmpty) return;
+    for (final account in accounts) {
+      final discovered = _addressesForSync(account)
+          .where((owned) => owned.address == address)
+          .firstOrNull;
+      if (discovered == null ||
+          discovered.index <= account.highestAllocatedAddressIndex) {
+        continue;
+      }
+      await _updateVault((current) {
+        if (current == null) return current;
+        return current.copyWith(
+          accounts: [
+            for (final item in current.accounts)
+              if (item.id == account.id)
+                item.copyWith(highestAllocatedAddressIndex: discovered.index)
+              else
+                item,
+          ],
+        );
+      });
+      final nextUpperIndex =
+          (discovered.index + WalletController._defaultAddressRecoveryLookahead)
+              .clamp(0, WalletController._maxAddressRecoveryIndex);
+      if (nextUpperIndex > _addressScanUpperIndex(account)) {
+        _addressScanUpperIndexByAccount[account.id] = nextUpperIndex;
+        await _restartElectrumxSync();
+      }
+      return;
+    }
   }
 
   Future<void> _cancelSyncSubscriptions() {
@@ -309,6 +505,8 @@ extension WalletSyncController on WalletController {
     _utxosByAddress.clear();
     _syncErrorsByAddress.clear();
     _syncingAddresses.clear();
+    _addressScanUpperIndexByAccount.clear();
+    _addressDerivationCache.clear();
   }
 
   int _balanceOf(Iterable<ElectrumxUtxo> utxos) =>

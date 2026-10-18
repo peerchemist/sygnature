@@ -40,6 +40,23 @@ extension WalletAccountsController on WalletController {
 
   Future<void> load({bool restoreSigningOperations = true}) async {
     _vault = await _repository.load();
+    _addressScanUpperIndexByAccount
+      ..clear()
+      ..addEntries(
+        accounts
+            .where((account) => account.keySource != WalletKeySource.watchOnly)
+            .map(
+              (account) => MapEntry(
+                account.id,
+                account.highestAllocatedAddressIndex >=
+                        WalletController._maxAddressRecoveryIndex
+                    ? account.highestAllocatedAddressIndex
+                    : (account.highestAllocatedAddressIndex +
+                              WalletController._defaultAddressRecoveryLookahead)
+                          .clamp(0, WalletController._maxAddressRecoveryIndex),
+              ),
+            ),
+      );
     _announcedRoastActions.addAll(_vault?.announcedRoastActionIds ?? const []);
     final storedAccountId = _vault?.selectedAccountId;
     _selectedAccountId =
@@ -559,6 +576,10 @@ extension WalletAccountsController on WalletController {
     networkId: network.networkId,
     derivationState: WalletDerivationState.ready,
     derivationPath: material.derivationPath,
+    addressPathPrefix: material.derivationPath.substring(
+      0,
+      material.derivationPath.lastIndexOf('/') + 1,
+    ),
     address: material.address,
     privateKeyHex: material.privateKeyHex,
     createdAt: DateTime.now().toUtc(),

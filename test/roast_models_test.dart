@@ -12,9 +12,13 @@ import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 void main() {
   setUpAll(NoosphereFlutter.initializeNative);
 
-  test('reads schema 1 vaults without changing personal account data', () {
+  test('rejects schema 1 vaults', () {
+    expect(() => WalletVault.fromJson({'schemaVersion': 1}), throwsStateError);
+  });
+
+  test('reads current vaults without changing personal account data', () {
     final vault = WalletVault.fromJson({
-      'schemaVersion': 1,
+      'schemaVersion': WalletVault.schemaVersion,
       'mnemonic': 'test phrase',
       'languageId': 'english',
       'mnemonicWordCount': 12,
@@ -28,12 +32,16 @@ void main() {
           'derivationPath': "m/86'/6'/0'/0/0",
           'address': 'pc1ptest',
           'privateKeyHex': 'secret',
+          'addressSchemeVersion': 1,
+          'addressPathPrefix': "m/86'/6'/0'/0/",
+          'highestAllocatedAddressIndex': 0,
           'createdAt': '2026-01-01T00:00:00.000Z',
         },
       ],
       'nextAccountIndex': 1,
       'roastSetups': const [],
       'activities': const [],
+      'changeAllocationOperationIds': const [],
     });
 
     expect(vault.roastSetups, isEmpty);
@@ -152,10 +160,10 @@ void main() {
     expect(setup.coordinatorIpAddrs, isEmpty);
     expect(setup.coordinatorRelayUrls, isEmpty);
     expect(setup.keyName, '$groupId-g1');
-    expect(
-      setup.participants.map((participant) => participant.identifierHex),
-      ['00' * 31 + '01', '00' * 31 + '02'],
-    );
+    expect(setup.participants.map((participant) => participant.identifierHex), [
+      '00' * 31 + '01',
+      '00' * 31 + '02',
+    ]);
     expect(() => PublicKey.fromZ32(setup.coordinatorId!), returnsNormally);
   });
 
@@ -248,11 +256,12 @@ void main() {
       'createdAt': '2026-01-01T00:00:00.000Z',
     };
     final vault = WalletVault.fromJson({
-      'schemaVersion': 1,
+      'schemaVersion': WalletVault.schemaVersion,
       'accounts': <Object?>[],
       'nextAccountIndex': 0,
       'roastSetups': [setup],
       'activities': const [],
+      'changeAllocationOperationIds': const [],
     });
 
     expect(vault.roastSetups.single.hostParticipantId, '01');

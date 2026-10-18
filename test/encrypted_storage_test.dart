@@ -164,7 +164,9 @@ void main() {
     final wallet = await HiveWalletRepository.openWithCipherKey(Uint8List(32));
     final box = Hive.box<dynamic>(_walletBox);
 
-    await box.put('wallet_vault', {'schemaVersion': 2});
+    await box.put('wallet_vault', {
+      'schemaVersion': WalletVault.schemaVersion + 1,
+    });
     await expectLater(
       wallet.load(),
       throwsA(VaultOpenFailure.unsupportedSchema),

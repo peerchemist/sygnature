@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
@@ -17,6 +18,8 @@ import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
 void main() {
+  setUpAll(loadCoinlib);
+
   test(
     'reports a busy controller instead of silently skipping edits',
     () async {
@@ -352,6 +355,207 @@ void main() {
     controller.dispose();
     await Future<void>.delayed(Duration.zero);
     expect(electrumx.closed, isTrue);
+  });
+
+  test(
+    'allocates change only when a submitted transaction has change',
+    () async {
+      final repository = MemoryWalletRepository();
+      final electrumx = _FakeElectrumxService();
+      final controller = WalletController(
+        repository,
+        networkServiceFactory: (_) async => electrumx,
+      );
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      final account = controller.accounts.single;
+      final destination = CoinlibWalletKeyService()
+          .deriveAddress(
+            network: PeercoinNetworks.mainnet,
+            mnemonic: _mnemonic.phrase,
+            language: _mnemonic.language,
+            accountIndex: 0,
+            addressIndex: 5,
+          )
+          .address;
+      electrumx.snapshots.add(
+        PeercoinElectrumxUtxoSnapshot(
+          address: account.address!,
+          utxos: [
+            ElectrumxUtxo(
+              address: account.address!,
+              txHash: List.filled(64, 'a').join(),
+              txPos: 0,
+              height: 10,
+              value: 2000000,
+            ),
+          ],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final preview = controller.prepareSend(
+        WalletSendRequest(
+          destinationAddress: destination,
+          amountSats: 1000000,
+          feeRateSatsPerKb: 10000,
+          useNewChangeAddress: true,
+        ),
+      );
+      final stalePreview = controller.prepareSend(
+        WalletSendRequest(
+          destinationAddress: destination,
+          amountSats: 900000,
+          feeRateSatsPerKb: 10000,
+          useNewChangeAddress: true,
+        ),
+      );
+      expect(preview.changeAddressIndex, 1);
+      expect(controller.accounts.single.highestAllocatedAddressIndex, 0);
+
+      electrumx.broadcastError = const ElectrumxException(
+        'injected broadcast failure',
+      );
+      await expectLater(
+        controller.sendTransaction(preview),
+        throwsA(isA<WalletBroadcastFailure>()),
+      );
+      expect(controller.accounts.single.highestAllocatedAddressIndex, 1);
+
+      await expectLater(
+        controller.sendTransaction(stalePreview),
+        throwsA(
+          isA<WalletTransactionRejected>().having(
+            (error) => error.message,
+            'message',
+            'Wallet state changed after review. Review the transaction again.',
+          ),
+        ),
+      );
+
+      expect(controller.accounts.single.highestAllocatedAddressIndex, 1);
+      expect(repository.value!.accounts.single.highestAllocatedAddressIndex, 1);
+      expect(electrumx.watchedAddresses.last, hasLength(2));
+      controller.dispose();
+
+      final restoredElectrumx = _FakeElectrumxService();
+      final restored = WalletController(
+        repository,
+        networkServiceFactory: (_) async => restoredElectrumx,
+      );
+      await restored.load();
+      final failedBroadcast = restored
+          .activitiesFor(restored.accounts.single)
+          .singleWhere(
+            (activity) =>
+                activity.type == WalletActivityType.transactionBroadcast,
+          );
+      expect(failedBroadcast.canRetryBroadcast, isTrue);
+      await restored.retryPersonalBroadcast(failedBroadcast);
+      expect(
+        restored
+            .activitiesFor(restored.accounts.single)
+            .singleWhere(
+              (activity) =>
+                  activity.type == WalletActivityType.transactionBroadcast,
+            )
+            .canRetryBroadcast,
+        isFalse,
+      );
+      expect(restored.addressScanRangeFor(restored.accounts.single), (
+        from: 0,
+        through: 21,
+      ));
+      expect(restoredElectrumx.watchedAddresses.first, hasLength(22));
+
+      restoredElectrumx.snapshots.add(
+        PeercoinElectrumxUtxoSnapshot(
+          address: destination,
+          utxos: [
+            ElectrumxUtxo(
+              address: destination,
+              txHash: List.filled(64, 'b').join(),
+              txPos: 0,
+              height: 11,
+              value: 1000000,
+            ),
+          ],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(restored.accounts.single.highestAllocatedAddressIndex, 5);
+      expect(
+        restored.addressScanRangeFor(restored.accounts.single).through,
+        25,
+      );
+      expect(restoredElectrumx.watchedAddresses.last, hasLength(26));
+
+      await restored.extendAddressScan(restored.accounts.single.id, 30);
+      expect(
+        restored.addressScanRangeFor(restored.accounts.single).through,
+        30,
+      );
+      expect(restoredElectrumx.watchedAddresses.last, hasLength(31));
+      restored.dispose();
+    },
+  );
+
+  test('does not allocate a change index for a maximum spend', () async {
+    final repository = MemoryWalletRepository();
+    final electrumx = _FakeElectrumxService();
+    final controller = WalletController(
+      repository,
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    final account = controller.accounts.single;
+    final destination = CoinlibWalletKeyService()
+        .deriveAddress(
+          network: PeercoinNetworks.mainnet,
+          mnemonic: _mnemonic.phrase,
+          language: _mnemonic.language,
+          accountIndex: 0,
+          addressIndex: 5,
+        )
+        .address;
+    electrumx.snapshots.add(
+      PeercoinElectrumxUtxoSnapshot(
+        address: account.address!,
+        utxos: [
+          ElectrumxUtxo(
+            address: account.address!,
+            txHash: List.filled(64, 'c').join(),
+            txPos: 0,
+            height: 10,
+            value: 2000000,
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final preview = controller.prepareSend(
+      WalletSendRequest(
+        destinationAddress: destination,
+        amountSats: 0,
+        feeRateSatsPerKb: 10000,
+        maximum: true,
+        useNewChangeAddress: true,
+      ),
+    );
+    expect(preview.changeSats, 0);
+    expect(preview.changeAddress, isNull);
+
+    await controller.sendTransaction(preview);
+
+    expect(controller.accounts.single.highestAllocatedAddressIndex, 0);
+    expect(repository.value!.accounts.single.highestAllocatedAddressIndex, 0);
+    controller.dispose();
   });
 
   test('configures services for the selected blockchain network', () async {
@@ -887,91 +1091,77 @@ void main() {
     }
   });
 
-  test(
-    'redacts the ElectrumX rejection reason when broadcast fails',
-    () async {
-      final electrumx = _FakeElectrumxService()
-        ..broadcastError = const ElectrumxException(
-          'All ElectrumX servers failed.',
-          cause: ElectrumxException(
-            'ElectrumX request failed.',
-            cause: ElectrumxRpcException(-26, 'bad-txns-inputs-missingorspent'),
+  test('redacts the ElectrumX rejection reason when broadcast fails', () async {
+    final electrumx = _FakeElectrumxService()
+      ..broadcastError = const ElectrumxException(
+        'All ElectrumX servers failed.',
+        cause: ElectrumxException(
+          'ElectrumX request failed.',
+          cause: ElectrumxRpcException(-26, 'bad-txns-inputs-missingorspent'),
+        ),
+      );
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      keyService: _FakeWalletKeyService(),
+      transactionService: _FakeWalletTransactionService(),
+      networkServiceFactory: (_) async => electrumx,
+    );
+    await controller.load();
+    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    electrumx.snapshots.add(
+      const PeercoinElectrumxUtxoSnapshot(
+        address: 'pc1paccount0',
+        utxos: [
+          ElectrumxUtxo(
+            address: 'pc1paccount0',
+            txHash: 'funding',
+            txPos: 0,
+            height: 10,
+            value: 2000000,
           ),
-        );
-      final controller = WalletController(
-        MemoryWalletRepository(),
-        keyService: _FakeWalletKeyService(),
-        transactionService: _FakeWalletTransactionService(),
-        networkServiceFactory: (_) async => electrumx,
-      );
-      await controller.load();
-      await controller.createWallet(
-        _mnemonic,
-        network: PeercoinNetworks.mainnet,
-      );
-      electrumx.snapshots.add(
-        const PeercoinElectrumxUtxoSnapshot(
-          address: 'pc1paccount0',
-          utxos: [
-            ElectrumxUtxo(
-              address: 'pc1paccount0',
-              txHash: 'funding',
-              txPos: 0,
-              height: 10,
-              value: 2000000,
+        ],
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final preview = controller.prepareSend(
+      const WalletSendRequest(
+        destinationAddress: 'pc1pdestination',
+        amountSats: 1000000,
+        feeRateSatsPerKb: 10000,
+      ),
+    );
+
+    await expectLater(
+      controller.sendTransaction(preview),
+      throwsA(
+        isA<WalletBroadcastFailure>()
+            .having(
+              (error) => error.kind,
+              'kind',
+              WalletBroadcastFailureKind.rejected,
+            )
+            .having((error) => error.rpcCode, 'RPC code', -26)
+            .having(
+              (error) => error.cause,
+              'cause',
+              same(electrumx.broadcastError),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'ElectrumX rejected the transaction (code -26).',
             ),
-          ],
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
+      ),
+    );
+    expect(electrumx.broadcastedTransactions, ['signed-transaction']);
+    final activity = controller.activitiesFor(controller.accounts.single).first;
+    expect(activity.transactionStatus, WalletTransactionStatus.failed);
+    expect(activity.details, 'ElectrumX rejected the transaction (code -26).');
+    expect(activity.details, isNot(contains('bad-txns-inputs-missingorspent')));
 
-      final preview = controller.prepareSend(
-        const WalletSendRequest(
-          destinationAddress: 'pc1pdestination',
-          amountSats: 1000000,
-          feeRateSatsPerKb: 10000,
-        ),
-      );
-
-      await expectLater(
-        controller.sendTransaction(preview),
-        throwsA(
-          isA<WalletBroadcastFailure>()
-              .having(
-                (error) => error.kind,
-                'kind',
-                WalletBroadcastFailureKind.rejected,
-              )
-              .having((error) => error.rpcCode, 'RPC code', -26)
-              .having(
-                (error) => error.cause,
-                'cause',
-                same(electrumx.broadcastError),
-              )
-              .having(
-                (error) => error.message,
-                'message',
-                'ElectrumX rejected the transaction (code -26).',
-              ),
-        ),
-      );
-      expect(electrumx.broadcastedTransactions, ['signed-transaction']);
-      final activity = controller
-          .activitiesFor(controller.accounts.single)
-          .first;
-      expect(activity.transactionStatus, WalletTransactionStatus.failed);
-      expect(
-        activity.details,
-        'ElectrumX rejected the transaction (code -26).',
-      );
-      expect(
-        activity.details,
-        isNot(contains('bad-txns-inputs-missingorspent')),
-      );
-
-      controller.dispose();
-    },
-  );
+    controller.dispose();
+  });
 
   test('reports when no ElectrumX service is available for broadcast', () async {
     final controller = WalletController(
@@ -1170,11 +1360,29 @@ class _FakeWalletKeyService implements WalletKeyService {
     required String mnemonic,
     required MnemonicLanguage language,
     required int accountIndex,
+  }) => deriveAddress(
+    network: network,
+    mnemonic: mnemonic,
+    language: language,
+    accountIndex: accountIndex,
+    addressIndex: 0,
+  );
+
+  @override
+  DerivedWalletMaterial deriveAddress({
+    required WalletNetwork network,
+    required String mnemonic,
+    required MnemonicLanguage language,
+    required int accountIndex,
+    required int addressIndex,
   }) => DerivedWalletMaterial(
-    derivationPath: network.derivationPathForAccount(accountIndex),
+    derivationPath:
+        '${network.derivationPathForAccount(accountIndex).substring(0, network.derivationPathForAccount(accountIndex).lastIndexOf('/') + 1)}$addressIndex',
     address:
-        '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex',
-    privateKeyHex: 'private-key-$accountIndex',
+        '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex${addressIndex == 0 ? '' : '-$addressIndex'}',
+    privateKeyHex: addressIndex == 0
+        ? 'private-key-$accountIndex'
+        : 'private-key-$accountIndex-$addressIndex',
   );
 }
 
@@ -1263,6 +1471,10 @@ class _FakeWalletTransactionService implements WalletTransactionService {
     required String sourceAddress,
     required List<ElectrumxUtxo> availableUtxos,
     required WalletSendRequest request,
+    required Map<String, String> ownedAddressPaths,
+    required String changeAddress,
+    required String? changeDerivationPath,
+    required int changeAddressIndex,
   }) {
     preparedUtxos = availableUtxos;
     return WalletTransactionPreview(
@@ -1275,6 +1487,10 @@ class _FakeWalletTransactionService implements WalletTransactionService {
       feeRateSatsPerKb: request.feeRateSatsPerKb,
       selectedUtxos: availableUtxos,
       signingMessage: request.signingMessage,
+      changeAddress: changeAddress,
+      changeDerivationPath: changeDerivationPath,
+      changeAddressIndex: changeAddressIndex,
+      inputDerivationPaths: ownedAddressPaths,
     );
   }
 
@@ -1282,9 +1498,9 @@ class _FakeWalletTransactionService implements WalletTransactionService {
   SignedWalletTransaction sign({
     required WalletNetwork network,
     required WalletTransactionPreview preview,
-    required String privateKeyHex,
+    required Map<String, String> privateKeysByAddress,
   }) {
-    signedPrivateKey = privateKeyHex;
+    signedPrivateKey = privateKeysByAddress.values.first;
     final error = signingError;
     if (error != null) throw error;
     return const SignedWalletTransaction(
@@ -1303,6 +1519,6 @@ class _FakeWalletTransactionService implements WalletTransactionService {
   SignedWalletTransaction completeThresholdSigning({
     required ThresholdWalletTransaction transaction,
     required List<Uint8List> signatures,
-    required String expectedInternalKeyHex,
+    required List<String> expectedInternalKeysHex,
   }) => throw UnimplementedError();
 }

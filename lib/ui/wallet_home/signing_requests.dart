@@ -288,11 +288,7 @@ class _RoastRequestCardState extends State<_RoastRequestCard> {
               const Divider(height: 24),
               for (var i = 0; i < request.outputs.length; i++)
                 _TransactionRow(
-                  label:
-                      widget.controller.isRoastChangeOutput(
-                        widget.item,
-                        request.outputs[i],
-                      )
+                  label: widget.controller.isRoastChangeOutput(widget.item, i)
                       ? 'Change'
                       : 'Recipient',
                   value:

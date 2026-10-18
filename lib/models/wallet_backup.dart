@@ -22,7 +22,7 @@ final class WalletBackupV1({
   required final List<BackupGroup> groups,
 }) {
   Map<String, Object?> toCbor() => {
-    'schema_version': 1,
+    'schema_version': 2,
     'created_at': createdAt,
     'wallets': [if (wallet != null) wallet!.toCbor()],
     'groups':
@@ -52,7 +52,7 @@ final class WalletBackupV1({
       'wallets',
       'groups',
     });
-    if (r.integer('schema_version', max: 1) != 1) {
+    if (r.integer('schema_version', max: 2) != 2) {
       backupInvalid('Unsupported payload schema.');
     }
     final wallets = r.list('wallets');
@@ -161,6 +161,14 @@ final class WalletBackupV1({
         if (derived.address != a.address ||
             derived.pathLabel != a.derivationPath) {
           backupInvalid('ROAST account derivation metadata mismatch.');
+        }
+        if (a.addressSchemeVersion != 1 ||
+            a.addressPathPrefix !=
+                derived.pathLabel.substring(
+                  0,
+                  derived.pathLabel.lastIndexOf('/') + 1,
+                )) {
+          backupInvalid('ROAST address sequence metadata mismatch.');
         }
       }
     }
@@ -316,6 +324,14 @@ final class BackupWallet(
             a.privateKeyHex != derived.privateKeyHex) {
           backupInvalid('Personal account does not match mnemonic derivation.');
         }
+        final expectedPrefix = derived.derivationPath.substring(
+          0,
+          derived.derivationPath.lastIndexOf('/') + 1,
+        );
+        if (a.addressSchemeVersion != 1 ||
+            a.addressPathPrefix != expectedPrefix) {
+          backupInvalid('Personal address sequence metadata mismatch.');
+        }
       } else if (a.privateKeyHex != null) {
         backupInvalid('Unexpected private key in nonpersonal account.');
       }
@@ -438,6 +454,9 @@ final class BackupAccount(final WalletAccount account) {
     'private_key': account.privateKeyHex == null
         ? null
         : cl.hexToBytes(account.privateKeyHex!),
+    'address_scheme_version': account.addressSchemeVersion,
+    'address_path_prefix': account.addressPathPrefix,
+    'highest_allocated_address_index': account.highestAllocatedAddressIndex,
     'created_at_ms': account.createdAt.millisecondsSinceEpoch,
     'archived_at_ms': account.archivedAt?.millisecondsSinceEpoch,
   };
@@ -454,11 +473,19 @@ final class BackupAccount(final WalletAccount account) {
       'derivation_path',
       'address',
       'private_key',
+      'address_scheme_version',
+      'address_path_prefix',
+      'highest_allocated_address_index',
       'created_at_ms',
       'archived_at_ms',
     });
     final source = WalletKeySource.values.byName(r.string('key_source'));
     final address = r.optionalString('address');
+    final derivationPath = r.optionalString('derivation_path');
+    final addressPathPrefix = r.optionalString('address_path_prefix');
+    if (source != WalletKeySource.watchOnly && addressPathPrefix == null) {
+      backupInvalid('Missing address sequence path prefix.');
+    }
     return BackupAccount(
       WalletAccount(
         id: r.string('id'),
@@ -469,9 +496,15 @@ final class BackupAccount(final WalletAccount account) {
         keySource: source,
         sourceId: r.optionalString('source_id'),
         keyId: r.optionalString('key_id'),
-        derivationPath: r.optionalString('derivation_path'),
+        derivationPath: derivationPath,
         address: address,
         privateKeyHex: r.optionalHex('private_key', 32),
+        addressSchemeVersion: r.integer('address_scheme_version', max: 1),
+        addressPathPrefix: addressPathPrefix,
+        highestAllocatedAddressIndex: r.integer(
+          'highest_allocated_address_index',
+          max: 0x7fffffff,
+        ),
         derivationState: source == WalletKeySource.watchOnly
             ? WalletDerivationState.watchOnly
             : address == null

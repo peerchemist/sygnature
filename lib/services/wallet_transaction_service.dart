@@ -75,12 +75,16 @@ abstract interface class WalletTransactionService {
     required String sourceAddress,
     required List<ElectrumxUtxo> availableUtxos,
     required WalletSendRequest request,
+    required Map<String, String> ownedAddressPaths,
+    required String changeAddress,
+    required String? changeDerivationPath,
+    required int changeAddressIndex,
   });
 
   SignedWalletTransaction sign({
     required WalletNetwork network,
     required WalletTransactionPreview preview,
-    required String privateKeyHex,
+    required Map<String, String> privateKeysByAddress,
   });
 
   ThresholdWalletTransaction prepareThresholdSigning({
@@ -91,7 +95,7 @@ abstract interface class WalletTransactionService {
   SignedWalletTransaction completeThresholdSigning({
     required ThresholdWalletTransaction transaction,
     required List<Uint8List> signatures,
-    required String expectedInternalKeyHex,
+    required List<String> expectedInternalKeysHex,
   });
 }
 
@@ -155,6 +159,10 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     required String sourceAddress,
     required List<ElectrumxUtxo> availableUtxos,
     required WalletSendRequest request,
+    required Map<String, String> ownedAddressPaths,
+    required String changeAddress,
+    required String? changeDerivationPath,
+    required int changeAddressIndex,
   }) {
     if (!request.maximum && request.amountSats <= 0) {
       throw const InvalidSendAmount();
@@ -165,7 +173,8 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
       request.destinationAddress.trim(),
       preset.network,
     );
-    final source = _taprootAddress(sourceAddress, preset.network);
+    _taprootAddress(sourceAddress, preset.network);
+    final change = _taprootAddress(changeAddress, preset.network);
     if (request.feeRateSatsPerKb <= 0) {
       throw const InvalidFeeRate();
     }
@@ -173,7 +182,9 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     final candidates = <InputCandidate>[];
     final utxosByOutpoint = <OutPoint, ElectrumxUtxo>{};
     for (final utxo in availableUtxos) {
-      if (utxo.address != sourceAddress || utxo.value <= 0) continue;
+      if (!ownedAddressPaths.containsKey(utxo.address) || utxo.value <= 0) {
+        continue;
+      }
       final candidate = _candidate(utxo);
       candidates.add(candidate);
       utxosByOutpoint.putIfAbsent(candidate.input.prevOut, () => utxo);
@@ -183,7 +194,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
         ? _maximumAmount(
             candidates: candidates,
             destination: destination,
-            change: source,
+            change: change,
             feePerKb: feePerKb,
             minFee: preset.network.minFee,
             minChange: preset.network.minOutput,
@@ -195,7 +206,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
         ? CoinSelection(
             selected: candidates,
             recipients: [recipient],
-            changeProgram: source.program,
+            changeProgram: change.program,
             feePerKb: feePerKb,
             minFee: preset.network.minFee,
             minChange: preset.network.minOutput,
@@ -203,7 +214,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
         : CoinSelection.optimal(
             candidates: candidates,
             recipients: [recipient],
-            changeProgram: source.program,
+            changeProgram: change.program,
             feePerKb: feePerKb,
             minFee: preset.network.minFee,
             minChange: preset.network.minOutput,
@@ -225,6 +236,19 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
       feeRateSatsPerKb: request.feeRateSatsPerKb,
       selectedUtxos: List.unmodifiable(selectedUtxos),
       signingMessage: request.signingMessage,
+      changeAddress: selection.changeValue > BigInt.zero
+          ? change.toString()
+          : null,
+      changeDerivationPath: selection.changeValue > BigInt.zero
+          ? changeDerivationPath
+          : null,
+      changeAddressIndex: selection.changeValue > BigInt.zero
+          ? changeAddressIndex
+          : 0,
+      inputDerivationPaths: Map.unmodifiable({
+        for (final utxo in selectedUtxos)
+          utxo.address: ?ownedAddressPaths[utxo.address],
+      }),
     );
   }
 
@@ -232,19 +256,21 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
   SignedWalletTransaction sign({
     required WalletNetwork network,
     required WalletTransactionPreview preview,
-    required String privateKeyHex,
+    required Map<String, String> privateKeysByAddress,
   }) {
     final built = _buildTransaction(network: network, preview: preview);
-    final key = ECPrivateKey.fromHex(privateKeyHex);
     var transaction = built.transaction;
     for (
       var inputIndex = 0;
       inputIndex < transaction.inputs.length;
       inputIndex++
     ) {
+      final utxo = preview.selectedUtxos[inputIndex];
+      final keyHex = privateKeysByAddress[utxo.address];
+      if (keyHex == null) throw const WalletSigningUnavailable();
       transaction = transaction.signTaproot(
         inputN: inputIndex,
-        key: key,
+        key: ECPrivateKey.fromHex(keyHex),
         prevOuts: built.previousOutputs,
       );
     }
@@ -284,20 +310,27 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
   SignedWalletTransaction completeThresholdSigning({
     required ThresholdWalletTransaction transaction,
     required List<Uint8List> signatures,
-    required String expectedInternalKeyHex,
+    required List<String> expectedInternalKeysHex,
   }) {
     if (signatures.length != transaction.signDetails.length) {
       throw const WalletTransactionRejected(
         'The coordinator returned an unexpected signature count.',
       );
     }
-    final outputKey = Taproot(
-      internalKey: ECCompressedPublicKey.fromHex(expectedInternalKeyHex),
-    ).tweakedKey;
+    if (expectedInternalKeysHex.length != signatures.length) {
+      throw const WalletTransactionRejected(
+        'The signing keys do not match the transaction inputs.',
+      );
+    }
     var signed = transaction.transaction;
     for (var index = 0; index < signatures.length; index++) {
       final signature = SchnorrSignature(signatures[index]);
       final hash = TaprootSignatureHasher(transaction.signDetails[index]).hash;
+      final outputKey = Taproot(
+        internalKey: ECCompressedPublicKey.fromHex(
+          expectedInternalKeysHex[index],
+        ),
+      ).tweakedKey;
       if (!signature.verify(outputKey, hash)) {
         throw const WalletTransactionRejected(
           'The coordinator returned an invalid threshold signature.',
@@ -329,7 +362,10 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     required WalletTransactionPreview preview,
   }) {
     final preset = PeercoinNetworks.fromWalletNetwork(network);
-    final source = _taprootAddress(preview.sourceAddress, preset.network);
+    final change = _taprootAddress(
+      preview.changeAddress ?? preview.sourceAddress,
+      preset.network,
+    );
     final destination = _destinationAddress(
       preview.destinationAddress,
       preset.network,
@@ -340,7 +376,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
       recipients: [
         Output.fromAddress(BigInt.from(preview.amountSats), destination),
       ],
-      changeProgram: source.program,
+      changeProgram: change.program,
       feePerKb: BigInt.from(preview.feeRateSatsPerKb),
       minFee: preset.network.minFee,
       minChange: preset.network.minOutput,
@@ -355,7 +391,12 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
     return (
       transaction: selection.transaction,
       previousOutputs: preview.selectedUtxos
-          .map((utxo) => Output.fromAddress(BigInt.from(utxo.value), source))
+          .map(
+            (utxo) => Output.fromAddress(
+              BigInt.from(utxo.value),
+              _taprootAddress(utxo.address, preset.network),
+            ),
+          )
           .toList(growable: false),
     );
   }

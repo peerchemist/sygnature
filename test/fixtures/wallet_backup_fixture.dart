@@ -95,6 +95,10 @@ final class WalletBackupFixture {
           derivationState: WalletDerivationState.ready,
           createdAt: DateTime.utc(2026),
           derivationPath: personal.derivationPath,
+          addressPathPrefix: personal.derivationPath.substring(
+            0,
+            personal.derivationPath.lastIndexOf('/') + 1,
+          ),
           address: personal.address,
           privateKeyHex: personal.privateKeyHex,
         ),
@@ -110,6 +114,10 @@ final class WalletBackupFixture {
           keyId: setup.keyName,
           createdAt: DateTime.utc(2026),
           derivationPath: address.pathLabel,
+          addressPathPrefix: address.pathLabel.substring(
+            0,
+            address.pathLabel.lastIndexOf('/') + 1,
+          ),
           address: address.address,
         ),
       ],

@@ -4,6 +4,7 @@ import 'package:coinlib/coinlib.dart' as cl;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:sygnature_ng/models/wallet_backup.dart';
+import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/services/backup_cbor.dart';
 
 import 'fixtures/wallet_backup_fixture.dart';
@@ -15,7 +16,7 @@ void main() {
     final backup = WalletBackupV1(createdAt: 0, wallet: null, groups: []);
     expect(
       cl.bytesToHex(backup.encode()),
-      'a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e01',
+      'a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e02',
     );
     expect(WalletBackupV1.decode(backup.encode()).wallet, isNull);
   });
@@ -101,7 +102,8 @@ void main() {
       groups: [],
     ).toCbor();
     for (final change in [
-      <String, Object?>{'schema_version': 2},
+      <String, Object?>{'schema_version': 1},
+      <String, Object?>{'schema_version': 3},
       {'created_at': '0'},
       {'extra': null},
       {'wallets': true},
@@ -132,6 +134,31 @@ void main() {
     expect(restored.groups.single.setup.requiresBackupReconciliation, isTrue);
     expect(restored.groups.single.setup.pendingDkgProposalHex, isNull);
     expect(restored.toVault()!.activities, isEmpty);
+  });
+  test('address allocation metadata survives recovery', () {
+    final fixture = WalletBackupFixture();
+    final vault = fixture.vault.copyWith(
+      accounts: [
+        for (final account in fixture.vault.accounts)
+          account.copyWith(
+            highestAllocatedAddressIndex:
+                account.keySource == WalletKeySource.roast ? 3 : 2,
+          ),
+      ],
+    );
+    final backup = WalletBackupV1(
+      createdAt: 0,
+      wallet: BackupWallet.fromVault(vault),
+      groups: fixture.backup.groups,
+    );
+
+    final restored = WalletBackupV1.decode(backup.encode()).toVault()!;
+
+    expect(restored.accounts.first.addressSchemeVersion, 1);
+    expect(restored.accounts.first.addressPathPrefix, "m/86'/1'/0'/0/");
+    expect(restored.accounts.first.highestAllocatedAddressIndex, 2);
+    expect(restored.accounts.last.addressPathPrefix, startsWith('R/'));
+    expect(restored.accounts.last.highestAllocatedAddressIndex, 3);
   });
   test('equivalent unordered public metadata has identical encoding', () {
     final f = WalletBackupFixture();

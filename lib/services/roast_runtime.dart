@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:noosphere_flutter/noosphere_flutter.dart';
@@ -10,6 +11,8 @@ const roastDkgAttemptTtl = Duration(hours: 1);
 const defaultRoastSigningRequestTimeout = Duration(minutes: 30);
 const maxRoastSigningRequestTimeout = Duration(hours: 24);
 const maxRoastSigningMessageBytes = SignaturesRequestDetails.maxMessageBytes;
+const maxRoastTransactionSigningMessageBytes =
+    maxRoastSigningMessageBytes - 256;
 const maxRoastSignedMessageBytes = SignedMessagePayload.maxTextBytes;
 const sygnatureRoomInvitePrefix = 'sygnature-roast-v1:';
 
@@ -116,12 +119,17 @@ class RoastSigningRequest({
   required final int transactionInputCount,
   required final List<int> signedInputIndexes,
   required final List<String> previousOutputScripts,
+  required final List<int> previousOutputValues,
   required final List<String> inputOutpoints,
   required final List<RoastSigningOutput> outputs,
   required final List<String> masterGroupKeys,
   required final List<List<int>> derivationPaths,
   final String message = '',
   final String? signedMessageText,
+  final int? addressSchemeVersion,
+  final int? accountIndex,
+  final int? changeOutputIndex,
+  final List<int>? changeDerivationPath,
 }) {
   int get outputSats =>
       outputs.fold(0, (sum, output) => sum + output.valueSats);
@@ -143,13 +151,69 @@ class RoastSigningRequest({
     transactionInputCount: transactionInputCount,
     signedInputIndexes: signedInputIndexes,
     previousOutputScripts: previousOutputScripts,
+    previousOutputValues: previousOutputValues,
     inputOutpoints: inputOutpoints,
     outputs: outputs,
     masterGroupKeys: masterGroupKeys,
     derivationPaths: derivationPaths,
     message: message,
     signedMessageText: signedMessageText,
+    addressSchemeVersion: addressSchemeVersion,
+    accountIndex: accountIndex,
+    changeOutputIndex: changeOutputIndex,
+    changeDerivationPath: changeDerivationPath,
   );
+}
+
+final class RoastTransactionRequestMetadata({
+  required final String message,
+  required final int addressSchemeVersion,
+  required final int accountIndex,
+  required final int? changeOutputIndex,
+  required final List<int>? changeDerivationPath,
+});
+
+const _transactionMetadataPrefix = 'sygnature-tx-v1:';
+
+String encodeRoastTransactionRequestMetadata(
+  RoastTransactionRequestMetadata metadata,
+) =>
+    '$_transactionMetadataPrefix${jsonEncode({'message': metadata.message, 'addressSchemeVersion': metadata.addressSchemeVersion, 'accountIndex': metadata.accountIndex, 'changeOutputIndex': metadata.changeOutputIndex, 'changeDerivationPath': metadata.changeDerivationPath})}';
+
+RoastTransactionRequestMetadata? decodeRoastTransactionRequestMetadata(
+  String value,
+) {
+  if (!value.startsWith(_transactionMetadataPrefix)) return null;
+  try {
+    final decoded = jsonDecode(
+      value.substring(_transactionMetadataPrefix.length),
+    );
+    if (decoded is! Map<String, dynamic>) return null;
+    final message = decoded['message'];
+    final scheme = decoded['addressSchemeVersion'];
+    final account = decoded['accountIndex'];
+    final output = decoded['changeOutputIndex'];
+    final path = decoded['changeDerivationPath'];
+    if (message is! String ||
+        scheme is! int ||
+        account is! int ||
+        (output != null && output is! int) ||
+        (path != null && path is! List)) {
+      return null;
+    }
+    final parsedPath = (path as List?)?.cast<int>();
+    return RoastTransactionRequestMetadata(
+      message: message,
+      addressSchemeVersion: scheme,
+      accountIndex: account,
+      changeOutputIndex: output as int?,
+      changeDerivationPath: parsedPath == null
+          ? null
+          : List.unmodifiable(parsedPath),
+    );
+  } on Object {
+    return null;
+  }
 }
 
 final class RoastRuntimeSigningRequestEvent(
@@ -315,7 +379,10 @@ abstract interface class RoastRuntime {
   RoastSigningProposal createTransactionSigningProposal(
     RoastSetup setup,
     ThresholdWalletTransaction transaction,
-    List<int> derivationPath, {
+    List<List<int>> derivationPaths, {
+    required int accountIndex,
+    int? changeOutputIndex,
+    List<int>? changeDerivationPath,
     String message = '',
     Duration timeout = defaultRoastSigningRequestTimeout,
   });

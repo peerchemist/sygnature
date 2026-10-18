@@ -594,6 +594,7 @@ final class _SnapshotRuntime(
           transactionInputCount: 0,
           signedInputIndexes: const [],
           previousOutputScripts: const [],
+          previousOutputValues: const [],
           inputOutpoints: const [],
           outputs: const [],
           masterGroupKeys: [setup.groupKeyHex!],

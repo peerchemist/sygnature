@@ -11,6 +11,7 @@ class WalletVault {
     this.groupTransitions = const [],
     this.activities = const [],
     this.announcedRoastActionIds = const [],
+    this.changeAllocationOperationIds = const [],
     this.mnemonic,
     this.languageId,
     this.mnemonicWordCount,
@@ -18,7 +19,7 @@ class WalletVault {
     this.backupRestoreId,
   });
 
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
 
   /// Sensitive fields live in the encrypted Hive box.
   final String? mnemonic;
@@ -34,6 +35,7 @@ class WalletVault {
   final List<WalletGroupTransition> groupTransitions;
   final List<WalletActivity> activities;
   final List<String> announcedRoastActionIds;
+  final List<String> changeAllocationOperationIds;
 
   WalletVault copyWith({
     List<WalletAccount>? accounts,
@@ -42,6 +44,7 @@ class WalletVault {
     List<WalletGroupTransition>? groupTransitions,
     List<WalletActivity>? activities,
     List<String>? announcedRoastActionIds,
+    List<String>? changeAllocationOperationIds,
     String? selectedAccountId,
     bool clearSelectedAccountId = false,
   }) => WalletVault(
@@ -59,6 +62,8 @@ class WalletVault {
     activities: activities ?? this.activities,
     announcedRoastActionIds:
         announcedRoastActionIds ?? this.announcedRoastActionIds,
+    changeAllocationOperationIds:
+        changeAllocationOperationIds ?? this.changeAllocationOperationIds,
   );
 
   Map<String, Object?> toJson() => {
@@ -76,6 +81,7 @@ class WalletVault {
         .toList(),
     'activities': activities.map((activity) => activity.toJson()).toList(),
     'announcedRoastActionIds': announcedRoastActionIds,
+    'changeAllocationOperationIds': changeAllocationOperationIds,
   };
 
   factory WalletVault.fromJson(Map<Object?, Object?> json) {
@@ -106,6 +112,10 @@ class WalletVault {
           ((json['announcedRoastActionIds'] as List?) ?? const [])
               .cast<String>()
               .toList(growable: false),
+      changeAllocationOperationIds:
+          (json['changeAllocationOperationIds']! as List).cast<String>().toList(
+            growable: false,
+          ),
     );
   }
 }

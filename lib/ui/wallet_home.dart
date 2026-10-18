@@ -1486,6 +1486,55 @@ class const _ReceiveAddressBox({required final WalletAccount account})
   }
 }
 
+Future<void> _showExtendAddressScanDialog(
+  BuildContext context,
+  WalletController controller,
+  WalletAccount account,
+) async {
+  final input = TextEditingController(
+    text: '${controller.addressScanRangeFor(account).through}',
+  );
+  final value = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Extend recovery scan'),
+      content: TextField(
+        key: const Key('address-scan-upper-index-field'),
+        controller: input,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(
+          labelText: 'Highest address index',
+          helperText: 'Scans indexes 0 through this value (maximum 10000).',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm-address-scan-range'),
+          onPressed: () => Navigator.pop(context, input.text.trim()),
+          child: const Text('Scan'),
+        ),
+      ],
+    ),
+  );
+  input.dispose();
+  if (value == null || !context.mounted) return;
+  try {
+    final upperIndex = int.parse(value);
+    await controller.extendAddressScan(account.id, upperIndex);
+  } on Object {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid recovery scan range.')),
+      );
+    }
+  }
+}
+
 class _AccountDetails extends StatelessWidget {
   const _AccountDetails({required this.account, required this.controller});
   final WalletAccount account;
@@ -1521,6 +1570,30 @@ class _AccountDetails extends StatelessWidget {
               _DetailRow(
                 label: 'Derivation path',
                 value: account.derivationPath ?? 'Not available',
+              ),
+            ],
+            if (account.keySource != WalletKeySource.watchOnly) ...[
+              const SizedBox(height: 13),
+              _DetailRow(
+                label: 'Allocated addresses',
+                value: '0–${account.highestAllocatedAddressIndex}',
+              ),
+              const SizedBox(height: 13),
+              _DetailRow(
+                label: 'Recovery scan range',
+                value: '0–${controller.addressScanRangeFor(account).through}',
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const Key('extend-address-scan-button'),
+                  onPressed: () => _showExtendAddressScanDialog(
+                    context,
+                    controller,
+                    account,
+                  ),
+                  child: const Text('Extend recovery scan'),
+                ),
               ),
             ],
           ],
