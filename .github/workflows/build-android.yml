@@ -1,6 +1,10 @@
 name: Build Android APK
 
 on:
+  push:
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -53,12 +57,14 @@ jobs:
 
       - name: Build release APK
         working-directory: sygnature_ng
-        run: flutter build apk --release --no-pub
+        run: >-
+          flutter build apk --release --no-pub
+          --android-project-arg=sygnatureApplicationIdSuffix=.alfa
 
       - name: Upload APK
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: sygnature-android-apk
+          name: sygnature-alfa-android-apk
           path: sygnature_ng/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30

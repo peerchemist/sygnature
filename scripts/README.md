@@ -4,9 +4,10 @@ Sygnature targets Android, Linux, Windows and macOS. Automated equivalents of
 these builds are defined in [GitHub Actions](../.github/workflows).
 
 The Linux, Windows and macOS build workflows run for every pushed Git tag and
-can also be started manually. The Android workflow is temporarily manual-only.
-Together they upload an Android APK, Linux Flatpak, Windows x64 bundle and macOS
-ARM64 and Intel DMGs as workflow artifacts. Manual triggers are useful for testing a
+can also be started manually. The Android workflow runs for every push, for
+pull requests targeting `master`, and when started manually. Together they
+upload an Android APK, Linux Flatpak, Windows x64 bundle and macOS ARM64 and
+Intel DMGs as workflow artifacts. Manual triggers are useful for testing a
 release build or warming its dependency caches before creating a tag.
 
 Tag builds also create a GitHub Release and attach the Flatpak, DMG and Windows
