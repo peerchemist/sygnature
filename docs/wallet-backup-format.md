@@ -1,8 +1,10 @@
-# Sygnature encrypted wallet backup, payload version 2
+# Sygnature encrypted wallet backup, payload version 3
 
 Extension: `.sygnaturebkp`. The extension is a UI convention; the binary magic
-is `ROASTBAK`. The envelope remains version 1. Payload schema 2 adds
-address-sequence recovery metadata. Other payload schemas are rejected.
+is `ROASTBAK`. The envelope remains version 1. Payload schema 3 adds the DKG
+ceremony and transcript context required to restore protocol-v4 signing keys;
+schema 2 added address-sequence recovery metadata. Other payload schemas are
+rejected.
 All keys, identifiers and passwords below are public synthetic test data.
 
 ## Android migration policy
@@ -108,7 +110,7 @@ milliseconds, from 0 through 8,640,000,000,000,000. Root `created_at` is UTC Uni
 
 ```text
 Root = {
-  "schema_version": 2,
+  "schema_version": 3,
   "created_at": u,
   "wallets": [Wallet],                # zero or one; app has one mnemonic vault
   "groups": [Group]
@@ -146,8 +148,8 @@ Account = {
 Group = {
   "setup_id": t, "group_id": t, "name": t,
   "role": "host" | "member",
-  "protocol": "noosphere/0.1.1",
-  "protocol_version": 1,
+  "protocol": "noosphere/0.3.0",
+  "protocol_version": 4,
   "frost_ciphersuite": "FROST-secp256k1-SHA256-TR-v1",
   "threshold": u,                     # 2..participant_count
   "participant_count": u,             # 2..65535, also subject to CBOR limits
@@ -179,6 +181,8 @@ SigningKey = {
   "threshold": u,
   "participant_id": b32,
   "secret_share": b32,
+  "ceremony_id": b32,
+  "transcript_hash": b32,
   "name": t, "description": t,        # description may be empty
   "verification_shares": [VerificationShare],
   "acknowledgements": [Acknowledgement]
@@ -206,8 +210,8 @@ Transition = {
 ```
 
 `group_id` is the application's exact text ID, not an invented cryptographic
-identifier. `protocol` pins the application's Noosphere dependency release;
-the dependency package itself currently reports 0.1.0. The wire version is 1.
+identifier. `protocol` pins the application's Noosphere dependency release.
+The wire version is 4.
 No group epoch exists in the current persistent model; none is fabricated.
 
 ## Mnemonics, keys and identity
@@ -406,7 +410,7 @@ fresh signing nonces with the existing signing implementation.
 
 ## Known-answer vector and example file
 
-The schema-2 empty-vault example has creation time 0, no wallets and no groups. It was
+The schema-3 empty-vault example has creation time 0, no wallets and no groups. It was
 independently generated using Python argon2-cffi (Argon2 version 19), cbor2
 canonical encoding, and PyNaCl's XChaCha20-Poly1305-IETF. These are test-vector
 tools, not application dependencies. Fixed randomness is **test-only**.
@@ -419,16 +423,16 @@ Salt: 000102030405060708090a0b0c0d0e0f
 Nonce: 101112131415161718191a1b1c1d1e1f2021222324252627
 Derived key: 15479c7cda408971c7d9329ddc7762931436f536daf097e0b300ce0a5f79381e
 CBOR (46 bytes):
-a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e02
+a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e03
 Complete file (122 bytes):
-524f41535442414b010101000100000000000301000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262780df443a76c32b93641f04e893c8239e754d579dd1c2b74b5023f769045c00b2176daf3b132c195a3d7e6d669b8c4a55cd2bb786c9a7d26181d9da7ee30a
+524f41535442414b010101000100000000000301000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262780df443a76c32b93641f04e893c8239e754d579dd1c2b74b5023f769045c00b2176daf3b132c195a3d7e6d669b8d9ebe87cc021e87c46101042a02be212e
 ```
 
-`docs/fixtures/empty-v2.sygnaturebkp.hex` contains that complete example in hex.
+`docs/fixtures/empty-v3.sygnaturebkp.hex` contains that complete example in hex.
 Produce the binary file with:
 
 ```sh
-xxd -r -p docs/fixtures/empty-v2.sygnaturebkp.hex empty-v2.sygnaturebkp
+xxd -r -p docs/fixtures/empty-v3.sygnaturebkp.hex empty-v3.sygnaturebkp
 ```
 
 Independent reproduction (requires argon2-cffi, cbor2 and pynacl):
@@ -441,7 +445,7 @@ password = "synthetic backup 🔐".encode("utf-8")
 salt, nonce = bytes(range(16)), bytes(range(16, 40))
 header = b"ROASTBAK" + bytes([1, 1, 1]) + struct.pack(">IIB", 65536, 3, 1) + salt + nonce
 key = hash_secret_raw(password, salt, 3, 65536, 1, 32, Type.ID, version=19)
-plaintext = cbor2.dumps(dict(schema_version=2, created_at=0, wallets=[], groups=[]), canonical=True)
+plaintext = cbor2.dumps(dict(schema_version=3, created_at=0, wallets=[], groups=[]), canonical=True)
 file = header + crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, header, nonce, key)
 print(file.hex())  # synthetic test vector only; never print real wallet plaintext/keys
 ```
@@ -458,7 +462,7 @@ public fixtures, never production wallets.
 ## Versioning, UI and verification status
 
 Envelope version and payload schema version are independent. They are currently
-1 and 2, respectively. Unknown versions, fields, protocols, ciphersuites and policy types fail
+1 and 3, respectively. Unknown versions, fields, protocols, ciphersuites and policy types fail
 closed. Incompatible recovery metadata or semantic changes need a new schema
 and/or envelope version; there is no guessing or legacy fallback.
 

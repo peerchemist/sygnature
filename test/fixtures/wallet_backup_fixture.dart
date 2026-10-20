@@ -158,13 +158,20 @@ final class WalletBackupFixture {
       ),
       name: setup.keyName,
       description: roastKeyDescription(setup),
+      ceremonyId: Uint8List(32)..last = _groupSecret,
+      transcriptHash: Uint8List(32)..last = _groupSecret + 1,
     );
     for (var i = 1; i <= 2; i++) {
       key = key.addOrReplaceAck(
         SignedDkgAck(
           signer: Identifier.fromUint16(i),
           signed: Signed.sign(
-            obj: DkgAck(groupKey: key.groupKey, accepted: true),
+            obj: DkgAck(
+              groupKey: key.groupKey,
+              accepted: true,
+              ceremonyId: key.ceremonyId,
+              transcriptHash: key.transcriptHash,
+            ),
             key: syntheticPrivateKey(i + 8),
           ),
         ),

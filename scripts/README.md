@@ -16,8 +16,9 @@ only upload workflow artifacts; Android does not publish to Releases.
 
 ## Source dependencies
 
-`pubspec.yaml` fetches Noosphere directly from GitHub at the pinned commit
-`470f2e66c2e6a6f1e4951ba8cabbefff9653f12d`; no sibling checkout is required.
+`pubspec.yaml` fetches Noosphere directly from GitHub from branch
+`feature/resumable-dkg`, currently resolved to
+`115b1f84f9e9504a16fc8fd09aa744decbbb08f2`; no sibling checkout is required.
 Android and macOS builds require Git, Flutter 3.47.5, Rust and the native
 toolchain for their target platform. The Linux Flatpak and Windows VM scripts
 provision their own SDKs.

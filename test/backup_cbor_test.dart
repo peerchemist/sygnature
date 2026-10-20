@@ -16,7 +16,7 @@ void main() {
     final backup = WalletBackupV1(createdAt: 0, wallet: null, groups: []);
     expect(
       cl.bytesToHex(backup.encode()),
-      'a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e02',
+      'a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e03',
     );
     expect(WalletBackupV1.decode(backup.encode()).wallet, isNull);
   });
@@ -103,7 +103,8 @@ void main() {
     ).toCbor();
     for (final change in [
       <String, Object?>{'schema_version': 1},
-      <String, Object?>{'schema_version': 3},
+      <String, Object?>{'schema_version': 2},
+      <String, Object?>{'schema_version': 4},
       {'created_at': '0'},
       {'extra': null},
       {'wallets': true},

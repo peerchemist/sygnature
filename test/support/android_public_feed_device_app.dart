@@ -155,7 +155,8 @@ final class _DeviceHarnessState extends State<_DeviceHarness> {
     if (client == null || client.dkgRequests.isEmpty) return;
     setState(() => _busy = true);
     try {
-      await client.acceptDkg(client.dkgRequests.first.details.name);
+      final proposal = client.dkgRequests.first.details;
+      await client.acceptDkg(proposal.name, proposal.ceremonyId);
       final deadline = DateTime.now().add(const Duration(minutes: 2));
       while (client.keys.isEmpty && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 200));

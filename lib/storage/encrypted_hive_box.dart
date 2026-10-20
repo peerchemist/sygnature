@@ -16,11 +16,31 @@ class const EncryptedHiveBox({
     SecureKeyStore? keyStore,
     Uint8List? cipherKey,
   }) async {
+    final opened = await openWithKeyMaterial(
+      keyStore: keyStore,
+      cipherKey: cipherKey,
+    );
+    try {
+      return opened.box;
+    } finally {
+      opened.cipherKey.fillRange(0, opened.cipherKey.length, 0);
+    }
+  }
+
+  Future<({Box<dynamic> box, Uint8List cipherKey})> openWithKeyMaterial({
+    SecureKeyStore? keyStore,
+    Uint8List? cipherKey,
+  }) async {
     await HiveStorageInitializer.initialize(boxName: name);
-    final key =
-        cipherKey ??
-        await _loadOrCreateKey(keyStore ?? PlatformSecureKeyStore());
-    return _open(key);
+    final key = Uint8List.fromList(
+      cipherKey ?? await _loadOrCreateKey(keyStore ?? PlatformSecureKeyStore()),
+    );
+    try {
+      return (box: await _open(key), cipherKey: key);
+    } catch (_) {
+      key.fillRange(0, key.length, 0);
+      rethrow;
+    }
   }
 
   Future<bool> exists() async {

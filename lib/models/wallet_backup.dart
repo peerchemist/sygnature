@@ -22,7 +22,7 @@ final class WalletBackupV1({
   required final List<BackupGroup> groups,
 }) {
   Map<String, Object?> toCbor() => {
-    'schema_version': 2,
+    'schema_version': 3,
     'created_at': createdAt,
     'wallets': [if (wallet != null) wallet!.toCbor()],
     'groups':
@@ -52,7 +52,7 @@ final class WalletBackupV1({
       'wallets',
       'groups',
     });
-    if (r.integer('schema_version', max: 2) != 2) {
+    if (r.integer('schema_version', max: 3) != 3) {
       backupInvalid('Unsupported payload schema.');
     }
     final wallets = r.list('wallets');
@@ -524,6 +524,8 @@ final class BackupSigningKey({
   required final int threshold,
   required final Uint8List participantId,
   required final Uint8List secretShare,
+  required final Uint8List ceremonyId,
+  required final Uint8List transcriptHash,
   required final List<(Uint8List, Uint8List)> verificationShares,
   required final String name,
   required final String description,
@@ -542,6 +544,8 @@ final class BackupSigningKey({
       threshold: key.keyInfo.group.threshold,
       participantId: key.keyInfo.private.identifier.toBytes(),
       secretShare: Uint8List.fromList(key.keyInfo.private.share.data),
+      ceremonyId: Uint8List.fromList(key.ceremonyId),
+      transcriptHash: Uint8List.fromList(key.transcriptHash),
       verificationShares: key.keyInfo.publicShares.list
           .map((s) => (s.$1.toBytes(), s.$2.data))
           .toList(),
@@ -563,6 +567,8 @@ final class BackupSigningKey({
     'threshold': threshold,
     'participant_id': participantId,
     'secret_share': secretShare,
+    'ceremony_id': ceremonyId,
+    'transcript_hash': transcriptHash,
     'name': name,
     'description': description,
     'verification_shares':
@@ -593,6 +599,8 @@ final class BackupSigningKey({
       'threshold',
       'participant_id',
       'secret_share',
+      'ceremony_id',
+      'transcript_hash',
       'name',
       'description',
       'verification_shares',
@@ -603,6 +611,8 @@ final class BackupSigningKey({
       threshold: r.integer('threshold', max: 65535),
       participantId: r.bytes('participant_id', 32),
       secretShare: r.bytes('secret_share', 32),
+      ceremonyId: r.bytes('ceremony_id', 32),
+      transcriptHash: r.bytes('transcript_hash', 32),
       name: r.string('name'),
       description: r.string('description', empty: true),
       verificationShares: r.list('verification_shares').map((v) {
@@ -643,13 +653,20 @@ final class BackupSigningKey({
       ),
       name: name,
       description: description,
+      ceremonyId: ceremonyId,
+      transcriptHash: transcriptHash,
     );
     for (final a in acknowledgements) {
       result = result.addOrReplaceAck(
         SignedDkgAck(
           signer: Identifier.fromBytes(a.$1),
           signed: Signed(
-            obj: DkgAck(groupKey: result.groupKey, accepted: a.$2),
+            obj: DkgAck(
+              groupKey: result.groupKey,
+              accepted: a.$2,
+              ceremonyId: ceremonyId,
+              transcriptHash: transcriptHash,
+            ),
             signature: cl.SchnorrSignature(a.$3),
           ),
         ),
@@ -669,7 +686,7 @@ final class BackupGroup({
     'group_id': setup.groupId,
     'name': setup.name,
     'role': setup.role.name,
-    'protocol': 'noosphere/0.1.1',
+    'protocol': 'noosphere/0.3.0',
     'protocol_version': noosphereRoastProtocolVersion,
     'frost_ciphersuite': 'FROST-secp256k1-SHA256-TR-v1',
     'threshold': setup.threshold,
@@ -745,7 +762,7 @@ final class BackupGroup({
       'room',
     });
     if (r.integer('protocol_version') != noosphereRoastProtocolVersion ||
-        r.string('protocol') != 'noosphere/0.1.1' ||
+        r.string('protocol') != 'noosphere/0.3.0' ||
         r.string('frost_ciphersuite') != 'FROST-secp256k1-SHA256-TR-v1') {
       backupInvalid('Unsupported ROAST protocol or FROST ciphersuite.');
     }

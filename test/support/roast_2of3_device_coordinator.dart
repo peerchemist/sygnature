@@ -130,6 +130,7 @@ Future<void> main(List<String> arguments) async {
             description: 'Synthetic Android 2-of-3 recovery test',
             threshold: 2,
             expiry: Expiry(const Duration(hours: 2)),
+            groupFingerprint: group.fingerprint,
           ),
         );
         final proposal = await _waitFor<DkgInProgress>(() {
@@ -138,7 +139,10 @@ Future<void> main(List<String> arguments) async {
               .where((item) => item.details.name == _dkgName)
               .firstOrNull;
         });
-        await desktops[1].current.acceptDkg(proposal.details.name);
+        await desktops[1].current.acceptDkg(
+          proposal.details.name,
+          proposal.details.ceremonyId,
+        );
         stdout.writeln('DKG requested; desktop participant 2 accepted.');
       } else if (command == 'sign') {
         final key = await _waitFor<FrostKeyWithDetails>(

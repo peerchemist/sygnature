@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,8 +55,12 @@ void main() {
       final roomState = Uint8List.fromList(
         utf8.encode('private ROAST room state'),
       );
+      final dkgState = Uint8List.fromList(
+        utf8.encode('private resumable DKG state'),
+      );
       await wallet.save(_vault);
       await roast.roomPersistence('setup').write('room', roomState);
+      await roast.dkgSecretStorage('setup').write('wallet-key', dkgState);
       final savedKeys = Map.of(keys.values);
       expect(savedKeys.keys, unorderedEquals([_walletKeyName, _roastKeyName]));
       expect(base64Url.decode(savedKeys[_walletKeyName]!), hasLength(32));
@@ -72,6 +77,10 @@ void main() {
         latin1.decode(roastBytes),
         isNot(contains(base64UrlEncode(roomState))),
       );
+      expect(
+        latin1.decode(roastBytes),
+        isNot(contains(base64UrlEncode(dkgState))),
+      );
       final restoredWallet = await HiveWalletRepository.openExisting(
         secureKeyStore: keys,
       );
@@ -82,10 +91,103 @@ void main() {
         (await restoredRoast.roomPersistence('setup').loadAll())['room'],
         roomState,
       );
+      expect(
+        (await restoredRoast.dkgSecretStorage('setup').loadAll())['wallet-key'],
+        dkgState,
+      );
       expect(keys.values, savedKeys);
       expect(keys.writes, 2);
     },
   );
+
+  test(
+    'atomically replaces and deletes encrypted DKG recovery state',
+    () async {
+      final storage = (await RoastPersistenceFactory(
+        cipherKey: Uint8List(32),
+      ).open()).dkgSecretStorage('setup');
+      await storage.write('wallet-key', Uint8List.fromList([1, 2, 3]));
+      await storage.write('wallet-key', Uint8List.fromList([4, 5, 6]));
+
+      expect(await storage.loadAll(), {
+        'wallet-key': Uint8List.fromList([4, 5, 6]),
+      });
+
+      await storage.delete('wallet-key');
+      expect(await storage.loadAll(), isEmpty);
+    },
+  );
+
+  test('authenticates encrypted DKG recovery state and context', () async {
+    final rootKey = Uint8List.fromList(List.filled(32, 7));
+    final persistence = await RoastPersistenceFactory(cipherKey: rootKey)
+        .open();
+    final storage = persistence.dkgSecretStorage('setup');
+    final state = Uint8List.fromList(utf8.encode('opaque Frosty DKG state'));
+    await storage.write('wallet-key', state);
+
+    final box = Hive.box<dynamic>(_roastBox);
+    final records = Map<String, dynamic>.from(
+      box.get('dkg-secrets:setup') as Map,
+    );
+    final record = Map<String, dynamic>.from(records['wallet-key'] as Map);
+    expect(record['version'], 1);
+    expect(record['nonce'], isA<Uint8List>().having((v) => v.length, '', 24));
+    expect(record['mac'], isA<Uint8List>().having((v) => v.length, '', 16));
+    expect(record['ciphertext'], isNot(orderedEquals(state)));
+    await expectLater(
+      Xchacha20.poly1305Aead().decrypt(
+        SecretBox(
+          record['ciphertext'] as Uint8List,
+          nonce: record['nonce'] as Uint8List,
+          mac: Mac(record['mac'] as Uint8List),
+        ),
+        secretKey: SecretKeyData(rootKey),
+        aad: utf8.encode(
+          jsonEncode(['sygnature:dkg-recovery', 1, 'setup', 'wallet-key']),
+        ),
+      ),
+      throwsA(isA<SecretBoxAuthenticationError>()),
+    );
+
+    await box.put('dkg-secrets:setup', {'other-key': record});
+    await expectLater(
+      storage.loadAll(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'DKG recovery state authentication failed.',
+        ),
+      ),
+    );
+
+    await box.put('dkg-secrets:other-setup', {'wallet-key': record});
+    await expectLater(
+      persistence.dkgSecretStorage('other-setup').loadAll(),
+      throwsA(isA<StateError>()),
+    );
+  });
+
+  test('rejects tampered DKG recovery ciphertext', () async {
+    final persistence = await RoastPersistenceFactory(
+      cipherKey: Uint8List.fromList(List.filled(32, 8)),
+    ).open();
+    final storage = persistence.dkgSecretStorage('setup');
+    await storage.write('wallet-key', Uint8List.fromList([1, 2, 3]));
+
+    final box = Hive.box<dynamic>(_roastBox);
+    final records = Map<String, dynamic>.from(
+      box.get('dkg-secrets:setup') as Map,
+    );
+    final record = Map<String, dynamic>.from(records['wallet-key'] as Map);
+    final ciphertext = Uint8List.fromList(record['ciphertext'] as Uint8List);
+    ciphertext[0] ^= 1;
+    record['ciphertext'] = ciphertext;
+    await box.put('dkg-secrets:setup', {'wallet-key': record});
+
+    await expectLater(storage.loadAll(), throwsA(isA<StateError>()));
+  });
 
   test(
     'opens existing wallet and ROAST data with the original keys and format',

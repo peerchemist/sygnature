@@ -1,7 +1,8 @@
 # Noosphere public operation feed
 
-The wallet pins Noosphere tag `0.2.0`, resolved in the lockfile to commit
-`470f2e66c2e6a6f1e4951ba8cabbefff9653f12d`. See the upstream
+The experimental wallet branch sources Noosphere branch
+`feature/resumable-dkg`, resolved in the lockfile to commit
+`115b1f84f9e9504a16fc8fd09aa744decbbb08f2`. See the upstream
 `docs/architecture/public-feed.md`. The coordinator remains responsible for all
 ROAST/DKG business logic. This integration uses the existing protobuf public
 client and `noosphere/public-feed/1` ALPN; the wallet does not implement a
@@ -160,7 +161,7 @@ subprocess also checks that neither FROST nor coinlib native libraries were
 loaded and that no signer sessions, challenges, presence or coordinator snapshot
 changed.
 
-All Noosphere Git dependencies and overrides use the published `0.2.0` tag.
+All Noosphere Git dependencies and overrides use `feature/resumable-dkg`.
 The lockfile records its resolved commit, and `flutter pub get` resolves it
 without local path overrides.
 
