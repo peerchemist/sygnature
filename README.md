@@ -1,22 +1,13 @@
 # Sygnature
 
-Sygnature is a self-custody wallet for people and teams that manage coins
-together. It addresses the same broad need as [Safe{Wallet}](https://safe.global/wallet):
-replacing control by one person or key with a shared approval policy. A group
-chooses how many signers participate and how many must approve each transaction,
-making it suitable for team treasuries, organizations, families and other groups
-that need shared control of their funds.
+Sygnature is a self-custody Peercoin wallet for individuals and groups. Think of
+it as a shared digital safe: several people can manage the same funds, with an
+agreed number of approvals required to make a payment. Each participant holds
+a private signing share on their own device; the complete private key is never
+assembled. Ordinary personal wallets are supported too.
 
-Instead of an on-chain multisig, Sygnature uses threshold signatures
-to authorize ordinary Taproot transactions. On-chain, the result looks
-like a standard signature from a single signer: the transaction reveals neither
-how many participants belong to the signing group nor how many approvals were
-required. This keeps the group's signing policy private.
-
-Each participant keeps a private signing share on their own device, the complete
-private key is never assembled, and signers coordinate peer-to-peer over
-[Iroh](https://www.iroh.computer/) without a central Sygnature service. The app
-also supports ordinary personal wallets.
+A team treasury, community fund or family savings pool can use Sygnature to
+share responsibility without giving one person sole control of the money.
 
 > **Alpha software — use at your own risk.** Breaking changes, including changes
 > to storage formats and protocols, are possible at any time. Backward
@@ -24,146 +15,95 @@ also supports ordinary personal wallets.
 > provided without warranty of any kind. Do not use it for funds you cannot
 > afford to lose, and keep secure backups of your recovery material.
 
+## What can be done with it?
+
+### Manage funds together
+
+Create a shared wallet and choose how many participants must approve spending.
+For example, a club could use a two-of-three arrangement: any two members can
+approve a payment, so one member cannot spend alone and one unavailable signer
+need not prevent the group from acting.
+
+Receive Peercoin at the shared wallet address, propose payments and review
+transaction details before approving them. Once enough participants approve,
+Sygnature combines their signing contributions and sends the transaction to
+the network. Recent Activity helps participants follow wallet setup, signing
+requests and payment broadcasts.
+
+### Approve statements as a group
+
+Shared wallets can also sign exact text. A committee could jointly approve a
+funding announcement, publish its official payment address or acknowledge a
+project milestone.
+
+Participants review the text before signing. The requester receives a portable
+signed-message JSON document that can be verified independently. The signature
+proves approval by the signing group; it does not establish the participants'
+real-world identities or the statement's legal validity.
+
+### Keep personal and shared wallets in one app
+
+Create personal wallets from a recovery phrase and manage multiple locally
+named wallets. Sygnature synchronizes balances and available funds, constructs
+payments and broadcasts signed transactions through ElectrumX servers.
+
+Both Peercoin mainnet and testnet are supported. Testnet provides a way to try
+wallet creation and shared approvals without using real funds.
+
+## How a shared wallet works
+
+1. **Choose the group.** Decide who can sign and how many approvals are needed.
+   Participants share their public identity keys with the creator, who issues
+   a separate invitation for each signer.
+2. **Join and create the wallet.** Each participant opens their invitation and
+   connects. The group jointly generates the wallet, with each device keeping
+   its own private signing share.
+3. **Receive funds.** Use the shared address to receive Peercoin like any other
+   wallet.
+4. **Review and approve.** Propose a payment, check its destination, amount and
+   fee, and collect the required approvals. Sygnature signs and broadcasts the
+   transaction when the threshold is met.
+
+## Shared control, private signing policy
+
+Sygnature uses **threshold signatures**, rather than an on-chain multisig
+script. Shared payments look like ordinary single-signature Taproot
+transactions: the signature does not reveal the number of participants or the
+approval threshold. This keeps the signing arrangement private, but does not
+hide payment amounts or transaction history.
+
+Under the hood, ROAST coordinates FROST signing rounds so that enough responsive
+signers can complete a signature even when other signers are unavailable. The
+app uses Noosphere for coordination and encrypted [Iroh](https://www.iroh.computer/)
+connections between participants and the group's coordinator, without a central
+Sygnature service. The coordinator must be available for the group to work,
+but cannot authorize a payment on its own.
+
+Secret wallet material and shared-wallet state are stored in encrypted local
+vaults backed by platform secure storage. Signing requests are validated against
+the expected wallet, and transaction details are bound to the signatures being
+requested.
+
+For protocol, connectivity and security details, see
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Screenshots
 
 ![Sygnature shared wallet dashboard and recent activity](screenshots/1.png)
 
 ![Sygnature notification and network settings](screenshots/2.png)
 
-## Core features
-
-- Peercoin mainnet and testnet with Taproot key-path transactions.
-- Personal wallets derived from a BIP-39 recovery phrase using BIP-86.
-- Multiple locally named wallets and encrypted Hive storage backed by platform
-  secure storage.
-- ElectrumX balance and UTXO synchronization, server failover, transaction
-  construction, signing and broadcast.
-- ROAST shared wallets with participant-bound invitations, distributed key
-  generation (DKG), quorum health, transaction and message-signing approvals,
-  and persistent recovery of interrupted transaction operations.
-- A recent-activity feed for DKG, signature requests, signing and broadcast
-  events.
-
-ROAST (Robust Asynchronous Schnorr Threshold Signatures) is a coordination
-protocol for creating threshold signatures even when some signers are offline,
-slow or misbehaving. It builds on FROST, whose participants jointly create a
-Schnorr signature without ever reconstructing the complete private key. ROAST
-organizes FROST signing rounds and replaces unavailable participants so that a
-quorum of responsive signers can make progress. In Sygnature, this makes a
-shared wallet behave like a single-signature wallet on-chain while keeping its
-signing authority distributed across participants.
-
-## ROAST shared-wallet workflow
-
-1. Someone creates a ROAST group and decides how many people can sign and how
-   many signatures are needed to spend.
-2. Each signer shares the public key from their device with the group creator.
-   It is only used to identify them—no private keys or wallet shares are sent.
-3. The creator adds those public keys and makes a separate invite for each
-   signer. An invite only works for the person it was made for.
-4. Each signer opens their clickable Sygnature invite and joins over an
-   encrypted Iroh connection.
-5. Once everyone is in, the signers start
-   [distributed key generation (DKG)](https://en.wikipedia.org/wiki/Distributed_key_generation).
-   This creates the shared wallet address, while every signer keeps their own
-   private share on their device.
-6. The shared Taproot address can now receive Peercoin like any other wallet.
-7. When someone wants to spend, Sygnature asks the other signers to review and
-   approve the transaction. As soon as enough people approve, the transaction
-   is signed and sent to the Peercoin network through ElectrumX.
-8. An active ROAST setup can also sign exact text with its untweaked group key.
-   Signers review the exact text separately from the authenticated request note;
-   the requester receives a verified, portable Noosphere signed-message JSON.
-
-Wallet names are local labels and may differ between participants. Participant
-aliases are also editable; cryptographic identities and key fingerprints are
-the authoritative identifiers.
-
-## ROAST events
-
-Noosphere delivers changes in a ROAST group as events, allowing every connected
-wallet to update its screen from the same coordinator state. A signature
-request event tells signers that a transaction or exact text needs approval and
-includes validated metadata, an optional authenticated note and an expiry.
-
-Other events report signer availability, DKG requests and progress, new signing
-rounds, completion, rejection or failure. Sygnature presents requests requiring
-attention at the top of the ROAST screen and records relevant lifecycle events
-in Recent Activity; low-level Iroh network traffic is not activity history.
-
-## Iroh connectivity and star topology
-
-[Iroh](https://www.iroh.computer/) gives the coordinator a cryptographic
-endpoint identity and opens encrypted QUIC connections from signers, first
-trying a direct path with NAT traversal and then using a relay when necessary.
-Each signer connects only to the coordinator, which distributes Noosphere room,
-DKG and ROAST events in a star topology while any relay only forwards encrypted
-traffic.
-
-Sygnature deliberately uses a star topology rather than a signer-to-signer
-mesh:
-
-```text
-Signer A ───────────────┐
-Signer B ───────────────┼── Iroh / QUIC ──▶ Coordinator
-Signer C ───────────────┘                    ├─ Room and session state
-                                            ├─ Event distribution
-                                            └─ DKG/ROAST coordination
-```
-
-Every signer establishes its own authenticated connection to the coordinator.
-The coordinator may also run a separate local signer, but hosting does not
-count as an approval by itself. Invitations pin only the coordinator's Iroh
-endpoint identity; Iroh discovery finds a direct or relayed route.
-
-For new setups, Sygnature derives that endpoint identity from the wallet's
-validated BIP-39 seed through Noosphere's domain-separated BIP-85 path. Each
-setup persists a non-secret derivation index; the derived Iroh secret itself is
-not stored. Existing installations continue to use a valid legacy endpoint
-secret so their pinned coordinator identity does not change during upgrade.
-
-The coordinator is required for room availability and message delivery, but it
-cannot produce a threshold signature alone. Iroh endpoint identity, participant
-authentication keys and FROST key shares are separate cryptographic roles.
-
-## Security and current scope
-
-- Secret wallet material and ROAST state are stored in encrypted local vaults.
-  Desktop builds open vaults automatically through the session's system keyring,
-  retaining transaction review without app-password or biometric prompts.
-- Signing requests are validated against the expected shared key, derivation
-  path, wallet scripts, known unspent outputs and supported sighash mode.
-- Transaction metadata is displayed before approval and is cryptographically
-  bound to the requested signatures.
-- ElectrumX is the current blockchain data and broadcast provider.
-- ROAST runtime is enabled on every platform for which Sygnature is built.
-
-Detailed design notes are available in [ARCHITECTURE.md](ARCHITECTURE.md).
-
 ## Development
+
+Sygnature is built with Flutter and targets Android, Linux, Windows and macOS.
+See [scripts/README.md](scripts/README.md) for platform dependencies, build
+instructions and packaging.
 
 ```sh
 flutter analyze
 flutter test
 flutter run -d linux
 ```
-
-See [scripts/README.md](scripts/README.md) for Android, Linux, Windows and macOS
-build instructions.
-
-On macOS, build a release DMG for testers with:
-
-```sh
-scripts/build_macos
-```
-
-The Apple Silicon package is written to `build/Sygnature-macOS.dmg`. It is
-ad-hoc signed but not notarized, so testers may need to use **System Settings >
-Privacy & Security > Open Anyway** after the first blocked launch. No Apple
-signing certificate or provisioning profile is required.
-Use `scripts/build_macos --arch x86_64` on an Intel Mac to build the Intel
-version, which targets macOS 12.0 or newer. Tagged GitHub Actions builds publish
-separate ARM64 and Intel DMGs.
 
 ## License
 
