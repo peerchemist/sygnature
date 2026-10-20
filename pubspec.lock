@@ -408,11 +408,12 @@ packages:
   frosty:
     dependency: transitive
     description:
-      name: frosty
-      sha256: e7abb26e94063aebe25c02c0ee75415516142c8be4c8d3ea1d5deda7de6dcc8f
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.0.1"
+      path: "."
+      ref: "feature/dkg-secret-serialization-upstream"
+      resolved-ref: ea9bdff6a0f2d156e520dffef556d8c201bf081e
+      url: "https://github.com/peerchemist/frosty.git"
+    source: git
+    version: "5.1.0"
   glob:
     dependency: transitive
     description:
@@ -633,8 +634,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_client"
-      ref: "0.2.0"
-      resolved-ref: "470f2e66c2e6a6f1e4951ba8cabbefff9653f12d"
+      ref: "feature/resumable-dkg"
+      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "4.0.0"
@@ -642,26 +643,26 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_flutter"
-      ref: "0.2.0"
-      resolved-ref: "470f2e66c2e6a6f1e4951ba8cabbefff9653f12d"
+      ref: "feature/resumable-dkg"
+      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.2.0"
+    version: "0.3.0"
   noosphere_protocol:
     dependency: "direct main"
     description:
       path: "packages/noosphere_protocol"
-      ref: "0.2.0"
-      resolved-ref: "470f2e66c2e6a6f1e4951ba8cabbefff9653f12d"
+      ref: "feature/resumable-dkg"
+      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.2.0"
+    version: "0.3.0"
   noosphere_server:
     dependency: "direct main"
     description:
       path: "packages/noosphere_server"
-      ref: "0.2.0"
-      resolved-ref: "470f2e66c2e6a6f1e4951ba8cabbefff9653f12d"
+      ref: "feature/resumable-dkg"
+      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "3.0.0"
