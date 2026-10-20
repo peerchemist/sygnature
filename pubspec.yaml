@@ -56,7 +56,7 @@ dependencies:
       url: https://github.com/peerchemist/noosphere.git
       ref: feature/resumable-dkg
       path: packages/noosphere_protocol
-  iroh_quic: 1.1.0
+  iroh_quic: 1.1.1
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
@@ -71,6 +71,8 @@ dependencies:
   app_links: ^7.2.1
 
 dependency_overrides:
+  iroh_flutter: 1.1.1
+  iroh_quic: 1.1.1
   noosphere_protocol:
     git:
       url: https://github.com/peerchemist/noosphere.git
