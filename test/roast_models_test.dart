@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
@@ -49,6 +50,39 @@ void main() {
     expect(vault.accounts.single.privateKeyHex, 'secret');
     expect(vault.accounts.single.derivationState, WalletDerivationState.ready);
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
+  });
+
+  test('ROAST key descriptions do not depend on local wallet names', () {
+    RoastSetup setup(String name) => RoastSetup(
+      id: 'setup',
+      groupId: 'group',
+      name: name,
+      role: RoastSetupRole.member,
+      status: RoastSetupStatus.ready,
+      threshold: 2,
+      participantCount: 2,
+      blockchainId: 'peercoin',
+      networkId: 'mainnet',
+      localCardId: 'card',
+      localParticipantPrivateKeyHex: 'private',
+      participants: const [],
+      keyName: 'group-g1',
+      createdAt: DateTime.utc(2026),
+      groupFingerprintHex: 'aa' * 32,
+    );
+
+    expect(
+      roastKeyDescription(setup('Alice wallet name')),
+      roastKeyDescription(setup('Bob wallet name')),
+    );
+    expect(jsonDecode(roastKeyDescription(setup('Alice wallet name'))), [
+      'sygnature-roast-wallet-v1',
+      'peercoin',
+      'mainnet',
+      2,
+      2,
+      'aa' * 32,
+    ]);
   });
 
   test('participant cards and clickable room invites round trip', () {
