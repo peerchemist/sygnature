@@ -84,6 +84,7 @@ final class _CrashDeviceHarness({
           throw StateError('Persisted DKG state is missing for ${dkg.name}.');
         }
         await _worker.importDkgSecret(crashSetupId, secret);
+        await _secretStorage.delete(dkg.name);
         _phase = 'dkg-restored';
         snapshot = await _worker.snapshot(crashSetupId);
       }

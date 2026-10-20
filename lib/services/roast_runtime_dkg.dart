@@ -233,20 +233,17 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
         if (active.length > 1) {
           throw StateError('Multiple DKG ceremonies use the same name.');
         }
-        if (active.isEmpty) continue;
+        if (active.isEmpty) {
+          await storage.delete(entry.key);
+          continue;
+        }
         if (active.single.canResume) continue;
         AppLogger.info(
           '${RoastRuntimeManager._roastScope(setup.id)} Restoring encrypted DKG state',
         );
         await worker.importDkgSecret(setup.id, entry.value);
+        await storage.delete(entry.key);
         current = await worker.snapshot(setup.id);
-      }
-      final activeNames = current.dkgs.map((dkg) => dkg.name).toSet();
-      final completedNames = current.keys.map((key) => key.name).toSet();
-      for (final name in secrets.keys.where(
-        (name) => completedNames.contains(name) || !activeNames.contains(name),
-      )) {
-        await storage.delete(name);
       }
       return current;
     } finally {

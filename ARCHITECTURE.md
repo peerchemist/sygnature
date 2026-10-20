@@ -403,7 +403,9 @@ storage. Participant state includes FROST keys, nonces, prepared operations and
 rejected requests. During DKG, Noosphere exports each opaque Frosty round state
 before submitting its commitment or shares. Sygnature atomically replaces that
 blob in the encrypted ROAST Hive database, imports it after signer restart, and
-deletes it after completion, rejection or expiry. Each blob also has an inner
+deletes it immediately after a successful import or when it detects that the
+blob no longer belongs to an active DKG. Completion and rejection events also
+delete any remaining blob. Each blob has an inner
 XChaCha20-Poly1305 envelope under a `dkg-recovery-v1` key derived from the ROAST
 database key. Its authenticated data binds the envelope version, setup ID and
 DKG name, so Hive corruption, record substitution and cross-setup replay fail
