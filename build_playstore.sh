@@ -5,7 +5,6 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
 readonly bundle="$script_dir/build/app/outputs/bundle/release/app-release.aab"
-readonly symbols="$script_dir/build/symbols/android"
 
 usage() {
   cat <<'EOF'
@@ -35,8 +34,6 @@ done
 cd -- "$script_dir"
 flutter build appbundle \
   --release \
-  --obfuscate \
-  --split-debug-info="$symbols" \
   "$@"
 
 if [[ ! -f "$bundle" ]]; then
@@ -45,4 +42,3 @@ if [[ ! -f "$bundle" ]]; then
 fi
 
 echo "Built $bundle"
-echo "Saved obfuscation symbols to $symbols"
