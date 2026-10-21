@@ -5,6 +5,7 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
 readonly bundle="$script_dir/build/app/outputs/bundle/release/app-release.aab"
+readonly signing_properties="$script_dir/android/key.properties"
 
 usage() {
   cat <<'EOF'
@@ -21,6 +22,11 @@ EOF
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
+fi
+
+if [[ ! -f "$signing_properties" ]]; then
+  echo "error: Play Store signing properties not found: $signing_properties" >&2
+  exit 1
 fi
 
 for tool in flutter cargo java javac; do
