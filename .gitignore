@@ -54,6 +54,7 @@ app.*.map.json
 # Local project files
 roadmap.md
 .agents/
+evm-site
 
 # Apple signing material must never enter source control.
 *.p12
