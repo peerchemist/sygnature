@@ -6,25 +6,25 @@ class const AppColors(final Brightness brightness) {
   static AppColors of(BuildContext context) =>
       AppColors(Theme.of(context).brightness);
 
+  static const pastelGreen = Color(0xffdce9df);
+  static const charcoal = Color(0xff171717);
+
   bool get _dark => brightness == Brightness.dark;
 
   Color get ink => _dark ? const Color(0xffe5e7e1) : const Color(0xff20221f);
   Color get inkMuted =>
       _dark ? const Color(0xffaab0a7) : const Color(0xff666a64);
-  Color get forest => _dark ? const Color(0xff91d5a9) : const Color(0xff24583b);
-  Color get green => _dark ? const Color(0xff91d5a9) : const Color(0xff3a7d57);
-  Color get greenDark =>
-      _dark ? const Color(0xff91d5a9) : const Color(0xff24583b);
-  Color get success =>
-      _dark ? const Color(0xff7cdaa5) : const Color(0xff087a41);
-  Color get successSurface =>
-      _dark ? const Color(0xff153c29) : const Color(0xffe7f6ed);
+  Color get forest => _dark ? pastelGreen : const Color(0xff24583b);
+  Color get green => _dark ? pastelGreen : const Color(0xff3a7d57);
+  Color get greenDark => _dark ? pastelGreen : const Color(0xff24583b);
+  Color get success => forest;
+  Color get successSurface => _dark ? const Color(0xff153c29) : pastelGreen;
   Color get danger => _dark ? const Color(0xffffb4ab) : const Color(0xffb42318);
   Color get dangerSurface =>
       _dark ? const Color(0xff4b2523) : const Color(0xffffecea);
   Color get warningDark =>
       _dark ? const Color(0xffedc66c) : const Color(0xff875900);
-  Color get lime => _dark ? const Color(0xff284234) : const Color(0xffdce9df);
+  Color get lime => _dark ? const Color(0xff284234) : pastelGreen;
   Color get canvas => _dark ? const Color(0xff121612) : const Color(0xfff5f5f2);
   Color get surface =>
       _dark ? const Color(0xff1c211c) : const Color(0xffffffff);
@@ -36,10 +36,14 @@ class const AppColors(final Brightness brightness) {
 ThemeData buildAppTheme({Brightness brightness = Brightness.light}) {
   final colors = AppColors(brightness);
   final scheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xff3a7d57),
+    seedColor: AppColors.pastelGreen,
     brightness: brightness,
     primary: colors.forest,
     secondary: colors.green,
+    primaryContainer: AppColors.pastelGreen,
+    onPrimaryContainer: AppColors.charcoal,
+    secondaryContainer: AppColors.pastelGreen,
+    onSecondaryContainer: AppColors.charcoal,
     surface: colors.surface,
   );
   return ThemeData(
@@ -87,6 +91,8 @@ ThemeData buildAppTheme({Brightness brightness = Brightness.light}) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        backgroundColor: AppColors.pastelGreen,
+        foregroundColor: AppColors.charcoal,
         minimumSize: const Size(0, 44),
         padding: const EdgeInsets.symmetric(horizontal: 18),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),

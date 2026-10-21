@@ -335,11 +335,11 @@ class const _WalletListTile({
                           ),
                           decoration: BoxDecoration(
                             color: isRoast
-                                ? AppColors.of(context).forest
+                                ? AppColors.pastelGreen
                                 : AppColors.of(context).canvas,
                             border: Border.all(
                               color: isRoast
-                                  ? AppColors.of(context).forest
+                                  ? AppColors.pastelGreen
                                   : AppColors.of(context).line,
                             ),
                             borderRadius: BorderRadius.circular(3),
@@ -354,7 +354,7 @@ class const _WalletListTile({
                                 : 'LOCAL',
                             style: TextStyle(
                               color: isRoast
-                                  ? Theme.of(context).colorScheme.onPrimary
+                                  ? AppColors.charcoal
                                   : AppColors.of(context).inkMuted,
                               fontSize: 9,
                               fontWeight: FontWeight.w800,
@@ -821,10 +821,10 @@ class _MobileWalletPicker extends StatelessWidget {
                     context,
                     () => controller.selectAccount(index),
                   ),
-                  selectedColor: AppColors.of(context).forest,
+                  selectedColor: AppColors.pastelGreen,
                   labelStyle: TextStyle(
                     color: selected
-                        ? Theme.of(context).colorScheme.onPrimary
+                        ? AppColors.charcoal
                         : AppColors.of(context).ink,
                     fontWeight: FontWeight.w700,
                   ),
@@ -970,7 +970,7 @@ class _DashboardHeader extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: ready
-                    ? AppColors.of(context).green.withValues(alpha: 0.13)
+                    ? AppColors.of(context).lime
                     : AppColors.of(context).warning.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(4),
               ),

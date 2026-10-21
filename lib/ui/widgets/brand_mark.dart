@@ -14,20 +14,11 @@ class BrandMark extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
+        Image.asset(
+          'assets/branding/app-icon.png',
           width: 32,
           height: 32,
-          decoration: BoxDecoration(
-            color: light ? Colors.white : AppColors.of(context).forest,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Icon(
-            Icons.account_balance_wallet_outlined,
-            size: 18,
-            color: light
-                ? const Color(0xff24583b)
-                : Theme.of(context).colorScheme.onPrimary,
-          ),
+          semanticLabel: 'Sygnature',
         ),
         if (!compact) ...[
           const SizedBox(width: 11),

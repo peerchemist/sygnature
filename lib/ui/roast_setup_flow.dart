@@ -1303,7 +1303,7 @@ class const _RoastBadge({required final RoastSetup setup})
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
-      color: AppColors.of(context).green.withValues(alpha: 0.13),
+      color: AppColors.of(context).lime,
       borderRadius: BorderRadius.circular(4),
     ),
     child: Text(

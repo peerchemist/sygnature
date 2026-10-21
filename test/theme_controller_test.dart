@@ -41,6 +41,21 @@ void main() {
       final colors = AppColors(brightness);
       final theme = buildAppTheme(brightness: brightness);
       expect(theme.brightness, brightness);
+      final button = theme.filledButtonTheme.style!;
+      expect(
+        contrast(
+          button.foregroundColor!.resolve({})!,
+          button.backgroundColor!.resolve({})!,
+        ),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(
+        contrast(
+          theme.colorScheme.onPrimaryContainer,
+          theme.colorScheme.primaryContainer,
+        ),
+        greaterThanOrEqualTo(4.5),
+      );
       for (final background in [colors.canvas, colors.surface]) {
         expect(contrast(colors.ink, background), greaterThanOrEqualTo(4.5));
         expect(
