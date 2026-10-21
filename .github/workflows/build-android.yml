@@ -57,7 +57,7 @@ jobs:
       - name: Build release APK
         working-directory: sygnature_ng
         run: >-
-          flutter build apk --release --no-pub
+          flutter build apk --release
           --android-project-arg=sygnatureApplicationIdSuffix=.alfa
 
       - name: Upload APK
