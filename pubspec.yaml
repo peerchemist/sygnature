@@ -49,23 +49,23 @@ dependencies:
   noosphere_flutter:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_flutter
   noosphere_protocol:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_protocol
   iroh_quic: 1.1.1
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_server
   flutter_local_notifications: ^22.3.1
   app_links: ^7.2.1
@@ -76,17 +76,17 @@ dependency_overrides:
   noosphere_protocol:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_protocol
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: feature/resumable-dkg
+      ref: 0.3.1
       path: packages/noosphere_server
 
 hooks:

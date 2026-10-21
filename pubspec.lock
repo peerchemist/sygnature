@@ -414,8 +414,8 @@ packages:
     dependency: transitive
     description:
       path: "."
-      ref: "feature/dkg-secret-serialization-upstream"
-      resolved-ref: ea9bdff6a0f2d156e520dffef556d8c201bf081e
+      ref: "5.1.0"
+      resolved-ref: e56a96660df2231789510d29fa544752cd2a0f0b
       url: "https://github.com/peerchemist/frosty.git"
     source: git
     version: "5.1.0"
@@ -649,8 +649,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_client"
-      ref: "feature/resumable-dkg"
-      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
+      ref: "0.3.1"
+      resolved-ref: f60a5f3256a036e343fe04ee9c8a100ce4d05de4
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "4.0.0"
@@ -658,26 +658,26 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_flutter"
-      ref: "feature/resumable-dkg"
-      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
+      ref: "0.3.1"
+      resolved-ref: f60a5f3256a036e343fe04ee9c8a100ce4d05de4
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.3.0"
+    version: "0.3.1"
   noosphere_protocol:
     dependency: "direct main"
     description:
       path: "packages/noosphere_protocol"
-      ref: "feature/resumable-dkg"
-      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
+      ref: "0.3.1"
+      resolved-ref: f60a5f3256a036e343fe04ee9c8a100ce4d05de4
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.3.0"
+    version: "0.3.1"
   noosphere_server:
     dependency: "direct main"
     description:
       path: "packages/noosphere_server"
-      ref: "feature/resumable-dkg"
-      resolved-ref: "115b1f84f9e9504a16fc8fd09aa744decbbb08f2"
+      ref: "0.3.1"
+      resolved-ref: f60a5f3256a036e343fe04ee9c8a100ce4d05de4
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
     version: "3.0.0"
