@@ -573,6 +573,7 @@ class _WalletDashboard extends StatelessWidget {
                       header
                     else
                       _CompactDashboardHeader(
+                        controller: controller,
                         header: header,
                         account: account,
                         showDetails: account.address != null,
@@ -601,7 +602,10 @@ class _WalletDashboard extends StatelessWidget {
                           return Column(
                             children: [
                               const SizedBox(height: 18),
-                              _AddressCard(account: account),
+                              _AddressCard(
+                                account: account,
+                                controller: controller,
+                              ),
                               const SizedBox(height: 18),
                             ],
                           );
@@ -621,6 +625,7 @@ class _WalletDashboard extends StatelessWidget {
 }
 
 class const _CompactDashboardHeader({
+  required final WalletController controller,
   required final Widget header,
   required final WalletAccount account,
   required final bool showDetails,
@@ -644,7 +649,7 @@ class const _CompactDashboardHeader({
             ),
           ),
           const SizedBox(height: 7),
-          _ReceiveAddressBox(account: account),
+          _ReceiveAddressBox(account: account, controller: controller),
         ],
       );
     },
@@ -674,7 +679,9 @@ class const _DesktopWalletOverview({
       SizedBox(
         key: const Key('desktop-context-column'),
         width: 340,
-        child: Column(children: [_AddressCard(account: account)]),
+        child: Column(
+          children: [_AddressCard(account: account, controller: controller)],
+        ),
       ),
     ],
   );
@@ -1395,8 +1402,10 @@ class const _BalanceAction({
   }
 }
 
-class const _AddressCard({required final WalletAccount account})
-    extends StatelessWidget {
+class const _AddressCard({
+  required final WalletAccount account,
+  required final WalletController controller,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -1419,7 +1428,7 @@ class const _AddressCard({required final WalletAccount account})
               ],
             ),
             const SizedBox(height: 18),
-            _ReceiveAddressBox(account: account),
+            _ReceiveAddressBox(account: account, controller: controller),
           ],
         ),
       ),
@@ -1427,8 +1436,10 @@ class const _AddressCard({required final WalletAccount account})
   }
 }
 
-class const _ReceiveAddressBox({required final WalletAccount account})
-    extends StatelessWidget {
+class const _ReceiveAddressBox({
+  required final WalletAccount account,
+  required final WalletController controller,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final address = account.address;
@@ -1454,30 +1465,49 @@ class const _ReceiveAddressBox({required final WalletAccount account})
                 fontSize: 13,
               ),
             )
-          : Row(
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: MiddleEllipsisText(
-                    key: const Key('receive-address-value'),
-                    value: address,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                Row(
+                  children: [
+                    Expanded(
+                      child: MiddleEllipsisText(
+                        key: const Key('receive-address-value'),
+                        value: address,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  ),
+                    IconButton(
+                      tooltip: 'Copy address',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: address));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Address copied.')),
+                        );
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 18),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: 'Copy address',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: address));
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Address copied.')),
-                    );
-                  },
-                  icon: const Icon(Icons.copy_rounded, size: 18),
+                Tooltip(
+                  message: 'Address details',
+                  child: TextButton.icon(
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (_) => _AddressDetailsDialog(
+                        controller: controller,
+                        accountId: account.id,
+                      ),
+                    ),
+                    icon: const Icon(Icons.list_alt, size: 18),
+                    label: const Text('Address details'),
+                  ),
                 ),
               ],
             ),
@@ -1562,5 +1592,130 @@ Future<void> _showAdaptivePanel(
         child: builder(dialogContext, true),
       ),
     ),
+  );
+}
+
+class const _AddressDetailsDialog({
+  required final WalletController controller,
+  required final String accountId,
+}) extends StatefulWidget {
+  @override
+  State<_AddressDetailsDialog> createState() => _AddressDetailsDialogState();
+}
+
+class _AddressDetailsDialogState extends State<_AddressDetailsDialog> {
+  bool _includeUnused = false;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      final account = widget.controller.accounts
+          .where((account) => account.id == widget.accountId)
+          .firstOrNull;
+      final addresses = account == null
+          ? <WalletAddressDetails>[]
+          : widget.controller.addressDetailsFor(
+              account,
+              includeUnused: _includeUnused,
+            );
+      return AlertDialog(
+        title: const Text('Address details'),
+        content: SizedBox(
+          width: 560,
+          height: 440,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Used means activity was observed during this session. '
+                'Allocation does not imply usage. Balances include pending outputs.',
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Show unused addresses'),
+                subtitle: const Text(
+                  'Include addresses with no known transactions.',
+                ),
+                value: _includeUnused,
+                onChanged: (value) =>
+                    setState(() => _includeUnused = value ?? false),
+              ),
+              Expanded(
+                child: addresses.isEmpty
+                    ? Text(
+                        _includeUnused ? 'No addresses available.' : 'No used addresses found. Turn on “Show unused addresses” to see more.',
+                      )
+                    : ListView.builder(
+                        itemCount: addresses.length,
+                        itemBuilder: (context, index) {
+                          final details = addresses[index];
+                          final usage = switch (details.usage) {
+                            WalletAddressUsage.unknown => 'Unknown',
+                            WalletAddressUsage.noHistory => 'No history found',
+                            WalletAddressUsage.used => 'Used',
+                          };
+                          return ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            title: Text(
+                              'Index ${details.index ?? "not available"} · '
+                              '${details.isReceive ? "Receive" : "Change"}',
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                MiddleEllipsisText(value: details.address),
+                                Text(
+                                  '$usage · '
+                                  '${details.isAllocated ? "Allocated" : "Not allocated"}'
+                                  '${details.isStale ? " · Sync pending or unavailable" : ""}',
+                                ),
+                              ],
+                            ),
+                            children: [
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: SelectableText(details.address),
+                              ),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  'Path: ${details.derivationPath ?? "Not available"}',
+                                ),
+                                subtitle: Text(
+                                  'Balance: ${details.balanceSats == null ? "Unknown" : "${_formatPpc(details.balanceSats!)} PPC"}',
+                                ),
+                                trailing: IconButton(
+                                  tooltip: 'Copy address',
+                                  icon: const Icon(Icons.copy_rounded),
+                                  onPressed: () async {
+                                    await Clipboard.setData(
+                                      ClipboardData(text: details.address),
+                                    );
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Address copied.'),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
   );
 }

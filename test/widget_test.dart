@@ -33,6 +33,45 @@ void main() {
     return controller;
   }
 
+  for (final width in [390.0, 800.0, 1280.0]) {
+    testWidgets('address details can be opened at width $width', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(Size(width, 850));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = await createController();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('Address details'));
+      await tester.tap(find.byTooltip('Address details'));
+      await tester.pumpAndSettle();
+      expect(
+        find.widgetWithText(AlertDialog, 'Address details'),
+        findsOneWidget,
+      );
+      expect(find.text('Unknown · Allocated'), findsOneWidget);
+      await tester.tap(find.text('Index 0 · Receive'));
+      await tester.pumpAndSettle();
+      expect(find.text('Balance: Unknown'), findsOneWidget);
+      expect(
+        find.text('Path: ${controller.accounts.single.derivationPath}'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Show unused addresses'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    });
+  }
+
   testWidgets(
     'Noosphere initialization does not block wallets and can be retried',
     (tester) async {
