@@ -9,6 +9,20 @@ typedef WalletBalance = ({
   int utxoCount,
 });
 
+enum WalletAddressUsage { unknown, noHistory, used }
+
+/// Public address metadata only; never includes spending keys.
+typedef WalletAddressDetails = ({
+  int? index,
+  String address,
+  String? derivationPath,
+  bool isReceive,
+  bool isAllocated,
+  WalletAddressUsage usage,
+  int? balanceSats,
+  bool isStale,
+});
+
 extension WalletSyncController on WalletController {
   WalletNetwork networkForAccount(WalletAccount account) =>
       _networkById(account.blockchainId, account.networkId);
@@ -22,6 +36,36 @@ extension WalletSyncController on WalletController {
 
   List<WalletOwnedAddress> ownedAddressesFor(WalletAccount account) =>
       _ownedAddressesThrough(account, account.highestAllocatedAddressIndex);
+
+  List<WalletAddressDetails> addressDetailsFor(
+    WalletAccount account, {
+    bool includeUnused = false,
+  }) => List.unmodifiable([
+    for (final owned in _addressesForSync(account))
+      if (includeUnused || _observedAddressUsage[owned.address] != false)
+        (
+          index: account.keySource == WalletKeySource.watchOnly
+              ? null
+              : owned.index,
+          address: owned.address,
+          derivationPath: owned.derivationPath.isEmpty
+              ? null
+              : owned.derivationPath,
+          isReceive: owned.index == 0,
+          isAllocated: owned.index <= account.highestAllocatedAddressIndex,
+          usage: switch (_observedAddressUsage[owned.address]) {
+            true => WalletAddressUsage.used,
+            false => WalletAddressUsage.noHistory,
+            null => WalletAddressUsage.unknown,
+          },
+          balanceSats: _utxosByAddress.containsKey(owned.address)
+              ? _balanceOf(_utxosByAddress[owned.address]!)
+              : null,
+          isStale:
+              _syncingAddresses.contains(owned.address) ||
+              _syncErrorsByAddress.containsKey(owned.address),
+        ),
+  ]);
 
   ({int from, int through}) addressScanRangeFor(WalletAccount account) =>
       (from: 0, through: _addressScanUpperIndex(account));
@@ -329,6 +373,9 @@ extension WalletSyncController on WalletController {
     final addresses = addressesByNetwork.values
         .expand((items) => items)
         .toSet();
+    _observedAddressUsage.removeWhere(
+      (address, _) => !addresses.contains(address),
+    );
     _utxosByAddress.removeWhere((address, _) => !addresses.contains(address));
     _syncErrorsByAddress.removeWhere(
       (address, _) => !addresses.contains(address),
@@ -353,6 +400,11 @@ extension WalletSyncController on WalletController {
           .listen(
             (snapshot) {
               if (_disposed || generation != _syncGeneration) return;
+              // Retain observed usage for this session, including after a reorg.
+              _observedAddressUsage[snapshot.address] =
+                  _observedAddressUsage[snapshot.address] == true ||
+                  snapshot.history.isNotEmpty ||
+                  snapshot.utxos.isNotEmpty;
               final previousUtxos = _utxosByAddress[snapshot.address];
               final balanceIncreased =
                   previousUtxos != null &&
@@ -510,6 +562,7 @@ extension WalletSyncController on WalletController {
 
   void _clearSyncState() {
     _utxosByAddress.clear();
+    _observedAddressUsage.clear();
     _syncErrorsByAddress.clear();
     _syncingAddresses.clear();
     _addressScanUpperIndexByAccount.clear();

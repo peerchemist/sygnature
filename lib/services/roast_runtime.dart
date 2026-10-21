@@ -59,6 +59,7 @@ final class RoastRuntimeDkgEvent(
   required final String description,
   required final String stage,
   required final bool rejected,
+  final bool canResume = true,
   final List<String> completedParticipantIds = const [],
   final String? failure,
 }) extends RoastRuntimeEvent;

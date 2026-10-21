@@ -179,6 +179,7 @@ class WalletController extends ChangeNotifier {
   _syncSubscriptions = {};
   Future<void>? _syncCancellation;
   final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
+  final Map<String, bool> _observedAddressUsage = {};
   final Map<String, Object> _syncErrorsByAddress = {};
   final Set<String> _syncingAddresses = {};
   final Map<String, int> _addressScanUpperIndexByAccount = {};

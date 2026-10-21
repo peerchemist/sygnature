@@ -139,6 +139,7 @@ final class _LinuxHarness {
               description: 'Initial cross-platform 2-of-3 group',
               threshold: 2,
               expiry: Expiry(const Duration(hours: 1)),
+              groupFingerprint: oldGroup.fingerprint,
             ),
           );
           stdout.writeln('OLD DKG REQUESTED');
@@ -205,6 +206,7 @@ final class _LinuxHarness {
       description: '2-of-3 successor replacing Android 16 with client 4',
       threshold: 2,
       expiry: Expiry.fromTime(now.add(const Duration(hours: 1))),
+      groupFingerprint: successorGroup.fingerprint,
     );
     final proposal = GroupTransitionProposal(
       transitionId: 'change-signers-e2e-transition',

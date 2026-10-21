@@ -190,6 +190,8 @@ void main() {
 
     final account = controller.accounts.single;
     expect(account.name, 'Treasury observer');
+    expect(controller.addressDetailsFor(account).single.index, isNull);
+    expect(controller.addressDetailsFor(account).single.derivationPath, isNull);
     expect(account.keySource, WalletKeySource.watchOnly);
     expect(account.derivationState, WalletDerivationState.watchOnly);
     expect(account.address, address);
@@ -256,6 +258,130 @@ void main() {
     expect(restored.accounts[1].networkId, 'testnet');
     expect(restored.selectedAccount?.name, 'Main wallet');
   });
+
+  test(
+    'address details separate allocation, history and sync freshness',
+    () async {
+      final service = _FakeElectrumxService();
+      final controller = WalletController(
+        MemoryWalletRepository(),
+        keyService: _FakeWalletKeyService(),
+        networkServiceFactory: (_) async => service,
+      );
+      addTearDown(controller.dispose);
+      await controller.load();
+      await controller.createWallet(
+        _mnemonic,
+        network: PeercoinNetworks.mainnet,
+      );
+      final account = controller.accounts.single;
+      var details = controller
+          .addressDetailsFor(account, includeUnused: true)
+          .first;
+      expect(details.index, 0);
+      expect(details.isAllocated, isTrue);
+      expect(details.usage, WalletAddressUsage.unknown);
+      expect(details.balanceSats, isNull);
+      await controller.extendAddressScan(account.id, 2);
+      expect(controller.addressDetailsFor(account), hasLength(3));
+      final scanned = controller.addressDetailsFor(
+        account,
+        includeUnused: true,
+      );
+      expect(scanned, hasLength(3));
+      expect(scanned.last.isAllocated, isFalse);
+      expect(scanned.last.usage, WalletAddressUsage.unknown);
+      expect(
+        controller
+            .addressDetailsFor(
+              account.copyWith(highestAllocatedAddressIndex: 2),
+            )
+            .last
+            .usage,
+        WalletAddressUsage.unknown,
+      );
+
+      service.snapshots.add(
+        PeercoinElectrumxUtxoSnapshot(
+          address: account.address!,
+          utxos: const [],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      details = controller
+          .addressDetailsFor(account, includeUnused: true)
+          .first;
+      expect(controller.addressDetailsFor(account).map((item) => item.index), [
+        1,
+        2,
+      ]);
+      expect(
+        controller.addressDetailsFor(account, includeUnused: true),
+        hasLength(3),
+      );
+      expect(
+        controller
+            .addressDetailsFor(
+              account.copyWith(highestAllocatedAddressIndex: 2),
+            )
+            .map((item) => item.index),
+        [1, 2],
+      );
+      expect(details.usage, WalletAddressUsage.noHistory);
+      expect(details.balanceSats, 0);
+      expect(details.isStale, isFalse);
+      service.snapshots.add(
+        PeercoinElectrumxUtxoSnapshot(
+          address: account.address!,
+          utxos: const [],
+          history: const [
+            ElectrumxTransactionHistoryEntry(
+              transactionId: 'spent',
+              height: 10,
+            ),
+          ],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      details = controller
+          .addressDetailsFor(account, includeUnused: true)
+          .first;
+      expect(controller.addressDetailsFor(account).first.index, 0);
+      expect(details.usage, WalletAddressUsage.used);
+      expect(details.balanceSats, 0);
+      service.snapshots.addError(StateError('offline'));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        controller
+            .addressDetailsFor(account, includeUnused: true)
+            .first
+            .isStale,
+        isTrue,
+      );
+      expect(
+        controller.addressDetailsFor(account, includeUnused: true).first.usage,
+        WalletAddressUsage.used,
+      );
+      service.snapshots.add(
+        PeercoinElectrumxUtxoSnapshot(
+          address: account.address!,
+          utxos: const [],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        controller.addressDetailsFor(account, includeUnused: true).first.usage,
+        WalletAddressUsage.used,
+      );
+      expect(
+        controller
+            .addressDetailsFor(account, includeUnused: true)
+            .first
+            .isStale,
+        isFalse,
+      );
+    },
+  );
 
   test('streams ElectrumX UTXOs into account balance state', () async {
     final electrumx = _FakeElectrumxService();

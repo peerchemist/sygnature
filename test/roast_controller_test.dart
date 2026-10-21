@@ -361,6 +361,7 @@ void main() {
           description: 'ROAST wallet',
           threshold: setup.threshold,
           expiry: Expiry(roastDkgAttemptTtl),
+          groupFingerprint: Uint8List(32),
         ),
         returnsNormally,
       );
@@ -1454,10 +1455,32 @@ void main() {
         description: roastKeyDescription(controller.roastSetups.single),
         stage: 'round1',
         rejected: false,
+        canResume: false,
+      ),
+    );
+    await _flushEvents();
+    expect(controller.roastSetups.single.status, RoastSetupStatus.error);
+    expect(
+      controller.roastSetups.single.errorMessage,
+      'Encrypted DKG recovery state is unavailable.',
+    );
+
+    runtime.emit(
+      RoastRuntimeDkgEvent(
+        'setup',
+        proposalHex: 'valid-proposal',
+        name: 'setup:generation:1',
+        threshold: 2,
+        creator: '01',
+        expiry: DateTime.now().add(const Duration(hours: 1)),
+        description: roastKeyDescription(controller.roastSetups.single),
+        stage: 'round1',
+        rejected: false,
       ),
     );
     await _flushEvents();
     expect(controller.roastSetups.single.status, RoastSetupStatus.creatingKey);
+    expect(controller.roastSetups.single.errorMessage, isNull);
 
     runtime.emit(
       RoastRuntimeDkgEvent(

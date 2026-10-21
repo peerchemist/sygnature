@@ -4,9 +4,10 @@ Sygnature targets Android, Linux, Windows and macOS. Automated equivalents of
 these builds are defined in [GitHub Actions](../.github/workflows).
 
 The Linux, Windows and macOS build workflows run for every pushed Git tag and
-can also be started manually. The Android workflow is temporarily manual-only.
-Together they upload an Android APK, Linux Flatpak, Windows x64 bundle and macOS
-ARM64 and Intel DMGs as workflow artifacts. Manual triggers are useful for testing a
+can also be started manually. The Android workflow runs for every push, for
+pull requests targeting `master`, and when started manually. Together they
+upload an Android APK, Linux Flatpak, Windows x64 bundle and macOS ARM64 and
+Intel DMGs as workflow artifacts. Manual triggers are useful for testing a
 release build or warming its dependency caches before creating a tag.
 
 Tag builds also create a GitHub Release and attach the Flatpak, DMG and Windows
@@ -16,8 +17,9 @@ only upload workflow artifacts; Android does not publish to Releases.
 
 ## Source dependencies
 
-`pubspec.yaml` fetches Noosphere directly from GitHub at the pinned commit
-`470f2e66c2e6a6f1e4951ba8cabbefff9653f12d`; no sibling checkout is required.
+`pubspec.yaml` fetches Noosphere directly from GitHub from branch
+`feature/resumable-dkg`, currently resolved to
+`115b1f84f9e9504a16fc8fd09aa744decbbb08f2`; no sibling checkout is required.
 Android and macOS builds require Git, Flutter 3.47.5, Rust and the native
 toolchain for their target platform. The Linux Flatpak and Windows VM scripts
 provision their own SDKs.

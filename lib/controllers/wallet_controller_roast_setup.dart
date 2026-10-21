@@ -399,6 +399,7 @@ extension WalletRoastSetupController on WalletController {
             description: roastKeyDescription(successor),
             threshold: successor.threshold,
             expiry: Expiry.fromTime(expiresAt),
+            groupFingerprint: hexToBytes(successor.groupFingerprintHex!),
           );
           final keyPlan = GroupTransitionKeyPlan(
             keyId: transitionPolicy.keyId,

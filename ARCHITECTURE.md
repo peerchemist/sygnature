@@ -1,7 +1,7 @@
 # Sygnature ROAST messaging architecture
 
 Status: implementation documentation checked against Sygnature and the pinned
-Noosphere revision on 2026-10-18. Sygnature supports participant-bound room
+Noosphere revision on 2026-10-20. Sygnature supports participant-bound room
 enrollment and the preconfigured-roster flow, durable client, room and
 coordinator state, DKG, successor-group transitions, transaction and message
 signing, and retry-safe transaction broadcast persistence. Cross-peer UTXO
@@ -400,8 +400,18 @@ signature share.
 
 Sygnature stores all security-critical ROAST state in encrypted durable
 storage. Participant state includes FROST keys, nonces, prepared operations and
-rejected requests. Host state includes room enrollment and the versioned
-Noosphere server snapshot. Creator-side transaction operations are keyed by
+rejected requests. During DKG, Noosphere exports each opaque Frosty round state
+before submitting its commitment or shares. Sygnature atomically replaces that
+blob in the encrypted ROAST Hive database, imports it after signer restart, and
+deletes it immediately after a successful import or when it detects that the
+blob no longer belongs to an active DKG. Completion and rejection events also
+delete any remaining blob. Each blob has an inner
+XChaCha20-Poly1305 envelope under a `dkg-recovery-v1` key derived from the ROAST
+database key. Its authenticated data binds the envelope version, setup ID and
+DKG name, so Hive corruption, record substitution and cross-setup replay fail
+authentication before Noosphere sees plaintext. Host state includes room
+enrollment and the versioned Noosphere server snapshot. Creator-side
+transaction operations are keyed by
 `setupId:requestId` and include the exact proposal, unsigned transaction data,
 reserved outpoints, expiry, aggregate signatures, signed bytes and broadcast
 outcome.
@@ -425,7 +435,7 @@ The behavior described above is defined primarily in:
 - `lib/services/roast_runtime_rooms.dart`
 - `lib/services/roast_runtime_signing_mapper.dart`
 - `lib/storage/roast_storage.dart`
-- [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/470f2e66c2e6a6f1e4951ba8cabbefff9653f12d):
+- [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/115b1f84f9e9504a16fc8fd09aa744decbbb08f2):
   `packages/noosphere_protocol/proto/noosphere.proto`,
   `packages/noosphere_protocol/lib/src/wire/framing.dart`,
   `packages/noosphere_protocol/lib/api/`,

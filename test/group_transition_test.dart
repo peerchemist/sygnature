@@ -65,6 +65,7 @@ void main() {
       expiry: Expiry.fromTime(
         fixture.dkgDetails.expiry.time.add(const Duration(minutes: 1)),
       ),
+      groupFingerprint: fixture.dkgDetails.groupFingerprint,
     );
 
     expect(
@@ -196,6 +197,7 @@ final class _TransitionFixture {
       description: 'sygnature transition test',
       threshold: 2,
       expiry: Expiry.fromTime(createdAt.add(const Duration(hours: 1))),
+      groupFingerprint: Uint8List(32),
     );
     proposal = GroupTransitionProposal(
       transitionId: 'transition-1',

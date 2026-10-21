@@ -19,7 +19,11 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
           approvedDetails.name != setup.keyName ||
           approvedDetails.threshold != setup.threshold ||
           transitionKeyPlan!.targetThreshold != setup.threshold ||
-          !transitionKeyPlan.matchesDkgDetails(approvedDetails)) {
+          !transitionKeyPlan.matchesDkgDetails(approvedDetails) ||
+          !bytesEqual(
+            approvedDetails.groupFingerprint,
+            RoastRuntimeManager._group(setup).fingerprint,
+          )) {
         throw StateError(
           'The DKG does not match the approved transition plan.',
         );
@@ -45,6 +49,7 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
           description: roastKeyDescription(setup),
           threshold: setup.threshold,
           expiry: Expiry(roastDkgAttemptTtl),
+          groupFingerprint: RoastRuntimeManager._group(setup).fingerprint,
         );
     try {
       await worker.requestDkg(setup.id, details);
@@ -141,6 +146,7 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
       'Conflicting DKG cancellation',
       () => worker.rejectDkg(setup.id, proposal),
     );
+    await _deleteDkgSecret(setup.id, proposal.name);
     _dkgProposals.remove('${setup.id}:$proposalHex');
     return _ExistingDkgResolution.cancelled;
   }
@@ -185,6 +191,7 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
       'DKG rejection',
       () => worker.rejectDkg(setupId, proposal),
     );
+    await _deleteDkgSecret(setupId, proposal.name);
     AppLogger.info(
       '${RoastRuntimeManager._roastScope(setupId)} DKG rejected locally',
     );
@@ -205,5 +212,51 @@ extension _RoastDkgRuntime on RoastRuntimeManager {
       );
       rethrow;
     }
+  }
+
+  Future<NoosphereWorkerSnapshot> _reconcileDkgSecrets(
+    NoosphereWorker worker,
+    RoastSetup setup,
+    NoosphereWorkerSnapshot snapshot,
+  ) async {
+    if (!snapshot.connected) return snapshot;
+    final storage = (await _persistenceFactory.open()).dkgSecretStorage(
+      setup.id,
+    );
+    final secrets = await storage.loadAll();
+    try {
+      var current = snapshot;
+      for (final entry in secrets.entries) {
+        final active = current.dkgs
+            .where((dkg) => dkg.name == entry.key)
+            .toList(growable: false);
+        if (active.length > 1) {
+          throw StateError('Multiple DKG ceremonies use the same name.');
+        }
+        if (active.isEmpty) {
+          await storage.delete(entry.key);
+          continue;
+        }
+        if (active.single.canResume) continue;
+        AppLogger.info(
+          '${RoastRuntimeManager._roastScope(setup.id)} Restoring encrypted DKG state',
+        );
+        await worker.importDkgSecret(setup.id, entry.value);
+        await storage.delete(entry.key);
+        current = await worker.snapshot(setup.id);
+      }
+      return current;
+    } finally {
+      for (final state in secrets.values) {
+        state.fillRange(0, state.length, 0);
+      }
+    }
+  }
+
+  Future<void> _deleteDkgSecret(String setupId, String name) async {
+    final storage = (await _persistenceFactory.open()).dkgSecretStorage(
+      setupId,
+    );
+    await storage.delete(name);
   }
 }

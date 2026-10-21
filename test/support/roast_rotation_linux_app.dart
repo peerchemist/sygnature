@@ -95,6 +95,7 @@ final class _LinuxRotationHarness {
               description: 'Cross-platform coordinator rotation test',
               threshold: 2,
               expiry: Expiry(const Duration(hours: 1)),
+              groupFingerprint: rotationGroup.fingerprint,
             ),
           );
           stdout.writeln('DKG REQUESTED');

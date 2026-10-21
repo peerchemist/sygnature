@@ -287,7 +287,6 @@ String normalizeRoastKeyName(String groupId, String keyName) =>
 
 String roastKeyDescription(RoastSetup setup) => jsonEncode([
   'sygnature-roast-wallet-v1',
-  setup.name,
   setup.blockchainId,
   setup.networkId,
   setup.threshold,

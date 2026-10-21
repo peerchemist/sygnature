@@ -76,6 +76,7 @@ Future<void> main(List<String> arguments) async {
           name: 'device-check-${sequence++}',
           threshold: 2,
           expiry: Expiry(const Duration(hours: 1)),
+          groupFingerprint: config.group.fingerprint,
         ),
         key: key,
       ),

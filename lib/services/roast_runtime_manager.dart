@@ -285,8 +285,9 @@ final class RoastRuntimeManager(
       pinnedServerId: pinnedId,
       storage: persistence.clientStorage(setup.id),
       getPrivateKey: (_) async => privateKey,
+      persistDkgSecret: persistence.dkgSecretStorage(setup.id).write,
     );
-    late final NoosphereWorkerSnapshot snapshot;
+    late NoosphereWorkerSnapshot snapshot;
     try {
       snapshot = _signerSetups.contains(setup.id)
           ? await worker.snapshot(setup.id)
@@ -308,6 +309,7 @@ final class RoastRuntimeManager(
       }
       rethrow;
     }
+    snapshot = await _reconcileDkgSecrets(worker, setup, snapshot);
     _signerSetups.add(setup.id);
     AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
     return _snapshot(snapshot, setup, publishDkgs: publishDkgs);
@@ -870,6 +872,9 @@ final class RoastRuntimeManager(
           error: event.failure,
         );
         _dkgProposals['${event.setupId}:$proposalHex'] = event.status;
+        if (event.rejected) {
+          _runBackground(_deleteDkgSecret(event.setupId, event.status.name));
+        }
         _events.add(
           RoastRuntimeDkgEvent(
             event.setupId,
@@ -881,12 +886,14 @@ final class RoastRuntimeManager(
             description: event.status.description,
             stage: event.status.stage,
             rejected: event.rejected,
+            canResume: event.status.canResume,
             completedParticipantIds: event.status.completedParticipants,
             failure: event.failure,
           ),
         );
       case WorkerKeyUpdatedEvent():
         AppLogger.info('${_roastScope(event.setupId)} Group key updated');
+        _runBackground(_deleteDkgSecret(event.setupId, event.key.name));
         _runBackground(_refresh(event.setupId));
       case WorkerFailureEvent():
         final operation = switch (event.operation) {
@@ -1050,12 +1057,13 @@ final class RoastRuntimeManager(
     final setup = _setups[setupId];
     if (worker == null || worker.isClosed || setup == null) return;
     try {
-      final snapshot = await worker.snapshot(setupId);
+      var snapshot = await worker.snapshot(setupId);
       if (_events.isClosed ||
           !identical(worker, _worker) ||
           !identical(setup, _setups[setupId])) {
         return;
       }
+      snapshot = await _reconcileDkgSecrets(worker, setup, snapshot);
       _rememberDkgs(snapshot);
       _rememberCancelledSigningRequests(snapshot);
       _rememberSigningRequests(snapshot);
@@ -1192,6 +1200,7 @@ final class RoastRuntimeManager(
           previous.expiry == proposal.expiry &&
           previous.creator == proposal.creator &&
           previous.stage == proposal.stage &&
+          previous.canResume == proposal.canResume &&
           listEquals(
             previous.completedParticipants,
             proposal.completedParticipants,
@@ -1217,6 +1226,7 @@ final class RoastRuntimeManager(
           description: proposal.description,
           stage: proposal.stage,
           rejected: false,
+          canResume: proposal.canResume,
           completedParticipantIds: proposal.completedParticipants,
         ),
       );
@@ -1383,6 +1393,10 @@ final class RoastRuntimeManager(
         status.threshold == setup.threshold &&
         status.creator == setup.hostParticipantId &&
         status.expiry.isAfter(DateTime.now()) &&
+        bytesEqual(
+          status.decodeProposal().groupFingerprint,
+          _group(setup).fingerprint,
+        ) &&
         (approved == null
             ? status.description == roastKeyDescription(setup)
             : bytesEqual(status.proposalBytes, approved));

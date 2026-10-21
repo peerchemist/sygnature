@@ -161,10 +161,15 @@ extension WalletRoastEventController on WalletController {
         await _roastRuntime?.rejectDkg(event.setupId, event.proposalHex);
         return;
       case RoastRuntimeDkgEvent():
+        final failure =
+            event.failure ??
+            (event.stage != 'waiting' && !event.canResume
+                ? 'Encrypted DKG recovery state is unavailable.'
+                : null);
         await _updateSetup(
           setup.id,
           (setup) => setup.copyWith(
-            status: event.failure != null
+            status: failure != null
                 ? RoastSetupStatus.error
                 : event.stage != 'waiting'
                 ? RoastSetupStatus.creatingKey
@@ -176,10 +181,11 @@ extension WalletRoastEventController on WalletController {
             pendingDkgThreshold: event.threshold,
             pendingDkgCreatorId: event.creator,
             pendingDkgExpiry: event.expiry,
-            errorMessage: event.failure,
+            errorMessage: failure,
+            clearError: failure == null,
           ),
         );
-        if (event.failure == null && event.stage == 'waiting') {
+        if (failure == null && event.stage == 'waiting') {
           await _announceRoastAction(
             'dkg:${setup.id}:${event.proposalHex}',
             onDkgRequest,
@@ -187,14 +193,14 @@ extension WalletRoastEventController on WalletController {
         }
         await _recordSetupActivity(
           setup,
-          id: event.failure == null
+          id: failure == null
               ? 'dkg-started:${setup.id}:${event.proposalHex}'
               : 'dkg-failed:${setup.id}:${event.proposalHex}',
-          type: event.failure == null
+          type: failure == null
               ? WalletActivityType.dkgStarted
               : WalletActivityType.dkgFailed,
           reference: event.proposalHex,
-          details: event.failure,
+          details: failure,
         );
       case RoastRuntimeKeyEvent():
         if (event.keyName != setup.keyName) return;

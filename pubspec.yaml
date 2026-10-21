@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.9.19+23
+version: 0.9.20+24
 
 environment:
   sdk: ^3.13.4
@@ -49,42 +49,44 @@ dependencies:
   noosphere_flutter:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_flutter
   noosphere_protocol:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_protocol
-  iroh_quic: 1.1.0
+  iroh_quic: 1.1.1
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_server
   flutter_local_notifications: ^22.3.1
   app_links: ^7.2.1
 
 dependency_overrides:
+  iroh_flutter: 1.1.1
+  iroh_quic: 1.1.1
   noosphere_protocol:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_protocol
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_client
   noosphere_server:
     git:
       url: https://github.com/peerchemist/noosphere.git
-      ref: 0.2.0
+      ref: 0.3.1
       path: packages/noosphere_server
 
 hooks:
@@ -94,6 +96,8 @@ hooks:
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to

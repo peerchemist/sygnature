@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart' show bytesToHex;
+import 'package:cryptography/cryptography.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
-import 'package:noosphere_flutter/noosphere_flutter.dart';
+import 'package:noosphere_flutter/noosphere_flutter.dart' hide SecretKey;
 
 import '../models/roast_signing_operation.dart';
 import '../models/roast_setup.dart';
@@ -13,10 +14,20 @@ import '../models/wallet_vault.dart';
 import 'wallet_repository.dart';
 import 'encrypted_hive_box.dart';
 
-class RoastPersistence._(final Box<dynamic> _box) {
+class RoastPersistence._(
+  final Box<dynamic> _box,
+  final SecretKey _dkgSecretKey,
+) {
   final Map<String, ClientStorageInterface> _clientStores = {};
+  final Map<String, RoastDkgSecretStorage> _dkgSecretStores = {};
   final Map<String, ServerPersistence> _serverStores = {};
   final Map<String, RoomPersistence> _roomStores = {};
+}
+
+abstract interface class RoastDkgSecretStorage {
+  Future<Map<String, Uint8List>> loadAll();
+  Future<void> write(String name, Uint8List state);
+  Future<void> delete(String name);
 }
 
 abstract interface class RoastSigningOperationRepository {
@@ -63,8 +74,30 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
 
   Future<RoastPersistence> _open() async {
     final cipherKey = _cipherKey ?? await _cipherKeyLoader?.call();
-    final box = await _storage.open(keyStore: _keyStore, cipherKey: cipherKey);
-    return RoastPersistence._(box);
+    final opened = await _storage.openWithKeyMaterial(
+      keyStore: _keyStore,
+      cipherKey: cipherKey,
+    );
+    final rootKey = SecretKeyData(
+      opened.cipherKey,
+      overwriteWhenDestroyed: true,
+    );
+    try {
+      final derived = await Hmac.sha256().calculateMac(
+        utf8.encode('sygnature:dkg-recovery-v1'),
+        secretKey: rootKey,
+      );
+      return RoastPersistence._(
+        opened.box,
+        SecretKeyData(
+          Uint8List.fromList(derived.bytes),
+          overwriteWhenDestroyed: true,
+        ),
+      );
+    } finally {
+      rootKey.destroy();
+      opened.cipherKey.fillRange(0, opened.cipherKey.length, 0);
+    }
   }
 
   Future<T> _mutateOperations<T>(
@@ -145,12 +178,15 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
   Future<void> deleteSetupData(String setupId) async {
     await _operationWrites;
     final persistence = await open();
+    await persistence._dkgSecretStores[setupId]?.loadAll();
     await persistence._box.deleteAll([
       'client:$setupId',
+      'dkg-secrets:$setupId',
       'server-v$_serverStateStorageVersion:$setupId',
       'rooms:$setupId',
     ]);
     persistence._clientStores.remove(setupId);
+    persistence._dkgSecretStores.remove(setupId);
     persistence._serverStores.remove(setupId);
     persistence._roomStores.remove(setupId);
   }
@@ -348,6 +384,17 @@ extension RoastPersistenceAccess on RoastPersistence {
         () => _HiveRoastClientStorage(_box, 'client:$setupId'),
       );
 
+  RoastDkgSecretStorage dkgSecretStorage(String setupId) =>
+      _dkgSecretStores.putIfAbsent(
+        setupId,
+        () => _HiveDkgSecretStorage(
+          _box,
+          _dkgSecretKey,
+          setupId,
+          'dkg-secrets:$setupId',
+        ),
+      );
+
   ServerPersistence serverPersistence(String setupId) =>
       _serverStores.putIfAbsent(
         setupId,
@@ -363,6 +410,153 @@ extension RoastPersistenceAccess on RoastPersistence {
     () => _HiveRoomPersistence(_box, 'rooms:$setupId'),
   );
 }
+
+final class _HiveDkgSecretStorage(
+  final Box<dynamic> _box,
+  final SecretKey _secretKey,
+  final String _setupId,
+  final String _storageKey,
+) implements RoastDkgSecretStorage {
+  static const _recordVersion = 1;
+  static final _cipher = Xchacha20.poly1305Aead();
+  Future<void> _pendingWrite = Future.value();
+
+  Map<String, _EncryptedDkgSecret> _read() {
+    final raw = _box.get(_storageKey);
+    if (raw == null) return {};
+    if (raw is! Map) throw StateError('Invalid DKG secret storage record.');
+    try {
+      return {
+        for (final entry in raw.entries)
+          entry.key as String: _decodeRecord(entry.value),
+      };
+    } on Object {
+      throw StateError('Invalid DKG secret storage record.');
+    }
+  }
+
+  @override
+  Future<Map<String, Uint8List>> loadAll() async {
+    await _pendingWrite;
+    final result = <String, Uint8List>{};
+    try {
+      for (final entry in _read().entries) {
+        result[entry.key] = await _decrypt(entry.key, entry.value);
+      }
+      return result;
+    } catch (_) {
+      for (final state in result.values) {
+        state.fillRange(0, state.length, 0);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> write(String name, Uint8List state) => _mutate((records) async {
+    records[name] = await _encrypt(name, state);
+  });
+
+  @override
+  Future<void> delete(String name) => _mutate((records) {
+    records.remove(name);
+  });
+
+  Future<void> _mutate(
+    FutureOr<void> Function(Map<String, _EncryptedDkgSecret>) operation,
+  ) {
+    final completer = Completer<void>();
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        final records = _read();
+        await operation(records);
+        if (records.isEmpty) {
+          await _box.delete(_storageKey);
+        } else {
+          await _box.put(_storageKey, {
+            for (final entry in records.entries)
+              entry.key: {
+                'version': _recordVersion,
+                'nonce': entry.value.nonce,
+                'ciphertext': entry.value.cipherText,
+                'mac': entry.value.mac,
+              },
+          });
+        }
+        await _box.flush();
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<_EncryptedDkgSecret> _encrypt(String name, Uint8List state) async {
+    final encrypted = await _cipher.encrypt(
+      state,
+      secretKey: _secretKey,
+      nonce: _cipher.newNonce(),
+      aad: _associatedData(name),
+    );
+    return (
+      nonce: Uint8List.fromList(encrypted.nonce),
+      cipherText: Uint8List.fromList(encrypted.cipherText),
+      mac: Uint8List.fromList(encrypted.mac.bytes),
+    );
+  }
+
+  Future<Uint8List> _decrypt(String name, _EncryptedDkgSecret encrypted) async {
+    try {
+      final state = await _cipher.decrypt(
+        SecretBox(
+          encrypted.cipherText,
+          nonce: encrypted.nonce,
+          mac: Mac(encrypted.mac),
+        ),
+        secretKey: _secretKey,
+        aad: _associatedData(name),
+      );
+      if (state is Uint8List) return state;
+      final result = Uint8List.fromList(state);
+      state.fillRange(0, state.length, 0);
+      return result;
+    } on SecretBoxAuthenticationError {
+      throw StateError('DKG recovery state authentication failed.');
+    }
+  }
+
+  Uint8List _associatedData(String name) => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode(['sygnature:dkg-recovery', _recordVersion, _setupId, name]),
+    ),
+  );
+
+  static _EncryptedDkgSecret _decodeRecord(Object? value) {
+    if (value is! Map || value['version'] != _recordVersion) {
+      throw const FormatException('Unsupported DKG recovery record.');
+    }
+    final nonce = _bytes(value['nonce']);
+    final cipherText = _bytes(value['ciphertext']);
+    final mac = _bytes(value['mac']);
+    if (nonce.length != 24 || cipherText.isEmpty || mac.length != 16) {
+      throw const FormatException('Invalid DKG recovery record.');
+    }
+    return (nonce: nonce, cipherText: cipherText, mac: mac);
+  }
+
+  static Uint8List _bytes(Object? value) {
+    if (value is Uint8List) return Uint8List.fromList(value);
+    if (value is List<int>) return Uint8List.fromList(value);
+    throw const FormatException('Invalid DKG recovery bytes.');
+  }
+}
+
+typedef _EncryptedDkgSecret = ({
+  Uint8List nonce,
+  Uint8List cipherText,
+  Uint8List mac,
+});
 
 final class _HiveServerPersistence(
   final Box<dynamic> _box,
