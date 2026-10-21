@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - iroh_flutter (1.0.0):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - iroh_flutter (from `.symlinks/plugins/iroh_flutter/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  iroh_flutter:
+    :path: ".symlinks/plugins/iroh_flutter/ios"
+
+SPEC CHECKSUMS:
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  iroh_flutter: 27871f54058012e6923a734a654557d66b8819d0
+
+PODFILE CHECKSUM: 14b7fa15448290d47fecd420a3c5f9220b103a57
+
+COCOAPODS: 1.17.0
