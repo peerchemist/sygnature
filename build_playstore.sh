@@ -40,6 +40,7 @@ done
 cd -- "$script_dir"
 flutter build appbundle \
   --release \
+  --target-platform android-arm64,android-x64 \
   "$@"
 
 if [[ ! -f "$bundle" ]]; then

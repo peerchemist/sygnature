@@ -29,6 +29,9 @@ android {
     }
 
     defaultConfig {
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         // A separate package protects real wallet data during device worker checks.
         applicationId = when {
             project.hasProperty("publicFeedVerification") ->
