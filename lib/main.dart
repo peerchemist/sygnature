@@ -74,7 +74,8 @@ class const SygnatureApp({
   State<SygnatureApp> createState() => _SygnatureAppState();
 }
 
-class _SygnatureAppState extends State<SygnatureApp> {
+class _SygnatureAppState extends State<SygnatureApp>
+    with WidgetsBindingObserver {
   final ThemeController _themeController = ThemeController();
   final AppNotifications _notifications = AppNotifications();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -92,6 +93,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_themeController.initialize());
     if (widget.noosphereInitializer != null) {
       _startNoosphereInitialization();
@@ -338,6 +340,7 @@ class _SygnatureAppState extends State<SygnatureApp> {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _themeController.dispose();
     unawaited(_closePublicFeedPolling());
     unawaited(_incomingLinkSubscription?.cancel());
@@ -352,6 +355,16 @@ class _SygnatureAppState extends State<SygnatureApp> {
     }
     _notifications.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    unawaited(
+      _notificationsReady.then((_) async {
+        if (!_disposed) await _notifications.refreshSystemPermission();
+      }),
+    );
   }
 
   Future<void> _closePublicFeedPolling() async {

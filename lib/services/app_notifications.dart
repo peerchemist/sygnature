@@ -15,6 +15,7 @@ class AppNotifications({
 }) extends ChangeNotifier {
   // Keep the original key so existing notification preferences migrate.
   static const _systemEnabledKey = 'notifications.desktop_enabled';
+  static const _systemPreferenceSetKey = 'notifications.system_preference_set';
   static const _soundEnabledKey = 'notifications.sound_enabled';
   static const _soundVolumeKey = 'notifications.sound_volume';
 
@@ -34,6 +35,7 @@ class AppNotifications({
       plugin ?? FlutterLocalNotificationsPlugin();
 
   bool _systemEnabled = true;
+  bool _systemPreferenceSet = false;
   bool _soundEnabled = true;
   double _soundVolume = 0.5;
   bool _loaded = false;
@@ -55,10 +57,11 @@ class AppNotifications({
 
   Future<void> initialize({bool requestPermission = true}) async {
     await _load(failOnError: !requestPermission);
+    final permissionReady = await _restoreAutomaticallyDisabledSetting();
     if (_systemEnabled && supportsSystemNotifications) {
-      final ready = await _ensurePluginInitialized(
-        requestPermission: requestPermission,
-      );
+      final ready =
+          permissionReady ||
+          await _ensurePluginInitialized(requestPermission: requestPermission);
       if (!ready && !requestPermission) {
         throw StateError('Notification plugin initialization failed');
       }
@@ -72,6 +75,27 @@ class AppNotifications({
     }
   }
 
+  Future<void> refreshSystemPermission() async {
+    await _restoreAutomaticallyDisabledSetting();
+  }
+
+  Future<bool> _restoreAutomaticallyDisabledSetting() async {
+    if (!_systemEnabled &&
+        !_systemPreferenceSet &&
+        defaultTargetPlatform == TargetPlatform.android) {
+      final permissionReady = await _ensurePluginInitialized(
+        checkPermission: true,
+      );
+      if (permissionReady) {
+        _systemEnabled = true;
+        notifyListeners();
+        _save(_systemEnabledKey, 'true');
+      }
+      return permissionReady;
+    }
+    return false;
+  }
+
   Future<void> _load({bool failOnError = false}) async {
     if (_loaded) return;
     _loaded = true;
@@ -79,12 +103,14 @@ class AppNotifications({
     try {
       final values = await Future.wait([
         storage.read(key: _systemEnabledKey),
+        storage.read(key: _systemPreferenceSetKey),
         storage.read(key: _soundEnabledKey),
         storage.read(key: _soundVolumeKey),
       ]);
       _systemEnabled = _parseBool(values[0], fallback: true);
-      _soundEnabled = _parseBool(values[1], fallback: true);
-      _soundVolume = (double.tryParse(values[2] ?? '') ?? 0.5).clamp(0.0, 1.0);
+      _systemPreferenceSet = _parseBool(values[1], fallback: false);
+      _soundEnabled = _parseBool(values[2], fallback: true);
+      _soundVolume = (double.tryParse(values[3] ?? '') ?? 0.5).clamp(0.0, 1.0);
     } catch (error, stackTrace) {
       if (failOnError) {
         _loaded = false;
@@ -104,10 +130,18 @@ class AppNotifications({
       final ready = await _ensurePluginInitialized(requestPermission: true);
       if (!ready) return false;
     }
-    if (_systemEnabled == enabled) return true;
+    if (_systemEnabled == enabled) {
+      if (!_systemPreferenceSet) {
+        _systemPreferenceSet = true;
+        _save(_systemPreferenceSetKey, 'true');
+      }
+      return true;
+    }
     _systemEnabled = enabled;
+    _systemPreferenceSet = true;
     notifyListeners();
     _save(_systemEnabledKey, '$enabled');
+    _save(_systemPreferenceSetKey, 'true');
     return true;
   }
 
@@ -227,6 +261,7 @@ class AppNotifications({
 
   Future<bool> _ensurePluginInitialized({
     bool requestPermission = false,
+    bool checkPermission = false,
   }) async {
     if (!supportsSystemNotifications) return false;
     try {
@@ -260,17 +295,20 @@ class AppNotifications({
             (initialized ?? false);
       }
       if (!_pluginInitialized) return false;
-      if (requestPermission) {
-        if (defaultTargetPlatform == TargetPlatform.android) {
-          final android = _plugin
-              .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin
-              >();
-          if (android == null) return false;
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          (requestPermission || checkPermission)) {
+        final android = _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >();
+        if (android == null) return false;
+        if (requestPermission) {
           final granted = await android.requestNotificationsPermission();
           if (granted == true) return true;
-          return await android.areNotificationsEnabled() ?? false;
         }
+        return await android.areNotificationsEnabled() ?? false;
+      }
+      if (requestPermission) {
         if (defaultTargetPlatform == TargetPlatform.macOS) {
           return await _plugin
                   .resolvePlatformSpecificImplementation<

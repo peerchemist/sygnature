@@ -99,9 +99,11 @@ void main() {
       call,
     ) async {
       storageCalls.add(call);
-      return (call.arguments as Map)['key'] == 'notifications.desktop_enabled'
-          ? 'false'
-          : null;
+      return switch ((call.arguments as Map)['key']) {
+        'notifications.desktop_enabled' => 'false',
+        'notifications.system_preference_set' => 'true',
+        _ => null,
+      };
     });
     final sounds = _RecordingUiSounds();
     final delivery = AppNotifications(sounds: sounds);
@@ -130,7 +132,43 @@ void main() {
     },
   );
 
-  test('Android accepts notifications that are already enabled', () async {
+  test(
+    'Android restores an automatically disabled notification setting',
+    () async {
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+        call,
+      ) async {
+        storageCalls.add(call);
+        if (call.method == 'read' &&
+            (call.arguments as Map)['key'] == 'notifications.desktop_enabled') {
+          return 'false';
+        }
+        return null;
+      });
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+        call,
+      ) async {
+        pluginCalls.add(call);
+        return switch (call.method) {
+          'requestNotificationsPermission' => false,
+          'areNotificationsEnabled' => true,
+          _ => true,
+        };
+      });
+
+      final delivery = AppNotifications();
+      await delivery.initialize();
+      expect(delivery.systemEnabled, isTrue);
+      expect(pluginCalls.map((call) => call.method), [
+        'initialize',
+        'areNotificationsEnabled',
+      ]);
+      delivery.dispose();
+    },
+  );
+
+  test('Android notices permission granted while the app was paused', () async {
+    var notificationsEnabled = false;
     binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
       call,
     ) async {
@@ -145,24 +183,47 @@ void main() {
       call,
     ) async {
       pluginCalls.add(call);
-      return switch (call.method) {
-        'requestNotificationsPermission' => false,
-        'areNotificationsEnabled' => true,
-        _ => true,
-      };
+      return call.method == 'areNotificationsEnabled'
+          ? notificationsEnabled
+          : true;
     });
 
     final delivery = AppNotifications();
     await delivery.initialize();
-    expect(await delivery.setSystemEnabled(true), isTrue);
+    expect(delivery.systemEnabled, isFalse);
+
+    notificationsEnabled = true;
+    await delivery.refreshSystemPermission();
     expect(delivery.systemEnabled, isTrue);
     expect(pluginCalls.map((call) => call.method), [
       'initialize',
-      'requestNotificationsPermission',
+      'areNotificationsEnabled',
       'areNotificationsEnabled',
     ]);
     delivery.dispose();
   });
+
+  test(
+    'Android preserves a notification setting disabled by the user',
+    () async {
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+        call,
+      ) async {
+        storageCalls.add(call);
+        return switch ((call.arguments as Map)['key']) {
+          'notifications.desktop_enabled' => 'false',
+          'notifications.system_preference_set' => 'true',
+          _ => null,
+        };
+      });
+
+      final delivery = AppNotifications();
+      await delivery.initialize();
+      expect(delivery.systemEnabled, isFalse);
+      expect(pluginCalls, isEmpty);
+      delivery.dispose();
+    },
+  );
 
   test(
     'macOS requests permission after initialization returns false',
