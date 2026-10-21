@@ -6,10 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_flutter/testing.dart';
-import 'package:sygnature_ng/models/roast_setup.dart';
-import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
 
+import 'fixtures/native_dkg_fixture.dart';
 import 'fixtures/wallet_backup_fixture.dart';
 
 const _roastBox = 'sygnature_roast_private_v1';
@@ -44,12 +43,13 @@ void main() {
       setupId: 'stale-secret-setup',
       groupId: 'stale-secret-group',
     );
-    final coordinator = await _startCoordinator(fixture.setup);
+    final coordinator = await startNativeDkgCoordinator(
+      fixture.setup,
+      setupId: 'dkg-secret-coordinator',
+    );
     addTearDown(coordinator.worker.close);
     var persistence = RoastPersistenceFactory(cipherKey: Uint8List(32));
-    var storage = (await persistence.open()).dkgSecretStorage(
-      fixture.setup.id,
-    );
+    var storage = (await persistence.open()).dkgSecretStorage(fixture.setup.id);
     await storage.write('orphaned-dkg', Uint8List.fromList([1, 2, 3, 4]));
     await Hive.close();
 
@@ -57,7 +57,7 @@ void main() {
     storage = (await persistence.open()).dkgSecretStorage(fixture.setup.id);
     expect(_hasDkgSecretRecord(fixture.setup.id), isTrue);
 
-    final runtime = _runtime(persistence);
+    final runtime = nativeDkgRuntime(persistence);
     addTearDown(runtime.close);
     final snapshot = await runtime.startSetup(coordinator.setup);
 
@@ -71,13 +71,14 @@ void main() {
       setupId: 'restored-secret-setup',
       groupId: 'restored-secret-group',
     );
-    final coordinator = await _startCoordinator(fixture.setup);
+    final coordinator = await startNativeDkgCoordinator(
+      fixture.setup,
+      setupId: 'dkg-secret-coordinator',
+    );
     addTearDown(coordinator.worker.close);
     var persistence = RoastPersistenceFactory(cipherKey: Uint8List(32));
-    var storage = (await persistence.open()).dkgSecretStorage(
-      fixture.setup.id,
-    );
-    var runtime = _runtime(persistence);
+    var storage = (await persistence.open()).dkgSecretStorage(fixture.setup.id);
+    var runtime = nativeDkgRuntime(persistence);
     addTearDown(() => runtime.close());
     await runtime.startSetup(coordinator.setup);
 
@@ -121,7 +122,7 @@ void main() {
     persistence = RoastPersistenceFactory(cipherKey: Uint8List(32));
     storage = (await persistence.open()).dkgSecretStorage(fixture.setup.id);
     expect(_hasDkgSecretRecord(fixture.setup.id), isTrue);
-    runtime = _runtime(persistence);
+    runtime = nativeDkgRuntime(persistence);
     final restored = await runtime.startSetup(coordinator.setup);
 
     expect(restored.pendingDkgName, fixture.setup.keyName);
@@ -131,74 +132,5 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 1)));
 }
 
-RoastRuntimeManager _runtime(RoastPersistenceFactory persistence) =>
-    RoastRuntimeManager(
-      persistence,
-      getWalletBip39Seed: () => throw StateError('Member has no server seed.'),
-      initializeNative: () async {},
-      startWorker: NoosphereWorker.startNativeForTesting,
-    );
-
 bool _hasDkgSecretRecord(String setupId) =>
     Hive.box<dynamic>(_roastBox).containsKey('dkg-secrets:$setupId');
-
-Future<
-  ({
-    NoosphereWorker worker,
-    RoastSetup setup,
-    GroupConfig group,
-    EndpointAddr address,
-  })
->
-_startCoordinator(RoastSetup setup) async {
-  final group = GroupConfig(
-    id: setup.groupId,
-    participants: {
-      for (final participant in setup.participants)
-        Identifier.fromHex(participant.identifierHex):
-            ECCompressedPublicKey.fromHex(participant.publicKeyHex),
-    },
-  );
-  final worker = await NoosphereWorker.startNativeForTesting();
-  try {
-    final reachable = worker.events
-        .where((event) => event is WorkerSnapshotEvent)
-        .cast<WorkerSnapshotEvent>()
-        .map((event) => event.snapshot)
-        .firstWhere(
-          (snapshot) =>
-              snapshot.setupId == 'dkg-secret-coordinator' &&
-              snapshot.coordinator?.ipAddrs.isNotEmpty == true,
-        );
-    var snapshot = await worker.startSetup(
-      setupId: 'dkg-secret-coordinator',
-      server: EmbeddedServerOptions(
-        serverConfig: ServerConfig(group: group),
-        getIrohSecretKey: SecretKey.generate,
-        serverPersistence: InMemoryServerPersistence(),
-        relay: IrohRelayConfig.disabled(),
-      ),
-    );
-    if (snapshot.coordinator!.ipAddrs.isEmpty) {
-      snapshot = await reachable.timeout(const Duration(seconds: 15));
-    }
-    final coordinator = snapshot.coordinator!;
-    final address = EndpointAddr(
-      PublicKey.fromZ32(coordinator.id),
-      ipAddrs: coordinator.ipAddrs,
-    );
-    return (
-      worker: worker,
-      setup: setup.copyWith(
-        coordinatorId: coordinator.id,
-        coordinatorRelayUrls: const [],
-        coordinatorIpAddrs: coordinator.ipAddrs,
-      ),
-      group: group,
-      address: address,
-    );
-  } catch (_) {
-    await worker.close();
-    rethrow;
-  }
-}
