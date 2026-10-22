@@ -181,7 +181,7 @@ class UiSounds({SoLoud? audio}) {
     if (!_ready || _disposed) return;
 
     try {
-      _audio.play(_sources[cue]!, volume: 0.7 * volume.clamp(0.0, 1.0));
+      _audio.play(_sources[cue]!, volume: volume.clamp(0.0, 1.0));
     } catch (error, stackTrace) {
       AppLogger.warn(
         'Unable to play UI sound',
