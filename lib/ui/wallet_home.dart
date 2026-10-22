@@ -1494,44 +1494,47 @@ class const _ReceiveAddressBox({
                       },
                       icon: const Icon(Icons.copy_rounded, size: 18),
                     ),
-                    Builder(
-                      builder: (shareContext) => IconButton(
-                        tooltip: 'Share address',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () async {
-                          final renderObject = shareContext.findRenderObject();
-                          final origin = renderObject is RenderBox
-                              ? renderObject.localToGlobal(Offset.zero) &
-                                    renderObject.size
-                              : null;
-                          try {
-                            await SharePlus.instance.share(
-                              ShareParams(
-                                text: 'Peercoin receive address:\n$address',
-                                title: 'Peercoin receive address',
-                                subject: 'Peercoin receive address',
-                                sharePositionOrigin: origin,
-                              ),
-                            );
-                          } catch (error, stackTrace) {
-                            AppLogger.warn(
-                              'Unable to share receive address',
-                              error: error,
-                              stackTrace: stackTrace,
-                            );
-                            if (!shareContext.mounted) return;
-                            ScaffoldMessenger.of(shareContext).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  "Couldn't open sharing. The address is still available to copy.",
+                    if (defaultTargetPlatform == TargetPlatform.android ||
+                        defaultTargetPlatform == TargetPlatform.iOS)
+                      Builder(
+                        builder: (shareContext) => IconButton(
+                          tooltip: 'Share address',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () async {
+                            final renderObject = shareContext
+                                .findRenderObject();
+                            final origin = renderObject is RenderBox
+                                ? renderObject.localToGlobal(Offset.zero) &
+                                      renderObject.size
+                                : null;
+                            try {
+                              await SharePlus.instance.share(
+                                ShareParams(
+                                  text: 'Peercoin receive address:\n$address',
+                                  title: 'Peercoin receive address',
+                                  subject: 'Peercoin receive address',
+                                  sharePositionOrigin: origin,
                                 ),
-                              ),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.share_outlined, size: 18),
+                              );
+                            } catch (error, stackTrace) {
+                              AppLogger.warn(
+                                'Unable to share receive address',
+                                error: error,
+                                stackTrace: stackTrace,
+                              );
+                              if (!shareContext.mounted) return;
+                              ScaffoldMessenger.of(shareContext).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    "Couldn't open sharing. The address is still available to copy.",
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.share_outlined, size: 18),
+                        ),
                       ),
-                    ),
                   ],
                 ),
                 Tooltip(

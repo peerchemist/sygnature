@@ -583,6 +583,7 @@ void main() {
       SygnatureApp(controllerFactory: () async => controller),
     );
     await tester.pumpAndSettle();
+    expect(find.byTooltip('Share address'), findsOneWidget);
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
@@ -630,6 +631,8 @@ void main() {
   testWidgets('shows both ends of a long receive address', (tester) async {
     await tester.binding.setSurfaceSize(const Size(420, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     const address =
         'pc1pczy4pf46yjt8ukyg1gsyxhquvx7vjhlgqjpux8ahcxv3870example';
     final repository = MemoryWalletRepository()
@@ -670,7 +673,9 @@ void main() {
     expect(addressText.data, startsWith(address.substring(0, 8)));
     expect(addressText.data, endsWith(address.substring(address.length - 8)));
     expect(addressText.semanticsLabel, address);
-    expect(find.byTooltip('Share address'), findsOneWidget);
+    expect(find.byTooltip('Copy address'), findsOneWidget);
+    expect(find.byTooltip('Share address'), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
     expect(tester.takeException(), isNull);
   });
 
