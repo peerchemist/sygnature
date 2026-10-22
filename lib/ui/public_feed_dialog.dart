@@ -172,13 +172,6 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                         : () => _perform(() => widget.store.retry(key!)),
                     child: const Text('Retry'),
                   ),
-                if (widget.setup.role == RoastSetupRole.host)
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => _perform(() => widget.store.unsubscribe(group)),
-                    child: const Text('Stop polling on this device'),
-                  ),
                 for (final event in events.take(20))
                   ListTile(
                     contentPadding: EdgeInsets.zero,

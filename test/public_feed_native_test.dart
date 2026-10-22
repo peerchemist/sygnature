@@ -64,6 +64,38 @@ void main() {
     });
   });
 
+  testWidgets('host public feed does not expose subscriber polling controls', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'sygnature-feed-host-ui-',
+      );
+      final store = await PublicFeedStore.open(directory.path);
+      try {
+        final setup = WalletBackupFixture(roomHost: true).setup;
+        await store.bindFeedFromSetup(
+          groupId: setup.groupId,
+          address: 'coordinator-address',
+          pin: setup.coordinatorId!,
+          feedId: await publicFeedIdForGroup(setup.groupId),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: PublicFeedDialog(store: store, setup: setup),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await tester.pump();
+        expect(find.text('Stop polling on this device'), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+      } finally {
+        await store.close();
+        await directory.delete(recursive: true);
+      }
+    });
+  });
+
   testWidgets('member feed uses the enrolled coordinator without clipboard', (
     tester,
   ) async {
