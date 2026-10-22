@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:unique_names_generator/unique_names_generator.dart';
 
 import '../controllers/wallet_controller.dart';
@@ -18,6 +19,7 @@ import 'widgets/share_qr_dialog.dart';
 part 'roast_setup_flow/coordinator_dialog.dart';
 part 'roast_setup_flow/group_transition_dialog.dart';
 part 'roast_setup_flow/creation_dialog.dart';
+part 'roast_setup_flow/invite_scanner.dart';
 part 'roast_setup_flow/invitations_dialog.dart';
 part 'roast_setup_flow/message_dialog.dart';
 
@@ -155,6 +157,13 @@ class const RoastSetupPanel({
     final coordinatorState = controller.roastCoordinatorState(setup.id);
     final actions = _actions(context, setup, busy);
     final errorMessage = _displayError(setup);
+    final memberInstructions = _isMobilePlatform
+        ? 'Copy your public key and share it with the person creating the '
+              'wallet. When they send back your personal invitation, scan its '
+              'QR code or paste it from the clipboard.'
+        : 'Copy your public key and share it with the person creating the '
+              'wallet. When they send back your personal invitation, copy it '
+              'and choose Paste invite from clipboard.';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -312,10 +321,7 @@ class const RoastSetupPanel({
                       child: Text(
                         setup.role == RoastSetupRole.host
                             ? 'Complete the signer roster to start the swarm.'
-                            : 'Copy your public key and share it with the person '
-                                  'creating the wallet. When they send back your '
-                                  'personal invitation, copy it and choose Paste '
-                                  'invite from clipboard.',
+                            : memberInstructions,
                         style: TextStyle(
                           color: AppColors.of(context).inkMuted,
                           fontSize: 12,
@@ -511,6 +517,13 @@ class const RoastSetupPanel({
           icon: const Icon(Icons.copy_rounded),
           label: const Text('Copy my public key'),
         ),
+        if (_isMobilePlatform)
+          OutlinedButton.icon(
+            key: const Key('scan-roast-invitation'),
+            onPressed: busy ? null : () => _scanAndJoin(context, setup),
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            label: const Text('Scan invite QR code'),
+          ),
         FilledButton(
           onPressed: busy ? null : () => _join(context, setup),
           child: const Text('Paste invite from clipboard'),
@@ -576,16 +589,34 @@ class const RoastSetupPanel({
     return const [];
   }
 
-  Future<void> _join(BuildContext context, RoastSetup setup) async {
+  Future<void> _scanAndJoin(BuildContext context, RoastSetup setup) async {
+    final invitation = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const _RoastInviteScanner(),
+      ),
+    );
+    if (invitation != null && context.mounted) {
+      await _join(context, setup, invitation: invitation);
+    }
+  }
+
+  Future<void> _join(
+    BuildContext context,
+    RoastSetup setup, {
+    String? invitation,
+  }) async {
     await _perform(context, () async {
-      final invitation = (await Clipboard.getData(Clipboard.kTextPlain))?.text
-          ?.trim();
-      if (invitation == null || invitation.isEmpty) {
+      final encoded =
+          invitation?.trim() ??
+          (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim();
+      if (encoded == null || encoded.isEmpty) {
         throw const FormatException(
           'The clipboard does not contain a ROAST invitation.',
         );
       }
-      await controller.joinRoastSetup(setup.id, invitation);
+      await controller.joinRoastSetup(setup.id, encoded);
     });
   }
 

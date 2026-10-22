@@ -290,6 +290,8 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
     final keyService = _FakeRoastKeyService();
     final controller = WalletController(
@@ -329,6 +331,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Copy my public key'), findsOneWidget);
+    expect(find.text('Scan invite QR code'), findsOneWidget);
     await tester.tap(find.text('Paste invite from clipboard'));
     await tester.pumpAndSettle();
 
@@ -338,6 +341,7 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('opens a participant-bound invitation from an app link', (
