@@ -59,8 +59,9 @@ class const _RoastInvitationsDialog({
                 const SizedBox(height: 8),
                 Text(
                   'Copied means the invitation was placed on this device\'s '
-                  'clipboard. Mark it as sent after sharing it through your '
-                  'trusted channel. Joined is verified by the coordinator.',
+                  'clipboard. You can also show its QR code. Mark it as sent '
+                  'after sharing it through your trusted channel. Joined is '
+                  'verified by the coordinator.',
                   style: TextStyle(
                     color: AppColors.of(context).inkMuted,
                     fontSize: 12,
@@ -81,6 +82,11 @@ class const _RoastInvitationsDialog({
                     invitation: invitation,
                     status: invitation.statusAt(now),
                     onCopy: () => _copy(context, invitation),
+                    onShowQr: () => showShareQrDialog(
+                      context,
+                      title: 'Invitation for ${invitation.participantName}',
+                      data: invitation.encoded,
+                    ),
                     onMarkSent: () => controller.markRoastInvitationSent(
                       setupId,
                       invitation.participantPublicKeyHex,
@@ -123,6 +129,7 @@ class const _RoastInvitationRow({
   required final RoastIssuedInvitation invitation,
   required final RoastInvitationDisplayStatus status,
   required final VoidCallback onCopy,
+  required final VoidCallback onShowQr,
   required final Future<void> Function() onMarkSent,
 }) extends StatelessWidget {
   @override
@@ -189,9 +196,15 @@ class const _RoastInvitationRow({
         spacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          if (status == RoastInvitationDisplayStatus.copied)
+          if (status == RoastInvitationDisplayStatus.ready ||
+              status == RoastInvitationDisplayStatus.copied)
             TextButton(onPressed: onMarkSent, child: const Text('Mark sent')),
-          if (canCopy)
+          if (canCopy) ...[
+            IconButton(
+              tooltip: 'Show invitation QR code',
+              onPressed: onShowQr,
+              icon: const Icon(Icons.qr_code_rounded),
+            ),
             IconButton(
               tooltip: status == RoastInvitationDisplayStatus.ready
                   ? 'Copy invitation'
@@ -199,6 +212,7 @@ class const _RoastInvitationRow({
               onPressed: onCopy,
               icon: const Icon(Icons.copy_rounded),
             ),
+          ],
         ],
       ),
     );

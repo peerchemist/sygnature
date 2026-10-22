@@ -28,6 +28,7 @@ import 'wallet_backup_screen.dart';
 import 'widgets/brand_mark.dart';
 import 'widgets/middle_ellipsis_text.dart';
 import 'widgets/selector_builder.dart';
+import 'widgets/share_qr_dialog.dart';
 
 part 'wallet_home/activity.dart';
 part 'wallet_home/send_dialog.dart';
@@ -1493,6 +1494,16 @@ class const _ReceiveAddressBox({
                         );
                       },
                       icon: const Icon(Icons.copy_rounded, size: 18),
+                    ),
+                    IconButton(
+                      tooltip: 'Show address QR code',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => showShareQrDialog(
+                        context,
+                        title: 'Receive address',
+                        data: address,
+                      ),
+                      icon: const Icon(Icons.qr_code_rounded, size: 18),
                     ),
                     if (defaultTargetPlatform == TargetPlatform.android ||
                         defaultTargetPlatform == TargetPlatform.iOS)

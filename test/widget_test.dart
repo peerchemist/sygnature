@@ -584,6 +584,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byTooltip('Share address'), findsOneWidget);
+    expect(find.byTooltip('Show address QR code'), findsOneWidget);
+    await tester.tap(find.byTooltip('Show address QR code'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('share-qr-code')), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 

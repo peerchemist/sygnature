@@ -13,6 +13,7 @@ import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
 import 'widgets/selector_builder.dart';
+import 'widgets/share_qr_dialog.dart';
 
 part 'roast_setup_flow/coordinator_dialog.dart';
 part 'roast_setup_flow/group_transition_dialog.dart';

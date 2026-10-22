@@ -724,6 +724,11 @@ void main() {
     expect(find.text('Signer invitations'), findsOneWidget);
     expect(find.text('0 of 1 invitees joined · 1 not shared'), findsOneWidget);
     expect(find.text('COPIED'), findsOneWidget);
+    await tester.tap(find.byTooltip('Show invitation QR code'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('share-qr-code')), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Mark sent'));
     await tester.pumpAndSettle();
     expect(find.text('SENT'), findsOneWidget);
