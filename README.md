@@ -66,8 +66,6 @@ wallet creation and shared approvals without using real funds.
 
 [![Watch the shared wallet setup demo](screenshots/1.png)](https://github.com/user-attachments/assets/59e0db62-0948-4aa1-af76-84cdd23c5003)
 
-[▶ Watch the 60-second shared wallet setup demo](https://github.com/user-attachments/assets/59e0db62-0948-4aa1-af76-84cdd23c5003)
-
 ## Shared control, private signing policy
 
 Sygnature uses **threshold signatures**, rather than an on-chain multisig
