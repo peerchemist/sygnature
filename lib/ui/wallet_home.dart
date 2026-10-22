@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/wallet_account.dart';
@@ -1492,6 +1493,44 @@ class const _ReceiveAddressBox({
                         );
                       },
                       icon: const Icon(Icons.copy_rounded, size: 18),
+                    ),
+                    Builder(
+                      builder: (shareContext) => IconButton(
+                        tooltip: 'Share address',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () async {
+                          final renderObject = shareContext.findRenderObject();
+                          final origin = renderObject is RenderBox
+                              ? renderObject.localToGlobal(Offset.zero) &
+                                    renderObject.size
+                              : null;
+                          try {
+                            await SharePlus.instance.share(
+                              ShareParams(
+                                text: 'Peercoin receive address:\n$address',
+                                title: 'Peercoin receive address',
+                                subject: 'Peercoin receive address',
+                                sharePositionOrigin: origin,
+                              ),
+                            );
+                          } catch (error, stackTrace) {
+                            AppLogger.warn(
+                              'Unable to share receive address',
+                              error: error,
+                              stackTrace: stackTrace,
+                            );
+                            if (!shareContext.mounted) return;
+                            ScaffoldMessenger.of(shareContext).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  "Couldn't open sharing. The address is still available to copy.",
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.share_outlined, size: 18),
+                      ),
                     ),
                   ],
                 ),

@@ -670,6 +670,7 @@ void main() {
     expect(addressText.data, startsWith(address.substring(0, 8)));
     expect(addressText.data, endsWith(address.substring(address.length - 8)));
     expect(addressText.semanticsLabel, address);
+    expect(find.byTooltip('Share address'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
