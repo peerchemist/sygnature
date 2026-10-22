@@ -64,6 +64,10 @@ wallet creation and shared approvals without using real funds.
    fee, and collect the required approvals. Sygnature signs and broadcasts the
    transaction when the threshold is met.
 
+[![Watch the shared wallet setup demo](screenshots/1.png)](screenshots/sygnature-dkg-demo.mp4)
+
+[▶ Watch the 60-second shared wallet setup demo](screenshots/sygnature-dkg-demo.mp4)
+
 ## Shared control, private signing policy
 
 Sygnature uses **threshold signatures**, rather than an on-chain multisig
