@@ -1217,7 +1217,7 @@ void main() {
 
     final close = find.byKey(const Key('close-message-signing'));
     expect(close, findsOneWidget);
-    expect(find.byKey(const Key('cancel-message-signing')), findsOneWidget);
+    expect(find.byKey(const Key('cancel-message-signing')), findsNothing);
     await tester.tap(close);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -1232,6 +1232,10 @@ void main() {
 
     final activityDetails = find.byKey(const Key('activity-details-dialog'));
     expect(activityDetails, findsOneWidget);
+    expect(
+      find.byKey(const Key('cancel-message-signing-activity')),
+      findsOneWidget,
+    );
     expect(
       find.descendant(of: activityDetails, matching: find.text('CREATED')),
       findsOneWidget,

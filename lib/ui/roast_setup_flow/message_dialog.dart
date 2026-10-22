@@ -33,7 +33,6 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
   );
   bool _reviewing = false;
   bool _submitting = false;
-  bool _cancelling = false;
   String? _error;
   late RoastSignedMessage? _result;
   Duration _requestTimeout = defaultRoastSigningRequestTimeout;
@@ -102,24 +101,6 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
     }
   }
 
-  Future<void> _cancelRequest() async {
-    final setupId = widget.account.sourceId;
-    if (setupId == null || _cancelling) return;
-    setState(() {
-      _cancelling = true;
-      _error = null;
-    });
-    try {
-      await widget.controller.cancelRoastMessageSigning(setupId);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _error = 'Unable to cancel the signing request.');
-      }
-    } finally {
-      if (mounted) setState(() => _cancelling = false);
-    }
-  }
-
   Future<void> _copyResult() async {
     await Clipboard.setData(ClipboardData(text: _result!.encoded));
     if (!mounted) return;
@@ -172,18 +153,13 @@ class _SignMessageDialogState extends State<_SignMessageDialog> {
               icon: const Icon(Icons.copy_rounded),
               label: const Text('Copy signed message'),
             ),
-          ] else if (_submitting) ...[
+          ] else if (_submitting)
             TextButton(
               key: const Key('close-message-signing'),
-              onPressed: _cancelling ? null : () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context),
               child: const Text('Close'),
-            ),
-            FilledButton.tonal(
-              key: const Key('cancel-message-signing'),
-              onPressed: _cancelling ? null : _cancelRequest,
-              child: Text(_cancelling ? 'Cancelling…' : 'Cancel request'),
-            ),
-          ] else ...[
+            )
+          else ...[
             TextButton(
               onPressed: _reviewing
                   ? () => setState(() {

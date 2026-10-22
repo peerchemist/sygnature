@@ -219,15 +219,13 @@ bool _isRequestActivity(WalletActivity activity) => switch (activity.type) {
   _ => false,
 };
 
-bool _isExpiredRequest(
+bool _isCompletedRequest(
   WalletActivity activity,
   List<WalletActivity> activities,
-  DateTime now,
 ) {
-  if (!_isRequestActivity(activity)) return false;
   final reference = activity.reference;
   if (reference == null) return false;
-  final completed = activities.any(
+  return activities.any(
     (candidate) =>
         candidate.reference == reference &&
             (candidate.type == WalletActivityType.signatureRequestApproved ||
@@ -242,7 +240,17 @@ bool _isExpiredRequest(
                   'transaction-signed:',
                 ),
   );
-  if (completed) return false;
+}
+
+bool _isExpiredRequest(
+  WalletActivity activity,
+  List<WalletActivity> activities,
+  DateTime now,
+) {
+  if (!_isRequestActivity(activity)) return false;
+  final reference = activity.reference;
+  if (reference == null) return false;
+  if (_isCompletedRequest(activity, activities)) return false;
   final explicitlyExpired = activities.any(
     (candidate) =>
         candidate.type == WalletActivityType.signatureRequestExpired &&
@@ -282,6 +290,12 @@ Future<void> _showActivityDetails(
 }) {
   final presentation = _activityPresentation(context, activity);
   final setup = controller.setupForAccount(account);
+  final canCancelMessageRequest =
+      !expired &&
+      setup != null &&
+      activity.type == WalletActivityType.messageSignatureRequested &&
+      activity.reference != null &&
+      !_isCompletedRequest(activity, controller.activitiesFor(account));
   final currencyShortName = controller
       .networkForAccount(account)
       .currency
@@ -373,6 +387,28 @@ Future<void> _showActivityDetails(
         ),
       ),
       actions: [
+        if (canCancelMessageRequest)
+          FilledButton.tonal(
+            key: const Key('cancel-message-signing-activity'),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await controller.cancelRoastMessageSigning(
+                  setup.id,
+                  activity.reference!,
+                );
+              } on Object {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Unable to cancel the signing request.'),
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Cancel request'),
+          ),
         if (account.keySource == WalletKeySource.personal &&
             activity.canRetryBroadcast)
           TextButton(

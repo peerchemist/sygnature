@@ -2198,7 +2198,7 @@ void main() {
     );
     await _flushEvents();
 
-    await controller.cancelRoastMessageSigning('setup');
+    await controller.cancelRoastMessageSigning('setup', 'cc' * 16);
     expect(runtime.cancelledSigningRequestIds, ['cc' * 16]);
 
     runtime.emit(

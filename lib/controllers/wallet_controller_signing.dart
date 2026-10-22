@@ -38,13 +38,8 @@ extension WalletSigningController on WalletController {
   RoastSignedMessage? completedRoastMessage(String setupId) =>
       _completedRoastMessages[setupId];
 
-  Future<void> cancelRoastMessageSigning(String setupId) =>
-      _cancelRoastSigningRequest(
-        setupId,
-        _pendingRoastMessages.keys
-            .where((key) => key.startsWith('$setupId:'))
-            .singleOrNull,
-      );
+  Future<void> cancelRoastMessageSigning(String setupId, String requestIdHex) =>
+      _cancelRoastSigningRequest(setupId, '$setupId:$requestIdHex');
 
   Future<void> cancelRoastTransactionSigning(String setupId) =>
       _cancelRoastSigningRequest(
