@@ -1521,9 +1521,7 @@ class const _ReceiveAddressBox({
                             try {
                               await SharePlus.instance.share(
                                 ShareParams(
-                                  text: 'Peercoin receive address:\n$address',
-                                  title: 'Peercoin receive address',
-                                  subject: 'Peercoin receive address',
+                                  text: address,
                                   sharePositionOrigin: origin,
                                 ),
                               );
