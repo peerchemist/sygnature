@@ -5,16 +5,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/services/android_public_feed_work.dart';
-import 'package:sygnature_ng/services/app_notifications.dart';
+import 'package:sygnature_ng/services/public_feed_notifications.dart';
 import 'package:sygnature_ng/services/public_feed_poller.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'public_feed_poller_test.dart' show FakeConnection, feedId, page, entry;
 
-class RecordingNotifications extends AppNotifications {
-  final permissions = <bool>[];
-  bool disposed = false;
+class RecordingNotifications extends PublicFeedNotifications {
+  var initializations = 0;
   bool fail = false;
   bool interruptDelivery = false;
   final shown = <int>[];
@@ -27,15 +26,9 @@ class RecordingNotifications extends AppNotifications {
   }
 
   @override
-  Future<void> initialize({bool requestPermission = true}) async {
-    permissions.add(requestPermission);
+  Future<void> initialize() async {
+    initializations++;
     if (fail) throw MissingPluginException();
-  }
-
-  @override
-  void dispose() {
-    disposed = true;
-    super.dispose();
   }
 }
 
@@ -58,7 +51,7 @@ void main() {
     Future<void> Function()? plugins,
     Future<void> Function()? native,
     Future<PublicFeedStore> Function(String)? open,
-    AppNotifications Function()? notificationFactory,
+    PublicFeedNotifications Function()? notificationFactory,
     PublicFeedBackgroundPoll? poll,
   }) => PublicFeedBackgroundTask(
     initializePlugins:
@@ -102,8 +95,7 @@ void main() {
     );
     expect(runs, 1);
     expect(calls, ['plugins', 'native']);
-    expect(notifications.permissions, [false]);
-    expect(notifications.disposed, isTrue);
+    expect(notifications.initializations, 1);
     final reopened = await PublicFeedStore.open(directory.path);
     expect((await reopened.snapshot())['pollingLease'], isNull);
     await reopened.close();
@@ -134,7 +126,7 @@ void main() {
       isTrue,
     );
     expect(calls, isEmpty);
-    expect(notifications.permissions, isEmpty);
+    expect(notifications.initializations, 0);
   });
 
   test('no subscriptions is a successful no-op', () async {
@@ -191,7 +183,7 @@ void main() {
       await store.close();
 
       final worker = task(
-        notificationFactory: AppNotifications.new,
+        notificationFactory: PublicFeedNotifications.new,
         poll: (store, notify) => PublicFeedPoller(
           store,
           notify: notify,
@@ -208,27 +200,21 @@ void main() {
   );
 
   for (final stage in ['plugins', 'native', 'store', 'notifications', 'poll']) {
-    test(
-      '$stage infrastructure failure requests retry and cleans up opened resources',
-      () async {
-        Future<void> fail() async => throw MissingPluginException();
-        notifications.fail = stage == 'notifications';
-        expect(
-          await task(
-            plugins: stage == 'plugins' ? fail : null,
-            native: stage == 'native' ? fail : null,
-            open: stage == 'store'
-                ? (_) async => throw const FileSystemException()
-                : null,
-            poll: stage == 'poll' ? (_, _) => fail() : null,
-          ).execute(publicFeedWorkTaskName),
-          isFalse,
-        );
-        if (stage == 'notifications' || stage == 'poll') {
-          expect(notifications.disposed, isTrue);
-        }
-      },
-    );
+    test('$stage infrastructure failure requests retry', () async {
+      Future<void> fail() async => throw MissingPluginException();
+      notifications.fail = stage == 'notifications';
+      expect(
+        await task(
+          plugins: stage == 'plugins' ? fail : null,
+          native: stage == 'native' ? fail : null,
+          open: stage == 'store'
+              ? (_) async => throw const FileSystemException()
+              : null,
+          poll: stage == 'poll' ? (_, _) => fail() : null,
+        ).execute(publicFeedWorkTaskName),
+        isFalse,
+      );
+    });
   }
 
   test('expected transport failure persists backoff and returns success without a retry storm', () async {

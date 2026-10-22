@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/services/app_notifications.dart';
+import 'package:sygnature_ng/services/public_feed_notifications.dart';
 import 'package:sygnature_ng/services/ui_sounds.dart';
 
 class _RecordingUiSounds extends UiSounds {
@@ -89,8 +90,8 @@ void main() {
         );
       });
 
-      final background = AppNotifications();
-      await background.initialize(requestPermission: false);
+      final background = PublicFeedNotifications();
+      await background.initialize();
       expect(
         await background.publicFeedRequested(0x40000000, 'signing'),
         isTrue,
@@ -114,8 +115,6 @@ void main() {
         expect(details['onlyAlertOnce'], isTrue);
         expect(details['playSound'], isFalse);
       }
-      expect(background.systemEnabled, isTrue);
-      background.dispose();
     },
   );
 

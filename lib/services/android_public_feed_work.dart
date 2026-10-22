@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../storage/public_feed_store.dart';
-import 'app_notifications.dart';
+import 'public_feed_notifications.dart';
 import 'public_feed_poller.dart';
 
 const publicFeedWorkUniqueName = 'network.noosphere.sygnature.public-feed';
@@ -54,27 +54,23 @@ final class PublicFeedBackgroundTask({
       getApplicationSupportDirectory,
   final Future<PublicFeedStore> Function(String) openStore =
       PublicFeedStore.open,
-  final AppNotifications Function() notifications = AppNotifications.new,
+  final PublicFeedNotifications Function() notifications =
+      PublicFeedNotifications.new,
   final PublicFeedBackgroundPoll poll = _pollOnce,
 }) {
   Future<bool> execute(String task) async {
     if (task != publicFeedWorkTaskName) return true;
     PublicFeedStore? store;
-    AppNotifications? delivery;
     try {
       try {
         await initializePlugins();
         await initializeNative();
         store = await openStore((await supportDirectory()).path);
-        delivery = notifications();
-        await delivery.initialize(requestPermission: false);
+        final delivery = notifications();
+        await delivery.initialize();
         await poll(store, delivery.publicFeedRequested);
       } finally {
-        try {
-          delivery?.dispose();
-        } finally {
-          await store?.close();
-        }
+        await store?.close();
       }
       return true;
     } on Object {
