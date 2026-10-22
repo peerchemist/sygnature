@@ -70,29 +70,54 @@ void main() {
     );
   });
 
-  test('background notification setup never requests permission, keys, biometrics or sounds', () async {
-    final delivery = AppNotifications();
-    await delivery.initialize(requestPermission: false);
-    expect(await delivery.publicFeedRequested(0x40000000, 'signing'), isTrue);
-    expect(await delivery.publicFeedRequested(0x40000000, 'signing'), isTrue);
-    expect(pluginCalls.map((call) => call.method), [
-      'initialize',
-      'show',
-      'show',
-    ]);
-    expect(storageCalls.every((call) => call.method == 'read'), isTrue);
-    final shows = pluginCalls.where((call) => call.method == 'show');
-    for (final call in shows) {
-      final args = call.arguments as Map;
-      expect(args['id'], 0x40000000);
-      expect(args['body'], contains('unlock your wallet'));
-      final details = args['platformSpecifics'] as Map;
-      expect(details['onlyAlertOnce'], isTrue);
-      expect(details['playSound'], isFalse);
-    }
-    expect(delivery.systemEnabled, isTrue);
-    delivery.dispose();
-  });
+  test(
+    'locked background notification delivery never opens secure storage',
+    () async {
+      final foreground = AppNotifications();
+      await foreground.initialize();
+      foreground.dispose();
+
+      pluginCalls.clear();
+      storageCalls.clear();
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+        call,
+      ) async {
+        storageCalls.add(call);
+        throw PlatformException(
+          code: 'device_locked',
+          message: 'Failed to unwrap key',
+        );
+      });
+
+      final background = AppNotifications();
+      await background.initialize(requestPermission: false);
+      expect(
+        await background.publicFeedRequested(0x40000000, 'signing'),
+        isTrue,
+      );
+      expect(
+        await background.publicFeedRequested(0x40000000, 'signing'),
+        isTrue,
+      );
+      expect(pluginCalls.map((call) => call.method), [
+        'initialize',
+        'show',
+        'show',
+      ]);
+      expect(storageCalls, isEmpty);
+      final shows = pluginCalls.where((call) => call.method == 'show');
+      for (final call in shows) {
+        final args = call.arguments as Map;
+        expect(args['id'], 0x40000000);
+        expect(args['body'], contains('unlock your wallet'));
+        final details = args['platformSpecifics'] as Map;
+        expect(details['onlyAlertOnce'], isTrue);
+        expect(details['playSound'], isFalse);
+      }
+      expect(background.systemEnabled, isTrue);
+      background.dispose();
+    },
+  );
 
   test('foreground wallet events use distinct generated sound cues', () async {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (

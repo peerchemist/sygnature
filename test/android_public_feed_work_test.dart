@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/services/android_public_feed_work.dart';
 import 'package:sygnature_ng/services/app_notifications.dart';
@@ -8,7 +10,7 @@ import 'package:sygnature_ng/services/public_feed_poller.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
 import 'package:workmanager/workmanager.dart';
 
-import 'public_feed_poller_test.dart' show feedId, page, entry;
+import 'public_feed_poller_test.dart' show FakeConnection, feedId, page, entry;
 
 class RecordingNotifications extends AppNotifications {
   final permissions = <bool>[];
@@ -47,7 +49,7 @@ class RecordingWorkmanager implements Workmanager {
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
   late RecordingNotifications notifications;
   late List<String> calls;
@@ -56,6 +58,7 @@ void main() {
     Future<void> Function()? plugins,
     Future<void> Function()? native,
     Future<PublicFeedStore> Function(String)? open,
+    AppNotifications Function()? notificationFactory,
     PublicFeedBackgroundPoll? poll,
   }) => PublicFeedBackgroundTask(
     initializePlugins:
@@ -70,7 +73,7 @@ void main() {
         },
     supportDirectory: () async => directory,
     openStore: open ?? PublicFeedStore.open,
-    notifications: () => notifications,
+    notifications: notificationFactory ?? () => notifications,
     poll:
         poll ??
         (store, notify) => PublicFeedPoller(store, notify: notify).run(),
@@ -137,6 +140,72 @@ void main() {
   test('no subscriptions is a successful no-op', () async {
     expect(await task().execute(publicFeedWorkTaskName), isTrue);
   });
+
+  test(
+    'locked worker reads the public feed, posts its notification and completes',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      AndroidFlutterLocalNotificationsPlugin.registerWith();
+      const storage = MethodChannel(
+        'plugins.it_nomads.com/flutter_secure_storage',
+      );
+      const notificationPlugin = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      final storageCalls = <MethodCall>[];
+      final pluginCalls = <MethodCall>[];
+
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
+        call,
+      ) async {
+        storageCalls.add(call);
+        throw PlatformException(
+          code: 'device_locked',
+          message: 'Failed to unwrap key',
+        );
+      });
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        notificationPlugin,
+        (call) async {
+          pluginCalls.add(call);
+          return true;
+        },
+      );
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, null);
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          notificationPlugin,
+          null,
+        );
+      });
+
+      final store = await PublicFeedStore.open(directory.path);
+      final key = await store.subscribe(
+        groupId: 'g',
+        address: 'address',
+        pin: 'pin',
+        feedId: feedId.hex,
+      );
+      await store.commitPage(key, page(0, 0), DateTime.now());
+      await store.close();
+
+      final worker = task(
+        notificationFactory: AppNotifications.new,
+        poll: (store, notify) => PublicFeedPoller(
+          store,
+          notify: notify,
+          connect: (_) async => FakeConnection(
+            (cursor) async => page(cursor, 1, entries: [entry(1)]),
+          ),
+        ).run(),
+      );
+
+      expect(await worker.execute(publicFeedWorkTaskName), isTrue);
+      expect(storageCalls, isEmpty);
+      expect(pluginCalls.map((call) => call.method), ['initialize', 'show']);
+    },
+  );
 
   for (final stage in ['plugins', 'native', 'store', 'notifications', 'poll']) {
     test(
