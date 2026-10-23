@@ -5,6 +5,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'app_logger.dart';
+import 'public_feed_notifications.dart';
 import 'ui_sounds.dart';
 
 /// User-configurable wallet event sounds and system notifications.
@@ -12,6 +13,7 @@ class AppNotifications({
   FlutterSecureStorage? storage,
   UiSounds? sounds,
   FlutterLocalNotificationsPlugin? plugin,
+  final void Function(String category)? onPublicFeedOpened,
 }) extends ChangeNotifier {
   // Keep the original key so existing notification preferences migrate.
   static const _systemEnabledKey = 'notifications.desktop_enabled';
@@ -41,6 +43,7 @@ class AppNotifications({
   bool _loaded = false;
   bool _pluginInitialized = false;
   bool _disposed = false;
+  bool _launchChecked = false;
   int _notificationId = 0;
   Future<void> _pendingSave = Future<void>.value();
 
@@ -57,6 +60,9 @@ class AppNotifications({
 
   Future<void> initialize({bool requestPermission = true}) async {
     await _load(failOnError: !requestPermission);
+    if (onPublicFeedOpened != null && supportsSystemNotifications) {
+      await _ensurePluginInitialized();
+    }
     final permissionReady = await _restoreAutomaticallyDisabledSetting();
     if (_systemEnabled && supportsSystemNotifications) {
       final ready =
@@ -193,6 +199,7 @@ class AppNotifications({
           ? 'New key generation request'
           : 'New signing request',
       body: 'Open Sygnature and unlock your wallet to review current requests.',
+      payload: '$publicFeedNotificationPayloadPrefix$category',
     );
   }
 
@@ -220,6 +227,7 @@ class AppNotifications({
     required String title,
     required String body,
     int? id,
+    String? payload,
   }) async {
     if (!await _ensurePluginInitialized()) return false;
     try {
@@ -227,6 +235,7 @@ class AppNotifications({
         id: id ?? (_notificationId++ & 0x3fffffff),
         title: title,
         body: body,
+        payload: payload,
         notificationDetails: NotificationDetails(
           android: const AndroidNotificationDetails(
             'sygnature_wallet_events',
@@ -285,6 +294,7 @@ class AppNotifications({
               guid: '2d6d6872-d9db-48fa-8519-d21396406f56',
             ),
           ),
+          onDidReceiveNotificationResponse: _handleNotificationResponse,
         );
         // On macOS this result describes permission, not initialization.
         // With all automatic permission requests disabled, the native plugin
@@ -293,6 +303,14 @@ class AppNotifications({
         _pluginInitialized =
             defaultTargetPlatform == TargetPlatform.macOS ||
             (initialized ?? false);
+      }
+      if (_pluginInitialized && !_launchChecked && onPublicFeedOpened != null) {
+        _launchChecked = true;
+        final launch = await _plugin.getNotificationAppLaunchDetails();
+        final response = launch?.notificationResponse;
+        if (launch?.didNotificationLaunchApp == true && response != null) {
+          _handleNotificationResponse(response);
+        }
       }
       if (!_pluginInitialized) return false;
       if (defaultTargetPlatform == TargetPlatform.android &&
@@ -327,6 +345,19 @@ class AppNotifications({
       );
       return false;
     }
+  }
+
+  void _handleNotificationResponse(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload == null ||
+        !payload.startsWith(publicFeedNotificationPayloadPrefix)) {
+      return;
+    }
+    final category = payload.substring(
+      publicFeedNotificationPayloadPrefix.length,
+    );
+    if (category != 'signing' && category != 'dkg') return;
+    onPublicFeedOpened?.call(category);
   }
 
   void _save(String key, String value) {

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:sygnature_ng/controllers/theme_controller.dart';
@@ -112,6 +114,53 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('notification launch immediately explains why the app opened', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    AndroidFlutterLocalNotificationsPlugin.registerWith();
+    const channel = MethodChannel('dexterous.com/flutter/local_notifications');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      if (call.method == 'getNotificationAppLaunchDetails') {
+        return {
+          'notificationLaunchedApp': true,
+          'notificationResponse': {
+            'notificationId': 1,
+            'notificationResponseType': 0,
+            'payload': 'public-feed:signing',
+          },
+        };
+      }
+      return true;
+    });
+    addTearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      );
+    });
+
+    await tester.pumpWidget(SygnatureApp(controllerFactory: createController));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.text('Signing request received. Connecting to coordinator…'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('public-feed-wake-reason')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      null,
+    );
+  });
 
   testWidgets('theme follows the system and can be overridden in settings', (
     tester,

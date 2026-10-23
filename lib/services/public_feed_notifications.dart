@@ -1,5 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+const publicFeedNotificationPayloadPrefix = 'public-feed:';
+
 /// Notification delivery for the headless Android public-feed worker.
 ///
 /// Public-feed subscriptions decide whether delivery is enabled. This class
@@ -36,6 +38,7 @@ class PublicFeedNotifications({FlutterLocalNotificationsPlugin? plugin}) {
             : 'New signing request',
         body:
             'Open Sygnature and unlock your wallet to review current requests.',
+        payload: '$publicFeedNotificationPayloadPrefix$category',
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'sygnature_wallet_events',

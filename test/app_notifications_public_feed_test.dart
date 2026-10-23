@@ -111,6 +111,7 @@ void main() {
         final args = call.arguments as Map;
         expect(args['id'], 0x40000000);
         expect(args['body'], contains('unlock your wallet'));
+        expect(args['payload'], 'public-feed:signing');
         final details = args['platformSpecifics'] as Map;
         expect(details['onlyAlertOnce'], isTrue);
         expect(details['playSound'], isFalse);
@@ -155,6 +156,37 @@ void main() {
       delivery.dispose();
     },
   );
+
+  test('notification launch reports its public-feed category', () async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+      call,
+    ) async {
+      pluginCalls.add(call);
+      if (call.method == 'getNotificationAppLaunchDetails') {
+        return {
+          'notificationLaunchedApp': true,
+          'notificationResponse': {
+            'notificationId': 1,
+            'notificationResponseType': 0,
+            'payload': 'public-feed:signing',
+          },
+        };
+      }
+      return true;
+    });
+    final categories = <String>[];
+    final delivery = AppNotifications(onPublicFeedOpened: categories.add);
+
+    await delivery.initialize();
+
+    expect(categories, ['signing']);
+    expect(pluginCalls.map((call) => call.method), [
+      'initialize',
+      'getNotificationAppLaunchDetails',
+      'requestNotificationsPermission',
+    ]);
+    delivery.dispose();
+  });
 
   test(
     'Android restores an automatically disabled notification setting',

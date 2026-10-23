@@ -77,10 +77,10 @@ class const SygnatureApp({
 class _SygnatureAppState extends State<SygnatureApp>
     with WidgetsBindingObserver {
   final ThemeController _themeController = ThemeController();
-  final AppNotifications _notifications = AppNotifications();
+  late final AppNotifications _notifications;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey();
-  late final Future<void> _notificationsReady = _notifications.initialize();
+  late final Future<void> _notificationsReady;
   Future<VaultProtectionStore>? _protectionStore;
   Future<WalletController>? _controller;
   StreamSubscription<Uri>? _incomingLinkSubscription;
@@ -93,6 +93,10 @@ class _SygnatureAppState extends State<SygnatureApp>
   @override
   void initState() {
     super.initState();
+    _notifications = AppNotifications(
+      onPublicFeedOpened: _showPublicFeedWakeReason,
+    );
+    _notificationsReady = _notifications.initialize();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_themeController.initialize());
     if (widget.noosphereInitializer != null) {
@@ -169,6 +173,27 @@ class _SygnatureAppState extends State<SygnatureApp>
               key: const Key('noosphere-initialization-retry'),
               label: 'Try again',
               onPressed: () => _startNoosphereInitialization(reconnect: true),
+            ),
+          ),
+        );
+    });
+  }
+
+  void _showPublicFeedWakeReason(String category) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      final messenger = _messengerKey.currentState;
+      if (messenger == null) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            key: const Key('public-feed-wake-reason'),
+            duration: const Duration(seconds: 12),
+            content: Text(
+              category == 'dkg'
+                  ? 'Key generation request received. Connecting to coordinator…'
+                  : 'Signing request received. Connecting to coordinator…',
             ),
           ),
         );
