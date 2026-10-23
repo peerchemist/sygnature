@@ -36,6 +36,8 @@ android {
         applicationId = when {
             project.hasProperty("publicFeedVerification") ->
                 "network.noosphere.sygnature.publicfeedtest"
+            project.hasProperty("roomEnrollmentVerification") ->
+                "network.noosphere.sygnature.roomenrollmenttest"
             project.hasProperty("secureStorageVerification") ->
                 "network.noosphere.sygnature.securestoragetest"
             else -> "network.noosphere.sygnature"
