@@ -61,6 +61,7 @@ final class PublicFeedPoller(
   final Future<FeedConnection> Function(Map feed) connect = connectPublicFeed,
   final int maxPages = 5,
   final Duration maxDuration = const Duration(seconds: 45),
+  final PublicFeedPollSource source = PublicFeedPollSource.foreground,
 }) {
   Future<void>? _running;
   Timer? _timer;
@@ -94,7 +95,11 @@ final class PublicFeedPoller(
     } on FeedLeaseLost {
       // A recovered lease or concurrent unsubscribe is a successful no-op.
     } finally {
-      await store.releasePollingLease(owner);
+      try {
+        await store.recordPoll(source, DateTime.now());
+      } finally {
+        await store.releasePollingLease(owner);
+      }
     }
   }
 

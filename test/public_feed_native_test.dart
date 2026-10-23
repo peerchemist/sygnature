@@ -32,7 +32,12 @@ void main() {
         final setup = WalletBackupFixture(roomHost: true).setup;
         await tester.pumpWidget(
           MaterialApp(
-            home: PublicFeedDialog(store: store, setup: setup),
+            home: PublicFeedDialog(
+              store: store,
+              setup: setup,
+              notify: (_, _) async => true,
+              notificationPermission: () async => true,
+            ),
           ),
         );
         await Future<void>.delayed(Duration.zero);
@@ -82,7 +87,12 @@ void main() {
         );
         await tester.pumpWidget(
           MaterialApp(
-            home: PublicFeedDialog(store: store, setup: setup),
+            home: PublicFeedDialog(
+              store: store,
+              setup: setup,
+              notify: (_, _) async => true,
+              notificationPermission: () async => true,
+            ),
           ),
         );
         await Future<void>.delayed(Duration.zero);
@@ -108,7 +118,12 @@ void main() {
         final setup = WalletBackupFixture().setup;
         await tester.pumpWidget(
           MaterialApp(
-            home: PublicFeedDialog(store: store, setup: setup),
+            home: PublicFeedDialog(
+              store: store,
+              setup: setup,
+              notify: (_, _) async => true,
+              notificationPermission: () async => true,
+            ),
           ),
         );
         await Future<void>.delayed(Duration.zero);
@@ -130,6 +145,18 @@ void main() {
         final feed = (data['feeds'] as Map)[key] as Map;
         expect(feed['pin'], setup.coordinatorId);
         expect(feed['feedId'], await publicFeedIdForGroup(setup.groupId));
+        await tester.pump(const Duration(seconds: 2));
+        await store.snapshot();
+        await tester.pump();
+        expect(
+          find.byKey(const Key('public-feed-sync-health')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('public-feed-sync-now')), findsOneWidget);
+        expect(
+          find.byKey(const Key('public-feed-sync-technical-details')),
+          findsOneWidget,
+        );
         await tester.pumpWidget(const SizedBox());
       } finally {
         await store.close();

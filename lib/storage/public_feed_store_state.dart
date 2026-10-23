@@ -272,6 +272,7 @@ final class _FeedState(final Map<String, dynamic> data) {
       }
       feed['historyGap'] = feed['historyGap'] == true || page.historyGap;
       feed['cursor'] = page.nextCursor; // Empty pages advance too.
+      feed['lastSuccessfulFetchAt'] = now.toUtc().toIso8601String();
       feed['failures'] = 0;
       feed.remove('retryAt');
       feed.remove('issue');
@@ -317,5 +318,13 @@ final class _FeedState(final Map<String, dynamic> data) {
     final feed = (data['feeds'] as Map)[key] as Map;
     feed['blocked'] = false;
     feed.remove('retryAt');
+  });
+
+  Future<void> recordPoll(String source, DateTime now) => _mutate((data) {
+    if (!PublicFeedPollSource.values.any((value) => value.name == source)) {
+      throw const FormatException('Invalid public feed poll source');
+    }
+    final polls = data.putIfAbsent('polls', () => <String, dynamic>{}) as Map;
+    polls[source] = now.toUtc().toIso8601String();
   });
 }

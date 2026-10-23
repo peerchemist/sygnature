@@ -87,6 +87,14 @@ class AppNotifications({
     await _restoreAutomaticallyDisabledSetting();
   }
 
+  Future<bool?> systemPermissionGranted() async {
+    if (!supportsSystemNotifications) return null;
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return _systemEnabled;
+    }
+    return _ensurePluginInitialized(checkPermission: true);
+  }
+
   Future<bool> _restoreAutomaticallyDisabledSetting() async {
     if (!_systemEnabled &&
         !_systemPreferenceSet &&

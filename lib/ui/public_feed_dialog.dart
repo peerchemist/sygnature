@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:iroh_quic/iroh_quic.dart';
 
@@ -12,6 +13,8 @@ class const PublicFeedDialog({
   super.key,
   required final PublicFeedStore store,
   required final RoastSetup setup,
+  required final Future<bool> Function(int, String) notify,
+  required final Future<bool?> Function() notificationPermission,
 }) extends StatefulWidget {
   @override
   State<PublicFeedDialog> createState() => _PublicFeedDialogState();
@@ -21,16 +24,25 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
   Map<String, dynamic>? _data;
   String? _error;
   bool _busy = false;
+  bool? _permission;
   Timer? _refresh;
 
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    if (widget.setup.role == RoastSetupRole.member) {
+      unawaited(_loadPermission());
+    }
     _refresh = Timer.periodic(
       const Duration(seconds: 2),
       (_) => unawaited(_load()),
     );
+  }
+
+  Future<void> _loadPermission() async {
+    final permission = await widget.notificationPermission();
+    if (mounted) setState(() => _permission = permission);
   }
 
   Future<void> _load() async {
@@ -78,6 +90,28 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
     );
   }
 
+  Future<void> _syncNow(String key) async {
+    await widget.store.retry(key);
+    await PublicFeedPoller(widget.store, notify: widget.notify).run();
+    await _loadPermission();
+  }
+
+  String _time(String? value) {
+    if (value == null) return 'Never';
+    final time = DateTime.parse(value).toLocal();
+    final now = DateTime.now();
+    final clock =
+        '${time.hour.toString().padLeft(2, '0')}:'
+        '${time.minute.toString().padLeft(2, '0')}';
+    if (time.year == now.year &&
+        time.month == now.month &&
+        time.day == now.day) {
+      return 'Today at $clock';
+    }
+    return '${time.year}-${time.month.toString().padLeft(2, '0')}-'
+        '${time.day.toString().padLeft(2, '0')} at $clock';
+  }
+
   @override
   void dispose() {
     _refresh?.cancel();
@@ -94,6 +128,7 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
     final feed = (data?['feeds'] as Map?)?[key] as Map?;
     final notificationsEnabled =
         !((data?['disabledGroups'] as List?) ?? const []).contains(group);
+    final polls = data?['polls'] as Map?;
     final events = ((feed?['events'] as Map?) ?? {}).entries.toList()
       ..sort(
         (a, b) =>
@@ -152,6 +187,18 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                               : () => widget.store.unsubscribe(group),
                         ),
                 ),
+                if (feed != null) ...[
+                  const SizedBox(height: 12),
+                  _SyncHealth(
+                    feed: feed,
+                    foregroundPoll: polls?['foreground'] as String?,
+                    backgroundPoll: polls?['background'] as String?,
+                    permission: _permission,
+                    formatTime: _time,
+                    busy: _busy,
+                    onSync: () => _perform(() => _syncNow(key!)),
+                  ),
+                ],
               ],
               if (!isMember && feed != null) ...[
                 const SizedBox(height: 12),
@@ -196,6 +243,110 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+class const _SyncHealth({
+  required final Map feed,
+  required final String? foregroundPoll,
+  required final String? backgroundPoll,
+  required final bool? permission,
+  required final String Function(String?) formatTime,
+  required final bool busy,
+  required final VoidCallback onSync,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final backgroundTime = backgroundPoll == null
+        ? null
+        : DateTime.parse(backgroundPoll!);
+    final delayed =
+        android &&
+        (backgroundTime == null ||
+            DateTime.now().toUtc().difference(backgroundTime) >
+                const Duration(minutes: 45));
+    final blocked = feed['blocked'] == true || permission == false;
+    final issue = feed['issue'] as String?;
+    final status = blocked
+        ? 'Needs attention'
+        : issue != null || delayed
+        ? 'Delayed'
+        : 'Healthy';
+    final color = blocked
+        ? Theme.of(context).colorScheme.error
+        : issue != null || delayed
+        ? Colors.amber.shade800
+        : Colors.green.shade700;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          key: const Key('public-feed-sync-health'),
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            blocked
+                ? Icons.error_outline
+                : issue != null || delayed
+                ? Icons.schedule
+                : Icons.check_circle_outline,
+            color: color,
+          ),
+          title: const Text('Background sync'),
+          subtitle: Text(status, style: TextStyle(color: color)),
+          trailing: TextButton.icon(
+            key: const Key('public-feed-sync-now'),
+            onPressed: busy ? null : onSync,
+            icon: const Icon(Icons.sync),
+            label: const Text('Sync now'),
+          ),
+        ),
+        Text(
+          android
+              ? 'Android checks periodically in the background. The 15-minute interval is a minimum; battery and system scheduling may delay a check.'
+              : 'Background scheduling is not available on this platform. Sygnature checks while the app is open.',
+        ),
+        const SizedBox(height: 8),
+        Text('Last foreground check: ${formatTime(foregroundPoll)}'),
+        if (android)
+          Text('Last background check: ${formatTime(backgroundPoll)}'),
+        Text(
+          'Last successful feed update: '
+          '${formatTime(feed['lastSuccessfulFetchAt'] as String?)}',
+        ),
+        Text(
+          'Notification permission: '
+          '${permission == null
+              ? 'Unavailable'
+              : permission!
+              ? 'Allowed'
+              : 'Blocked'}',
+        ),
+        if (issue != null) ...[
+          const SizedBox(height: 8),
+          Text(issue),
+          if (feed['retryAt'] != null)
+            Text('Automatic retry: ${formatTime(feed['retryAt'] as String?)}'),
+        ],
+        ExpansionTile(
+          key: const Key('public-feed-sync-technical-details'),
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(bottom: 8),
+          title: const Text('Technical details'),
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Event cursor: ${feed['cursor']}\n'
+                'Pending notifications: ${(feed['outbox'] as Map).length}\n'
+                'Consecutive failures: ${feed['failures']}\n'
+                'History gap: ${feed['historyGap'] == true ? 'Yes' : 'No'}',
+              ),
+            ),
+          ],
         ),
       ],
     );

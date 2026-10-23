@@ -69,7 +69,11 @@ void main() {
     notifications: notificationFactory ?? () => notifications,
     poll:
         poll ??
-        (store, notify) => PublicFeedPoller(store, notify: notify).run(),
+        (store, notify) => PublicFeedPoller(
+          store,
+          notify: notify,
+          source: PublicFeedPollSource.background,
+        ).run(),
   );
 
   setUp(() async {
@@ -131,6 +135,9 @@ void main() {
 
   test('no subscriptions is a successful no-op', () async {
     expect(await task().execute(publicFeedWorkTaskName), isTrue);
+    final store = await PublicFeedStore.open(directory.path);
+    expect((await store.snapshot())['polls']['background'], isNotNull);
+    await store.close();
   });
 
   test(

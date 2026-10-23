@@ -117,6 +117,8 @@ void main() {
     );
     await poller(connection).run();
     expect((await feed())['cursor'], 1);
+    expect((await feed())['lastSuccessfulFetchAt'], isNotNull);
+    expect((await store.snapshot())['polls']['foreground'], isNotNull);
     expect(connection.closed, isTrue);
     expect(shown, isEmpty); // First retained history is silent.
     expect(Hive.isBoxOpen('sygnature_roast_private_v1'), isFalse);

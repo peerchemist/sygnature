@@ -58,7 +58,12 @@ class const WalletHome({
                   ),
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(child: _WalletDashboard(controller: controller)),
+                Expanded(
+                  child: _WalletDashboard(
+                    controller: controller,
+                    notifications: notifications,
+                  ),
+                ),
               ],
             ),
           );
@@ -91,7 +96,11 @@ class const WalletHome({
               const SizedBox(width: 8),
             ],
           ),
-          body: _WalletDashboard(controller: controller, mobile: true),
+          body: _WalletDashboard(
+            controller: controller,
+            notifications: notifications,
+            mobile: true,
+          ),
         );
       },
     );
@@ -454,8 +463,13 @@ class const _WalletListTile({
 }
 
 class _WalletDashboard extends StatelessWidget {
-  const _WalletDashboard({required this.controller, this.mobile = false});
+  const _WalletDashboard({
+    required this.controller,
+    required this.notifications,
+    this.mobile = false,
+  });
   final WalletController controller;
+  final AppNotifications notifications;
   final bool mobile;
 
   @override
@@ -522,8 +536,12 @@ class _WalletDashboard extends StatelessWidget {
               if (!context.mounted) return;
               await showDialog<void>(
                 context: context,
-                builder: (_) =>
-                    PublicFeedDialog(store: store, setup: roastSetup),
+                builder: (_) => PublicFeedDialog(
+                  store: store,
+                  setup: roastSetup,
+                  notify: notifications.publicFeedRequested,
+                  notificationPermission: notifications.systemPermissionGranted,
+                ),
               );
             }
           : null,

@@ -42,7 +42,11 @@ typedef PublicFeedBackgroundPoll = Future<void> Function(
 Future<void> _pollOnce(
   PublicFeedStore store,
   Future<bool> Function(int, String) notify,
-) => PublicFeedPoller(store, notify: notify).run();
+) => PublicFeedPoller(
+  store,
+  notify: notify,
+  source: PublicFeedPollSource.background,
+).run();
 
 /// Injectable boundaries keep execution tests independent of an Android job.
 /// Expected feed failures are handled by the poller's durable per-feed backoff;

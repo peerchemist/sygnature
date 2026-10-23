@@ -18,6 +18,8 @@ part 'public_feed_store_state.dart';
 const publicFeedDefaultNotificationWindow = Duration(hours: 1);
 const publicFeedMaxNotificationWindow = Duration(hours: 24);
 
+enum PublicFeedPollSource { foreground, background }
+
 Future<String> publicFeedIdForGroup(String groupId) async {
   final digest = await Sha256().hash(
     utf8.encode('sygnature/public-feed/1:$groupId'),
@@ -229,6 +231,8 @@ final class PublicFeedStore._(
     leaseOwner,
   ]);
   Future<void> retry(String key) => _request(['retry', key]);
+  Future<void> recordPoll(PublicFeedPollSource source, DateTime now) =>
+      _request(['poll', source.name, now.toUtc().toIso8601String()]);
 }
 
 final class const FeedRollback() implements Exception;

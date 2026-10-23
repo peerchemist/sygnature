@@ -255,12 +255,16 @@ void main() {
     final delivery = AppNotifications();
     await delivery.initialize();
     expect(delivery.systemEnabled, isFalse);
+    expect(await delivery.systemPermissionGranted(), isFalse);
 
     notificationsEnabled = true;
     await delivery.refreshSystemPermission();
     expect(delivery.systemEnabled, isTrue);
+    expect(await delivery.systemPermissionGranted(), isTrue);
     expect(pluginCalls.map((call) => call.method), [
       'initialize',
+      'areNotificationsEnabled',
+      'areNotificationsEnabled',
       'areNotificationsEnabled',
       'areNotificationsEnabled',
     ]);

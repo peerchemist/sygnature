@@ -176,6 +176,11 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
             );
           case 'retry':
             await state.retry(operation[1] as String);
+          case 'poll':
+            await state.recordPoll(
+              operation[1] as String,
+              DateTime.parse(operation[2] as String),
+            );
           default:
             throw const FeedStoreUnavailable();
         }
