@@ -473,6 +473,7 @@ void main() {
 
     expect(find.text('Ready'), findsOneWidget);
     expect(find.text('Synchronizing'), findsNothing);
+    expect(find.textContaining('Last synchronized'), findsOneWidget);
     expect(tester.widget<WalletHome>(find.byType(WalletHome)), same(home));
 
     await tester.pumpWidget(const SizedBox.shrink());

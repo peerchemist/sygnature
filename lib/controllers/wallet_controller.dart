@@ -56,7 +56,7 @@ part 'wallet_controller_roast_setup.dart';
 part 'wallet_controller_signing.dart';
 part 'wallet_controller_sync.dart';
 
-enum AccountSyncStatus { unavailable, syncing, synced, error }
+enum AccountSyncStatus { unavailable, syncing, synced, offline, stale, error }
 
 enum RoastCoordinatorLocalState {
   switching,
@@ -177,6 +177,7 @@ class WalletController extends ChangeNotifier {
   int _syncGeneration = 0;
   final Map<String, StreamSubscription<PeercoinElectrumxUtxoSnapshot>>
   _syncSubscriptions = {};
+  final Map<String, DateTime> _lastSuccessfulSyncByAddress = {};
   Future<void>? _syncCancellation;
   final Map<String, List<ElectrumxUtxo>> _utxosByAddress = {};
   final Map<String, bool> _observedAddressUsage = {};

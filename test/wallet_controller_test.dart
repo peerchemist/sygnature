@@ -407,6 +407,12 @@ void main() {
       utxoCount: 0,
     ));
 
+    electrumx.snapshots.addError(
+      const ElectrumxException('ElectrumX is offline.'),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.syncStatusFor(account), AccountSyncStatus.offline);
+
     electrumx.snapshots.add(
       const PeercoinElectrumxUtxoSnapshot(
         address: 'pc1paccount0',
@@ -444,6 +450,7 @@ void main() {
     expect(controller.spendableUtxosFor(account), hasLength(1));
     expect(controller.utxosFor(account), hasLength(2));
     expect(controller.syncStatusFor(account), AccountSyncStatus.synced);
+    expect(controller.lastSuccessfulSyncFor(account), isNotNull);
     expect(receivedSoundCount, 0);
 
     final receivedSnapshot = PeercoinElectrumxUtxoSnapshot(
@@ -472,10 +479,10 @@ void main() {
 
     electrumx.snapshots.addError(StateError('offline'));
     await Future<void>.delayed(Duration.zero);
-    expect(controller.syncStatusFor(account), AccountSyncStatus.error);
+    expect(controller.syncStatusFor(account), AccountSyncStatus.stale);
 
     await controller.refreshBalances();
-    expect(controller.syncStatusFor(account), AccountSyncStatus.syncing);
+    expect(controller.syncStatusFor(account), AccountSyncStatus.stale);
     expect(electrumx.watchedAddresses, hasLength(2));
 
     controller.dispose();

@@ -319,16 +319,36 @@ extension WalletSyncController on WalletController {
         !_networkServices.containsKey(networkForAccount(account).storageId)) {
       return AccountSyncStatus.unavailable;
     }
-    if (addresses.any(_syncErrorsByAddress.containsKey)) {
+    final hasSnapshot = addresses.any(_utxosByAddress.containsKey);
+    final errors = [
+      for (final address in addresses) ?_syncErrorsByAddress[address],
+    ];
+    if (errors.isNotEmpty) {
+      if (hasSnapshot) return AccountSyncStatus.stale;
+      if (errors.every(_isOfflineSyncError)) return AccountSyncStatus.offline;
       return AccountSyncStatus.error;
     }
     if (addresses.any(_syncingAddresses.contains)) {
-      return AccountSyncStatus.syncing;
+      return hasSnapshot ? AccountSyncStatus.stale : AccountSyncStatus.syncing;
     }
     return addresses.every(_utxosByAddress.containsKey)
         ? AccountSyncStatus.synced
         : AccountSyncStatus.syncing;
   }
+
+  DateTime? lastSuccessfulSyncFor(WalletAccount account) {
+    DateTime? oldest;
+    for (final owned in ownedAddressesFor(account)) {
+      final syncedAt = _lastSuccessfulSyncByAddress[owned.address];
+      if (syncedAt == null) return null;
+      if (oldest == null || syncedAt.isBefore(oldest)) oldest = syncedAt;
+    }
+    return oldest;
+  }
+
+  bool _isOfflineSyncError(Object error) =>
+      error is TimeoutException ||
+      (error is ElectrumxException && error is! ElectrumxRpcException);
 
   Object? syncErrorFor(WalletAccount account) {
     for (final owned in ownedAddressesFor(account)) {
@@ -377,6 +397,9 @@ extension WalletSyncController on WalletController {
       (address, _) => !addresses.contains(address),
     );
     _utxosByAddress.removeWhere((address, _) => !addresses.contains(address));
+    _lastSuccessfulSyncByAddress.removeWhere(
+      (address, _) => !addresses.contains(address),
+    );
     _syncErrorsByAddress.removeWhere(
       (address, _) => !addresses.contains(address),
     );
@@ -412,6 +435,8 @@ extension WalletSyncController on WalletController {
               _utxosByAddress[snapshot.address] = List.unmodifiable(
                 snapshot.utxos,
               );
+              _lastSuccessfulSyncByAddress[snapshot.address] = DateTime.now()
+                  .toUtc();
               _syncingAddresses.remove(snapshot.address);
               _syncErrorsByAddress.remove(snapshot.address);
               _queueBroadcastReservationReconciliation(
@@ -562,6 +587,7 @@ extension WalletSyncController on WalletController {
 
   void _clearSyncState() {
     _utxosByAddress.clear();
+    _lastSuccessfulSyncByAddress.clear();
     _observedAddressUsage.clear();
     _syncErrorsByAddress.clear();
     _syncingAddresses.clear();
