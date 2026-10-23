@@ -20,6 +20,7 @@ class AppNotifications({
   static const _systemPreferenceSetKey = 'notifications.system_preference_set';
   static const _soundEnabledKey = 'notifications.sound_enabled';
   static const _soundVolumeKey = 'notifications.sound_volume';
+  static const _publicFeedSuppressionWindow = Duration(minutes: 2);
 
   final FlutterSecureStorage _storage =
       storage ??
@@ -45,6 +46,7 @@ class AppNotifications({
   bool _disposed = false;
   bool _launchChecked = false;
   int _notificationId = 0;
+  final Map<String, DateTime> _publicFeedSuppressions = {};
   Future<void> _pendingSave = Future<void>.value();
 
   bool get systemEnabled => _systemEnabled;
@@ -172,17 +174,23 @@ class AppNotifications({
     sound: _uiSounds.coinsReceived,
   );
 
-  void roastSigningRequest() => _deliver(
-    title: 'Signing request',
-    body: 'A ROAST signing request is waiting for your approval.',
-    sound: _uiSounds.signingRequest,
-  );
+  void roastSigningRequest() {
+    if (_consumePublicFeedSuppression('signing')) return;
+    _deliver(
+      title: 'Signing request',
+      body: 'A ROAST signing request is waiting for your approval.',
+      sound: _uiSounds.signingRequest,
+    );
+  }
 
-  void dkgRequest() => _deliver(
-    title: 'Key generation request',
-    body: 'A DKG request is waiting for your approval.',
-    sound: _uiSounds.dkgRequest,
-  );
+  void dkgRequest() {
+    if (_consumePublicFeedSuppression('dkg')) return;
+    _deliver(
+      title: 'Key generation request',
+      body: 'A DKG request is waiting for your approval.',
+      sound: _uiSounds.dkgRequest,
+    );
+  }
 
   void roastGroupCreated() => _deliver(
     title: 'ROAST group ready',
@@ -357,7 +365,15 @@ class AppNotifications({
       publicFeedNotificationPayloadPrefix.length,
     );
     if (category != 'signing' && category != 'dkg') return;
+    _publicFeedSuppressions[category] = DateTime.now().add(
+      _publicFeedSuppressionWindow,
+    );
     onPublicFeedOpened?.call(category);
+  }
+
+  bool _consumePublicFeedSuppression(String category) {
+    final expiresAt = _publicFeedSuppressions.remove(category);
+    return expiresAt != null && expiresAt.isAfter(DateTime.now());
   }
 
   void _save(String key, String value) {

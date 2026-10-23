@@ -157,7 +157,7 @@ void main() {
     },
   );
 
-  test('notification launch reports its public-feed category', () async {
+  test('notification launch suppresses its matching runtime alert once', () async {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
       call,
     ) async {
@@ -175,11 +175,19 @@ void main() {
       return true;
     });
     final categories = <String>[];
-    final delivery = AppNotifications(onPublicFeedOpened: categories.add);
+    final sounds = _RecordingUiSounds();
+    final delivery = AppNotifications(
+      sounds: sounds,
+      onPublicFeedOpened: categories.add,
+    );
 
     await delivery.initialize();
+    delivery.roastSigningRequest();
+    delivery.dkgRequest();
+    delivery.roastSigningRequest();
 
     expect(categories, ['signing']);
+    expect(sounds.cues, [UiSoundCue.dkgRequest, UiSoundCue.signingRequest]);
     expect(pluginCalls.map((call) => call.method), [
       'initialize',
       'getNotificationAppLaunchDetails',
