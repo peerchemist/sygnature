@@ -120,9 +120,10 @@ process. The script signs native code and enclosing bundles from the inside out,
 with secure timestamps and hardened runtime, preserving the main app's sandbox
 and network entitlements. It notarizes and staples the app before creating the
 DMG, then signs, notarizes, and staples the DMG. Signature, stapling, and Gatekeeper
-checks must pass before artifact upload. A separate release job waits for both
-architecture jobs to succeed before publishing the macOS assets. Other platform
-workflows can still independently create a shared GitHub Release.
+checks must pass before artifact upload. On a tag, each architecture job publishes
+its own verified DMG immediately, so one architecture failing does not prevent a
+successful build from reaching the shared GitHub Release. Other platform workflows
+can still independently create that release.
 
 Apple credential authentication, ticket stapling/validation, and Gatekeeper
 assessment retry recognized transport failures up to four attempts, waiting

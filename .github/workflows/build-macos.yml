@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -123,6 +123,26 @@ jobs:
           retention-days: 30
           compression-level: 0
 
+      - name: Publish DMG to GitHub Release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          DMG_PATH: sygnature_ng/build/${{ matrix.dmg }}
+        run: |
+          test -f "$DMG_PATH"
+          if ! gh release view "$RELEASE_TAG"; then
+            args=(--verify-tag --title "$RELEASE_TAG" --generate-notes)
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              args+=(--prerelease)
+            fi
+            # Another architecture or platform may create the release at the same time.
+            gh release create "$RELEASE_TAG" "${args[@]}" || gh release view "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" "$DMG_PATH" --clobber
+
       - name: Remove signing credentials
         if: always()
         shell: bash
@@ -132,37 +152,3 @@ jobs:
             security delete-keychain "$keychain"
           fi
           rm -f "$RUNNER_TEMP/sygnature-signing.p12"
-
-  publish:
-    name: Publish verified macOS DMGs
-    needs: build
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download verified DMGs
-        uses: actions/download-artifact@v8.0.1
-        with:
-          pattern: sygnature-macos-*-dmg
-          merge-multiple: true
-          path: dmg
-
-      - name: Publish DMGs to GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          test -f dmg/Sygnature-macOS-arm64.dmg
-          test -f dmg/Sygnature-macOS-x86_64.dmg
-          if ! gh release view "$RELEASE_TAG"; then
-            args=(--verify-tag --title "$RELEASE_TAG" --generate-notes)
-            if [[ "$RELEASE_TAG" == *-* ]]; then
-              args+=(--prerelease)
-            fi
-            # Another platform may create the release at the same time.
-            gh release create "$RELEASE_TAG" "${args[@]}" || gh release view "$RELEASE_TAG"
-          fi
-          gh release upload "$RELEASE_TAG" dmg/*.dmg --clobber
