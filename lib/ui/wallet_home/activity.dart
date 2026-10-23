@@ -479,7 +479,7 @@ class const _ActivityDetail({
   WalletActivityType.signatureRequestReceived => (
     title: 'Signature request received',
     icon: Icons.mark_email_unread_outlined,
-    color: AppColors.of(context).greenDark,
+    color: AppColors.of(context).warningDark,
   ),
   WalletActivityType.signatureRequestApproved => (
     title: 'Signature request approved',
@@ -504,7 +504,7 @@ class const _ActivityDetail({
   WalletActivityType.dkgStarted => (
     title: 'Shared key creation started',
     icon: Icons.hub_outlined,
-    color: AppColors.of(context).greenDark,
+    color: AppColors.of(context).warningDark,
   ),
   WalletActivityType.dkgCompleted => (
     title: 'Shared key created',
@@ -519,12 +519,12 @@ class const _ActivityDetail({
   WalletActivityType.transactionSignatureRequested => (
     title: 'Transaction signature requested',
     icon: Icons.pending_actions_outlined,
-    color: AppColors.of(context).greenDark,
+    color: AppColors.of(context).warningDark,
   ),
   WalletActivityType.transactionSigned => (
     title: 'Transaction signed',
     icon: Icons.draw_outlined,
-    color: AppColors.of(context).greenDark,
+    color: AppColors.of(context).success,
   ),
   WalletActivityType.transactionBroadcast => (
     title: switch (activity.transactionStatus) {
@@ -576,7 +576,7 @@ class const _ActivityDetail({
   WalletActivityType.messageSignatureRequested => (
     title: 'Message signature requested',
     icon: Icons.pending_actions_outlined,
-    color: AppColors.of(context).greenDark,
+    color: AppColors.of(context).warningDark,
   ),
   WalletActivityType.messageSigned => (
     title: 'Message signed',
