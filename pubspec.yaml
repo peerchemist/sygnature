@@ -56,7 +56,7 @@ dependencies:
       url: https://github.com/peerchemist/noosphere.git
       ref: 0.3.2
       path: packages/noosphere_protocol
-  iroh_quic: 1.1.1
+  iroh_quic: 1.2.0
   noosphere_client:
     git:
       url: https://github.com/peerchemist/noosphere.git
@@ -75,7 +75,7 @@ dependencies:
 
 dependency_overrides:
   iroh_flutter: 1.1.1
-  iroh_quic: 1.1.1
+  iroh_quic: 1.2.0
   noosphere_protocol:
     git:
       url: https://github.com/peerchemist/noosphere.git

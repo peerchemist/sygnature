@@ -505,10 +505,10 @@ packages:
     dependency: "direct main"
     description:
       name: iroh_quic
-      sha256: "5926b685ec23e490619efdbd33b295e2448fe6b803577bd5c0ec99b28001423d"
+      sha256: "0a1809200f8c5e2fb3e042c48c2f0a07f160aeea8756a7b99d27bd1c4aa4dd2b"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.2.0"
   isolate_channel:
     dependency: transitive
     description:
