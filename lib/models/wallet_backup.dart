@@ -687,7 +687,7 @@ final class BackupGroup({
     'name': setup.name,
     'role': setup.role.name,
     'protocol': 'noosphere/0.3.0',
-    'protocol_version': noosphereRoastProtocolVersion,
+    'protocol_version': noosphereProtocolVersion,
     'frost_ciphersuite': 'FROST-secp256k1-SHA256-TR-v1',
     'threshold': setup.threshold,
     'participant_count': setup.participantCount,
@@ -761,7 +761,7 @@ final class BackupGroup({
       'keys',
       'room',
     });
-    if (r.integer('protocol_version') != noosphereRoastProtocolVersion ||
+    if (r.integer('protocol_version') != noosphereProtocolVersion ||
         r.string('protocol') != 'noosphere/0.3.0' ||
         r.string('frost_ciphersuite') != 'FROST-secp256k1-SHA256-TR-v1') {
       backupInvalid('Unsupported ROAST protocol or FROST ciphersuite.');
