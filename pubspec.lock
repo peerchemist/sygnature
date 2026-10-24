@@ -497,10 +497,10 @@ packages:
     dependency: "direct overridden"
     description:
       name: iroh_flutter
-      sha256: dc77ee9468bc80f9076155798c46ffa8f4147e1f75bdee2edac3e5b93b22637a
+      sha256: "261965b97be83b0b0975f9e77035893bbbaaee7256a8757dc38e39558033adc2"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.2.0"
   iroh_quic:
     dependency: "direct main"
     description:

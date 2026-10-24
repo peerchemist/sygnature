@@ -74,7 +74,7 @@ dependencies:
   share_plus: ^13.3.1
 
 dependency_overrides:
-  iroh_flutter: 1.1.1
+  iroh_flutter: 1.2.0
   iroh_quic: 1.2.0
   noosphere_protocol:
     git:
