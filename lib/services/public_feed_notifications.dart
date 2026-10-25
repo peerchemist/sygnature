@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 const publicFeedNotificationPayloadPrefix = 'public-feed:';
@@ -11,8 +12,13 @@ const androidWalletAlerts = AndroidNotificationDetails(
   enableVibration: true,
   onlyAlertOnce: true,
 );
+const appleWalletAlerts = DarwinNotificationDetails(
+  presentAlert: true,
+  presentSound: true,
+  threadIdentifier: 'sygnature-wallet-events',
+);
 
-/// Notification delivery for the headless Android public-feed worker.
+/// Notification delivery for the headless Android/iOS public-feed worker.
 ///
 /// Public-feed subscriptions decide whether delivery is enabled. This class
 /// deliberately has no dependency on wallet storage or foreground settings.
@@ -23,13 +29,21 @@ class PublicFeedNotifications({FlutterLocalNotificationsPlugin? plugin}) {
 
   Future<void> initialize() async {
     try {
+      final initialized = await _plugin.initialize(
+        settings: const InitializationSettings(
+          android: AndroidInitializationSettings('ic_notification'),
+          iOS: DarwinInitializationSettings(
+            requestAlertPermission: false,
+            requestBadgePermission: false,
+            requestSoundPermission: false,
+          ),
+        ),
+      );
+      // Darwin reports notification authorization from initialize. A headless
+      // catch-up worker deliberately does not request it, so false does not
+      // mean that plugin setup failed on iOS.
       _initialized =
-          await _plugin.initialize(
-            settings: const InitializationSettings(
-              android: AndroidInitializationSettings('ic_notification'),
-            ),
-          ) ??
-          false;
+          defaultTargetPlatform == TargetPlatform.iOS || (initialized ?? false);
     } on Object {
       _initialized = false;
     }
@@ -51,6 +65,7 @@ class PublicFeedNotifications({FlutterLocalNotificationsPlugin? plugin}) {
         payload: '$publicFeedNotificationPayloadPrefix$category',
         notificationDetails: const NotificationDetails(
           android: androidWalletAlerts,
+          iOS: appleWalletAlerts,
         ),
       );
       return true;

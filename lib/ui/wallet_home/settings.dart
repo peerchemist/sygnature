@@ -16,7 +16,8 @@ Future<void> _showSettings(
   AppNotifications notifications,
 ) {
   final publicFeedNotificationWindow =
-      defaultTargetPlatform == TargetPlatform.android
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)
       ? controller.publicFeedStore?.then((store) => store.notificationWindow())
       : null;
   return Navigator.of(context).push(
@@ -171,7 +172,7 @@ class const _SettingsScreen({
                     subtitle: Text(
                       notifications.supportsSystemNotifications
                           ? 'Show wallet events in the system notification center.'
-                          : 'Available on Android, Linux, macOS, and Windows.',
+                          : 'Available on Android, iOS, Linux, macOS, and Windows.',
                     ),
                     value:
                         notifications.supportsSystemNotifications &&

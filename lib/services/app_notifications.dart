@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -15,6 +16,7 @@ class AppNotifications({
   FlutterLocalNotificationsPlugin? plugin,
   final void Function(String category)? onPublicFeedOpened,
 }) extends ChangeNotifier {
+  static const _apnsChannel = MethodChannel('network.noosphere.sygnature/apns');
   // Keep the original key so existing notification preferences migrate.
   static const _systemEnabledKey = 'notifications.desktop_enabled';
   static const _systemPreferenceSetKey = 'notifications.system_preference_set';
@@ -56,6 +58,7 @@ class AppNotifications({
   bool get supportsSystemNotifications =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.linux ||
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.windows);
@@ -75,6 +78,7 @@ class AppNotifications({
       }
       if (!ready &&
           (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS ||
               defaultTargetPlatform == TargetPlatform.macOS)) {
         _systemEnabled = false;
         notifyListeners();
@@ -89,6 +93,9 @@ class AppNotifications({
 
   Future<bool?> systemPermissionGranted() async {
     if (!supportsSystemNotifications) return null;
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return _ensurePluginInitialized(checkPermission: true);
+    }
     if (defaultTargetPlatform != TargetPlatform.android) {
       return _systemEnabled;
     }
@@ -98,7 +105,8 @@ class AppNotifications({
   Future<bool> _restoreAutomaticallyDisabledSetting() async {
     if (!_systemEnabled &&
         !_systemPreferenceSet &&
-        defaultTargetPlatform == TargetPlatform.android) {
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
       final permissionReady = await _ensurePluginInitialized(
         checkPermission: true,
       );
@@ -254,6 +262,7 @@ class AppNotifications({
         payload: payload,
         notificationDetails: NotificationDetails(
           android: androidWalletAlerts,
+          iOS: appleWalletAlerts,
           macOS: const DarwinNotificationDetails(
             presentSound: false,
             threadIdentifier: 'sygnature-wallet-events',
@@ -285,6 +294,12 @@ class AppNotifications({
         final initialized = await _plugin.initialize(
           settings: const InitializationSettings(
             android: AndroidInitializationSettings('ic_notification'),
+            iOS: DarwinInitializationSettings(
+              requestAlertPermission: false,
+              requestBadgePermission: false,
+              requestSoundPermission: false,
+              defaultPresentSound: false,
+            ),
             macOS: DarwinInitializationSettings(
               requestAlertPermission: false,
               requestBadgePermission: false,
@@ -308,6 +323,7 @@ class AppNotifications({
         // initializes successfully but returns false. Request permission below
         // when needed instead of treating that response as a startup failure.
         _pluginInitialized =
+            defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS ||
             (initialized ?? false);
       }
@@ -332,6 +348,21 @@ class AppNotifications({
           if (granted == true) return true;
         }
         return await android.areNotificationsEnabled() ?? false;
+      }
+      if (defaultTargetPlatform == TargetPlatform.iOS &&
+          (requestPermission || checkPermission)) {
+        final ios = _plugin
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >();
+        if (ios == null) return false;
+        if (requestPermission) {
+          final granted = await ios.requestPermissions(alert: true);
+          if (granted != true) return false;
+          await _apnsChannel.invokeMethod<void>('register');
+          return true;
+        }
+        return (await ios.checkPermissions())?.isEnabled ?? false;
       }
       if (requestPermission) {
         if (defaultTargetPlatform == TargetPlatform.macOS) {

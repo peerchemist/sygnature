@@ -38,6 +38,7 @@ void main() {
   const notifications = MethodChannel(
     'dexterous.com/flutter/local_notifications',
   );
+  const apns = MethodChannel('network.noosphere.sygnature/apns');
   late List<MethodCall> pluginCalls;
   late List<MethodCall> storageCalls;
 
@@ -61,6 +62,10 @@ void main() {
       pluginCalls.add(call);
       return true;
     });
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      apns,
+      (_) async => null,
+    );
   });
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;
@@ -69,6 +74,7 @@ void main() {
       notifications,
       null,
     );
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(apns, null);
   });
 
   test(
@@ -161,44 +167,47 @@ void main() {
     },
   );
 
-  test('notification launch suppresses its matching runtime alert once', () async {
-    binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
-      call,
-    ) async {
-      pluginCalls.add(call);
-      if (call.method == 'getNotificationAppLaunchDetails') {
-        return {
-          'notificationLaunchedApp': true,
-          'notificationResponse': {
-            'notificationId': 1,
-            'notificationResponseType': 0,
-            'payload': 'public-feed:signing',
-          },
-        };
-      }
-      return true;
-    });
-    final categories = <String>[];
-    final sounds = _RecordingUiSounds();
-    final delivery = AppNotifications(
-      sounds: sounds,
-      onPublicFeedOpened: categories.add,
-    );
+  test(
+    'notification launch suppresses its matching runtime alert once',
+    () async {
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+        call,
+      ) async {
+        pluginCalls.add(call);
+        if (call.method == 'getNotificationAppLaunchDetails') {
+          return {
+            'notificationLaunchedApp': true,
+            'notificationResponse': {
+              'notificationId': 1,
+              'notificationResponseType': 0,
+              'payload': 'public-feed:signing',
+            },
+          };
+        }
+        return true;
+      });
+      final categories = <String>[];
+      final sounds = _RecordingUiSounds();
+      final delivery = AppNotifications(
+        sounds: sounds,
+        onPublicFeedOpened: categories.add,
+      );
 
-    await delivery.initialize();
-    delivery.roastSigningRequest();
-    delivery.dkgRequest();
-    delivery.roastSigningRequest();
+      await delivery.initialize();
+      delivery.roastSigningRequest();
+      delivery.dkgRequest();
+      delivery.roastSigningRequest();
 
-    expect(categories, ['signing']);
-    expect(sounds.cues, [UiSoundCue.dkgRequest, UiSoundCue.signingRequest]);
-    expect(pluginCalls.map((call) => call.method), [
-      'initialize',
-      'getNotificationAppLaunchDetails',
-      'requestNotificationsPermission',
-    ]);
-    delivery.dispose();
-  });
+      expect(categories, ['signing']);
+      expect(sounds.cues, [UiSoundCue.dkgRequest, UiSoundCue.signingRequest]);
+      expect(pluginCalls.map((call) => call.method), [
+        'initialize',
+        'getNotificationAppLaunchDetails',
+        'requestNotificationsPermission',
+      ]);
+      delivery.dispose();
+    },
+  );
 
   test(
     'Android restores an automatically disabled notification setting',
@@ -317,6 +326,62 @@ void main() {
         'requestPermissions',
       ]);
       expect((pluginCalls.last.arguments as Map)['alert'], isTrue);
+      delivery.dispose();
+    },
+  );
+
+  test('iOS requests alert permission then registers with APNs', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    IOSFlutterLocalNotificationsPlugin.registerWith();
+    final apnsCalls = <MethodCall>[];
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(apns, (call) async {
+      apnsCalls.add(call);
+      return null;
+    });
+
+    final delivery = AppNotifications();
+    await delivery.initialize();
+
+    expect(delivery.supportsSystemNotifications, isTrue);
+    expect(pluginCalls.map((call) => call.method), [
+      'initialize',
+      'requestPermissions',
+    ]);
+    expect((pluginCalls.last.arguments as Map)['alert'], isTrue);
+    expect(apnsCalls.map((call) => call.method), ['register']);
+    delivery.dispose();
+  });
+
+  test(
+    'iOS permission checks do not request permission or APNs registration',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      IOSFlutterLocalNotificationsPlugin.registerWith();
+      final apnsCalls = <MethodCall>[];
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(apns, (
+        call,
+      ) async {
+        apnsCalls.add(call);
+        return null;
+      });
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(notifications, (
+        call,
+      ) async {
+        pluginCalls.add(call);
+        if (call.method == 'checkPermissions') {
+          return {'isEnabled': true, 'isAlertEnabled': true};
+        }
+        return true;
+      });
+
+      final delivery = AppNotifications();
+      await delivery.initialize(requestPermission: false);
+      expect(await delivery.systemPermissionGranted(), isTrue);
+      expect(pluginCalls.map((call) => call.method), [
+        'initialize',
+        'checkPermissions',
+      ]);
+      expect(apnsCalls, isEmpty);
       delivery.dispose();
     },
   );

@@ -97,7 +97,7 @@ For protocol, connectivity and security details, see
 
 ## Development
 
-Sygnature is built with Flutter and targets Android, Linux, Windows and macOS.
+Sygnature is built with Flutter and targets Android, iOS, Linux, Windows and macOS.
 See [scripts/README.md](scripts/README.md) for platform dependencies, build
 instructions and packaging.
 

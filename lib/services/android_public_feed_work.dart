@@ -13,6 +13,8 @@ import 'public_feed_poller.dart';
 
 const publicFeedWorkUniqueName = 'network.noosphere.sygnature.public-feed';
 const publicFeedWorkTaskName = 'publicFeedPoll';
+const iosPublicFeedRefreshTaskName =
+    'network.noosphere.sygnature.public-feed.refresh';
 
 /// This callback is also retained in release AOT builds. No app bootstrap runs
 /// in this engine, and WorkManager carries no subscription/capability inputData.
@@ -63,7 +65,10 @@ final class PublicFeedBackgroundTask({
   final PublicFeedBackgroundPoll poll = _pollOnce,
 }) {
   Future<bool> execute(String task) async {
-    if (task != publicFeedWorkTaskName) return true;
+    if (task != publicFeedWorkTaskName &&
+        task != iosPublicFeedRefreshTaskName) {
+      return true;
+    }
     PublicFeedStore? store;
     try {
       try {
@@ -103,5 +108,46 @@ Future<void> initializeAndroidPublicFeedWork({
     frequency: const Duration(minutes: 15),
     constraints: Constraints(networkType: NetworkType.connected),
     existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
+  );
+}
+
+/// Registers the iOS 13+ BGAppRefreshTask used as a best-effort catch-up path.
+///
+/// iOS treats [initialDelay] only as an earliest-start hint. The operating
+/// system chooses the actual cadence and does not launch refresh tasks after a
+/// user force-quits the application.
+Future<void> initializeIosPublicFeedWork({
+  TargetPlatform? platform,
+  bool? isWeb,
+  Workmanager? workmanager,
+}) async {
+  if ((isWeb ?? kIsWeb) ||
+      (platform ?? defaultTargetPlatform) != TargetPlatform.iOS) {
+    return;
+  }
+  final manager = workmanager ?? Workmanager();
+  await manager.initialize(publicFeedWorkDispatcher);
+  await manager.registerPeriodicTask(
+    iosPublicFeedRefreshTaskName,
+    publicFeedWorkTaskName,
+    initialDelay: const Duration(minutes: 15),
+  );
+}
+
+Future<void> initializePublicFeedBackgroundWork({
+  TargetPlatform? platform,
+  bool? isWeb,
+  Workmanager? workmanager,
+}) async {
+  final target = platform ?? defaultTargetPlatform;
+  await initializeAndroidPublicFeedWork(
+    platform: target,
+    isWeb: isWeb,
+    workmanager: workmanager,
+  );
+  await initializeIosPublicFeedWork(
+    platform: target,
+    isWeb: isWeb,
+    workmanager: workmanager,
   );
 }

@@ -133,6 +133,18 @@ void main() {
     expect(notifications.initializations, 0);
   });
 
+  test('iOS refresh identifier runs the same public-only worker', () async {
+    var runs = 0;
+    expect(
+      await task(poll: (_, _) async => runs++)
+          .execute(iosPublicFeedRefreshTaskName),
+      isTrue,
+    );
+    expect(runs, 1);
+    expect(calls, ['plugins', 'native']);
+    expect(notifications.initializations, 1);
+  });
+
   test('no subscriptions is a successful no-op', () async {
     expect(await task().execute(publicFeedWorkTaskName), isTrue);
     final store = await PublicFeedStore.open(directory.path);
@@ -363,6 +375,44 @@ void main() {
     }
     await initializeAndroidPublicFeedWork(
       platform: TargetPlatform.android,
+      isWeb: true,
+      workmanager: manager,
+    );
+    expect(manager.calls, isEmpty);
+  });
+
+  test('iOS startup schedules one BGAppRefresh catch-up task', () async {
+    final manager = RecordingWorkmanager();
+    await initializeIosPublicFeedWork(
+      platform: TargetPlatform.iOS,
+      isWeb: false,
+      workmanager: manager,
+    );
+    expect(manager.calls.map((call) => call.memberName), [
+      #initialize,
+      #registerPeriodicTask,
+    ]);
+    final registration = manager.calls.last;
+    expect(registration.positionalArguments, [
+      iosPublicFeedRefreshTaskName,
+      publicFeedWorkTaskName,
+    ]);
+    expect(
+      registration.namedArguments[#initialDelay],
+      const Duration(minutes: 15),
+    );
+    expect(registration.namedArguments[#inputData], isNull);
+  });
+
+  test('iOS work registration is ignored elsewhere and on web', () async {
+    final manager = RecordingWorkmanager();
+    await initializeIosPublicFeedWork(
+      platform: TargetPlatform.android,
+      isWeb: false,
+      workmanager: manager,
+    );
+    await initializeIosPublicFeedWork(
+      platform: TargetPlatform.iOS,
       isWeb: true,
       workmanager: manager,
     );

@@ -147,7 +147,7 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
             children: [
               if (isMember) ...[
                 const Text(
-                  'Get notified when this shared wallet has a new signing or key-setup request. On Android, Sygnature checks periodically in the background, so delivery may be delayed; on other platforms it checks while the app is open. Notifications contain no transaction or message details—open and unlock the wallet to review the request.',
+                  'Get notified when this shared wallet has a new signing or key-setup request. Android checks periodically; iOS uses generic push alerts with best-effort background refresh. Delivery may be delayed. Notifications contain no transaction or message details—open and unlock the wallet to review the request.',
                 ),
                 const SizedBox(height: 12),
               ] else ...[
@@ -261,11 +261,13 @@ class const _SyncHealth({
   @override
   Widget build(BuildContext context) {
     final android = defaultTargetPlatform == TargetPlatform.android;
+    final ios = defaultTargetPlatform == TargetPlatform.iOS;
+    final backgroundAvailable = android || ios;
     final backgroundTime = backgroundPoll == null
         ? null
         : DateTime.parse(backgroundPoll!);
     final delayed =
-        android &&
+        backgroundAvailable &&
         (backgroundTime == null ||
             DateTime.now().toUtc().difference(backgroundTime) >
                 const Duration(minutes: 45));
@@ -307,11 +309,13 @@ class const _SyncHealth({
         Text(
           android
               ? 'Android checks periodically in the background. The 15-minute interval is a minimum; battery and system scheduling may delay a check.'
+              : ios
+              ? 'APNs alerts are the primary iOS signal. Background refresh is best effort: iOS chooses the timing, does not guarantee a 15-minute cadence, and will not relaunch refresh work after a force-quit.'
               : 'Background scheduling is not available on this platform. Sygnature checks while the app is open.',
         ),
         const SizedBox(height: 8),
         Text('Last foreground check: ${formatTime(foregroundPoll)}'),
-        if (android)
+        if (backgroundAvailable)
           Text('Last background check: ${formatTime(backgroundPoll)}'),
         Text(
           'Last successful feed update: '

@@ -55,9 +55,9 @@ Future<void> main() async {
     ),
   );
   try {
-    await initializeAndroidPublicFeedWork();
+    await initializePublicFeedBackgroundWork();
   } on Object {
-    AppLogger.warn('Unable to schedule Android public feed background work');
+    AppLogger.warn('Unable to schedule public feed background work');
   }
 }
 

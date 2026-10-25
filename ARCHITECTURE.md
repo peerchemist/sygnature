@@ -409,6 +409,45 @@ prevouts, wallet/key/path ownership, outputs, change, fee, network, sighash
 policy, Taproot tweaks, metadata and request explanation before authorizing its
 signature share.
 
+### Mobile public-feed notifications
+
+Mobile background delivery is deliberately separated from the encrypted
+wallet and private ROAST transport. The public-feed store contains only the
+pinned coordinator address, the unguessable feed capability, signed event
+cursor/state and notification bookkeeping. Android WorkManager and iOS
+`BGAppRefreshTask` open that store directly, fetch a signed page from the
+pinned coordinator and post a generic local notification. They do not open the
+wallet vault, restore signer state or start a coordinator.
+
+On iOS, an APNs alert is the primary signal and `BGAppRefreshTask` is only a
+best-effort catch-up path. The APNs provider must send an opaque payload such
+as:
+
+```json
+{
+  "aps": {
+    "alert": {
+      "title": "Wallet activity",
+      "body": "Open Sygnature and unlock your wallet to review current requests."
+    },
+    "sound": "default"
+  }
+}
+```
+
+The payload must not include a group, wallet, request, transaction, signer,
+coordinator address, feed capability or approval action. Opening the alert
+starts the normal foreground poller; all request facts are then obtained from
+the authenticated public feed. The app registers with APNs only after
+notification authorization. A release deployment still needs an APNs provider
+to associate the resulting device token with its opaque wake-up registration;
+APNs credentials never belong in the client.
+
+iOS chooses whether and when to run an app-refresh task. The 15-minute value is
+an earliest-begin hint, not a cadence, and refresh will not relaunch an app the
+user force-quit. Foreground polling remains active while Sygnature is open, so
+correctness never depends on either APNs or background execution.
+
 ### Durable state boundaries
 
 Sygnature stores all security-critical ROAST state in encrypted durable
@@ -447,6 +486,10 @@ The behavior described above is defined primarily in:
 - `lib/services/roast_runtime_manager.dart`
 - `lib/services/roast_runtime_rooms.dart`
 - `lib/services/roast_runtime_signing_mapper.dart`
+- `lib/services/android_public_feed_work.dart`
+- `lib/services/public_feed_notifications.dart`
+- `lib/services/public_feed_poller.dart`
+- `lib/storage/public_feed_store.dart`
 - `lib/storage/roast_storage.dart`
 - [Noosphere 0.5.0](https://github.com/peerchemist/noosphere/tree/0.5.0):
   `packages/noosphere_protocol/spec/CBOR_WIRE.cddl`,
