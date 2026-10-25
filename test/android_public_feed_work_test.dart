@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/services/android_public_feed_work.dart';
 import 'package:sygnature_ng/services/public_feed_notifications.dart';
@@ -77,6 +78,7 @@ void main() {
   );
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     directory = await Directory.systemTemp.createTemp('public-feed-worker-');
     notifications = RecordingNotifications();
     calls = [];
@@ -349,7 +351,7 @@ void main() {
         publicFeedWorkUniqueName,
         publicFeedWorkTaskName,
       ]);
-      expect(call.namedArguments[#frequency], const Duration(minutes: 15));
+      expect(call.namedArguments[#frequency], const Duration(hours: 1));
       expect(
         call.namedArguments[#existingWorkPolicy],
         ExistingPeriodicWorkPolicy.update,
@@ -361,6 +363,65 @@ void main() {
       expect(call.namedArguments[#inputData], isNull);
       expect(call.namedArguments[#foregroundServiceConfig], isNull);
     }
+  });
+
+  test('Android startup restores the selected work frequency', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      androidPublicFeedWorkFrequencyStorageKey: '180',
+    });
+    final manager = RecordingWorkmanager();
+
+    await initializeAndroidPublicFeedWork(
+      platform: TargetPlatform.android,
+      isWeb: false,
+      workmanager: manager,
+    );
+
+    expect(
+      manager.calls.last.namedArguments[#frequency],
+      const Duration(hours: 3),
+    );
+  });
+
+  test(
+    'changing Android frequency updates work and persists the choice',
+    () async {
+      final manager = RecordingWorkmanager();
+
+      await setAndroidPublicFeedWorkFrequency(
+        const Duration(hours: 1),
+        workmanager: manager,
+      );
+
+      expect(
+        manager.calls.last.namedArguments[#frequency],
+        const Duration(hours: 1),
+      );
+      expect(
+        await const FlutterSecureStorage().read(
+          key: androidPublicFeedWorkFrequencyStorageKey,
+        ),
+        '60',
+      );
+      expect(
+        await loadAndroidPublicFeedWorkFrequency(),
+        const Duration(hours: 1),
+      );
+    },
+  );
+
+  test('unsupported Android work frequency is rejected', () async {
+    final manager = RecordingWorkmanager();
+
+    await expectLater(
+      setAndroidPublicFeedWorkFrequency(
+        const Duration(minutes: 20),
+        workmanager: manager,
+      ),
+      throwsArgumentError,
+    );
+
+    expect(manager.calls, isEmpty);
   });
 
   test('all non-Android platforms and web register no work', () async {

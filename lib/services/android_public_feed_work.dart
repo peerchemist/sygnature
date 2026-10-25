@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:coinlib/coinlib.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
@@ -15,6 +16,36 @@ const publicFeedWorkUniqueName = 'network.noosphere.sygnature.public-feed';
 const publicFeedWorkTaskName = 'publicFeedPoll';
 const iosPublicFeedRefreshTaskName =
     'network.noosphere.sygnature.public-feed.refresh';
+const androidPublicFeedWorkFrequencyStorageKey =
+    'notifications.android_public_feed_frequency_minutes';
+const androidPublicFeedDefaultWorkFrequency = Duration(hours: 1);
+const androidPublicFeedWorkFrequencies = [
+  Duration(minutes: 15),
+  Duration(minutes: 30),
+  Duration(hours: 1),
+  Duration(hours: 3),
+  Duration(hours: 6),
+];
+
+const _preferenceStorage = FlutterSecureStorage(
+  aOptions: AndroidOptions(resetOnError: false),
+);
+
+Future<Duration> loadAndroidPublicFeedWorkFrequency({
+  FlutterSecureStorage storage = _preferenceStorage,
+}) async {
+  try {
+    final minutes = int.tryParse(
+      await storage.read(key: androidPublicFeedWorkFrequencyStorageKey) ?? '',
+    );
+    final frequency = Duration(minutes: minutes ?? 0);
+    return androidPublicFeedWorkFrequencies.contains(frequency)
+        ? frequency
+        : androidPublicFeedDefaultWorkFrequency;
+  } on Object {
+    return androidPublicFeedDefaultWorkFrequency;
+  }
+}
 
 /// This callback is also retained in release AOT builds. No app bootstrap runs
 /// in this engine, and WorkManager carries no subscription/capability inputData.
@@ -95,19 +126,43 @@ Future<void> initializeAndroidPublicFeedWork({
   TargetPlatform? platform,
   bool? isWeb,
   Workmanager? workmanager,
+  Duration? frequency,
+  FlutterSecureStorage storage = _preferenceStorage,
 }) async {
   if ((isWeb ?? kIsWeb) ||
       (platform ?? defaultTargetPlatform) != TargetPlatform.android) {
     return;
   }
   final manager = workmanager ?? Workmanager();
+  final configuredFrequency =
+      frequency ?? await loadAndroidPublicFeedWorkFrequency(storage: storage);
   await manager.initialize(publicFeedWorkDispatcher);
   await manager.registerPeriodicTask(
     publicFeedWorkUniqueName,
     publicFeedWorkTaskName,
-    frequency: const Duration(minutes: 15),
+    frequency: configuredFrequency,
     constraints: Constraints(networkType: NetworkType.connected),
     existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
+  );
+}
+
+Future<void> setAndroidPublicFeedWorkFrequency(
+  Duration frequency, {
+  Workmanager? workmanager,
+  FlutterSecureStorage storage = _preferenceStorage,
+}) async {
+  if (!androidPublicFeedWorkFrequencies.contains(frequency)) {
+    throw ArgumentError.value(frequency, 'frequency');
+  }
+  await initializeAndroidPublicFeedWork(
+    platform: TargetPlatform.android,
+    isWeb: false,
+    workmanager: workmanager,
+    frequency: frequency,
+  );
+  await storage.write(
+    key: androidPublicFeedWorkFrequencyStorageKey,
+    value: '${frequency.inMinutes}',
   );
 }
 

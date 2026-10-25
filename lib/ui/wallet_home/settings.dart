@@ -20,12 +20,17 @@ Future<void> _showSettings(
           defaultTargetPlatform == TargetPlatform.iOS)
       ? controller.publicFeedStore?.then((store) => store.notificationWindow())
       : null;
+  final publicFeedWorkFrequency =
+      defaultTargetPlatform == TargetPlatform.android
+      ? loadAndroidPublicFeedWorkFrequency()
+      : null;
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => _SettingsScreen(
         controller: controller,
         notifications: notifications,
         publicFeedNotificationWindow: publicFeedNotificationWindow,
+        publicFeedWorkFrequency: publicFeedWorkFrequency,
       ),
     ),
   );
@@ -35,6 +40,7 @@ class const _SettingsScreen({
   required final WalletController controller,
   required final AppNotifications notifications,
   required final Future<Duration>? publicFeedNotificationWindow,
+  required final Future<Duration>? publicFeedWorkFrequency,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SelectorBuilder(
@@ -254,7 +260,8 @@ class const _SettingsScreen({
                       label: const Text('Send test notification'),
                     ),
                   ),
-                  if (publicFeedNotificationWindow != null) ...[
+                  if (publicFeedNotificationWindow != null ||
+                      publicFeedWorkFrequency != null) ...[
                     const SizedBox(height: 20),
                     Text(
                       'ROAST EVENT NOTIFICATIONS',
@@ -265,45 +272,98 @@ class const _SettingsScreen({
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      'How old can ROAST events be and still notify you?',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    FutureBuilder<Duration>(
-                      future: publicFeedNotificationWindow,
-                      builder: (context, snapshot) => KeyedSubtree(
-                        key: const Key('public-feed-notification-window'),
-                        child: DropdownButtonFormField<int>(
-                          key: ValueKey(snapshot.data?.inMinutes),
-                          initialValue:
-                              snapshot.data?.inMinutes ??
-                              publicFeedDefaultNotificationWindow.inMinutes,
-                          decoration: InputDecoration(
-                            labelText: 'Maximum event age',
-                            helperText: snapshot.hasError
-                                ? 'Event age setting unavailable.'
-                                : 'When Android catches up, older events are ignored. '
-                                      'Expired requests never notify.',
+                    if (publicFeedWorkFrequency != null) ...[
+                      FutureBuilder<Duration>(
+                        future: publicFeedWorkFrequency,
+                        builder: (context, snapshot) => KeyedSubtree(
+                          key: const Key('public-feed-work-frequency'),
+                          child: DropdownButtonFormField<int>(
+                            key: ValueKey(snapshot.data?.inMinutes),
+                            initialValue: snapshot.data?.inMinutes,
+                            decoration: InputDecoration(
+                              labelText: 'Background check frequency',
+                              helperText: snapshot.hasError
+                                  ? 'Background frequency setting unavailable.'
+                                  : 'Approximate. Android may delay checks to save battery.',
+                            ),
+                            items: [
+                              for (final frequency
+                                  in androidPublicFeedWorkFrequencies)
+                                DropdownMenuItem(
+                                  value: frequency.inMinutes,
+                                  child: Text(
+                                    _publicFeedNotificationWindows[frequency
+                                            .inMinutes] ??
+                                        '${frequency.inMinutes} minutes',
+                                  ),
+                                ),
+                            ],
+                            onChanged: snapshot.hasData
+                                ? (minutes) async {
+                                    try {
+                                      await setAndroidPublicFeedWorkFrequency(
+                                        Duration(minutes: minutes!),
+                                      );
+                                    } on Object {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Background check frequency could not be saved.',
+                                                ),
+                                              ),
+                                            );
+                                      }
+                                    }
+                                  }
+                                : null,
                           ),
-                          items: [
-                            for (final option
-                                in _publicFeedNotificationWindows.entries)
-                              DropdownMenuItem(
-                                value: option.key,
-                                child: Text(option.value),
-                              ),
-                          ],
-                          onChanged: snapshot.hasData
-                              ? (minutes) async =>
-                                    (await controller.publicFeedStore!)
-                                        .setNotificationWindow(
-                                          Duration(minutes: minutes!),
-                                        )
-                              : null,
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 20),
+                    ],
+                    if (publicFeedNotificationWindow != null) ...[
+                      Text(
+                        'How old can ROAST events be and still notify you?',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      FutureBuilder<Duration>(
+                        future: publicFeedNotificationWindow,
+                        builder: (context, snapshot) => KeyedSubtree(
+                          key: const Key('public-feed-notification-window'),
+                          child: DropdownButtonFormField<int>(
+                            key: ValueKey(snapshot.data?.inMinutes),
+                            initialValue:
+                                snapshot.data?.inMinutes ??
+                                publicFeedDefaultNotificationWindow.inMinutes,
+                            decoration: InputDecoration(
+                              labelText: 'Maximum event age',
+                              helperText: snapshot.hasError
+                                  ? 'Event age setting unavailable.'
+                                  : 'When this device catches up, older events are ignored. '
+                                        'Expired requests never notify.',
+                            ),
+                            items: [
+                              for (final option
+                                  in _publicFeedNotificationWindows.entries)
+                                DropdownMenuItem(
+                                  value: option.key,
+                                  child: Text(option.value),
+                                ),
+                            ],
+                            onChanged: snapshot.hasData
+                                ? (minutes) async =>
+                                      (await controller.publicFeedStore!)
+                                          .setNotificationWindow(
+                                            Duration(minutes: minutes!),
+                                          )
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                   const Divider(height: 32),
                   ListTile(

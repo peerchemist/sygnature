@@ -16,6 +16,7 @@ import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/electrumx_service.dart';
+import 'package:sygnature_ng/services/android_public_feed_work.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
@@ -616,6 +617,9 @@ void main() {
   testWidgets('configures notifications and opens the about screen', (
     tester,
   ) async {
+    FlutterSecureStorage.setMockInitialValues({
+      androidPublicFeedWorkFrequencyStorageKey: '30',
+    });
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -651,6 +655,9 @@ void main() {
     expect(find.text('50%'), findsOneWidget);
     expect(find.text('Send test notification'), findsOneWidget);
     expect(find.text('ROAST EVENT NOTIFICATIONS'), findsOneWidget);
+    expect(find.text('Background check frequency'), findsOneWidget);
+    expect(find.byKey(const Key('public-feed-work-frequency')), findsOneWidget);
+    expect(find.text('30 minutes'), findsOneWidget);
     expect(
       find.text('How old can ROAST events be and still notify you?'),
       findsOneWidget,
