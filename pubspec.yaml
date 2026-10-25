@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.9.50+36
+version: 0.9.51+37
 
 environment:
   sdk: ^3.13.4
@@ -42,7 +42,7 @@ dependencies:
   bip39_mnemonic: 4.1.0
   cryptography: ^2.9.0
   cbor: ^6.5.1
-  file_picker: ^13.1.0
+  file_picker: ^13.2.0
   logger: ^2.8.0
   unique_names_generator: ^3.1.2
   web_socket_channel: ^3.0.3
@@ -67,7 +67,7 @@ dependencies:
       url: https://github.com/peerchemist/noosphere.git
       ref: 0.5.0
       path: packages/noosphere_server
-  flutter_local_notifications: ^22.3.1
+  flutter_local_notifications: ^22.3.3
   app_links: ^7.2.1
   mobile_scanner: ^7.4.2
   qr_flutter: ^4.1.0
