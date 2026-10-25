@@ -5,6 +5,7 @@ RoastSigningRequest _mapSigningRequest(
   required String idHex,
 }) {
   final proposal = request.decodeProposal();
+
   final transactionMetadata = decodeRoastTransactionRequestMetadata(
     proposal.message,
   );
@@ -29,6 +30,7 @@ RoastSigningRequest _mapSigningRequest(
   var previousOutputValues = const <int>[];
   var inputOutpoints = const <String>[];
   var outputs = const <RoastSigningOutput>[];
+  ThresholdWalletTransaction? thresholdTransaction;
   final hasTransactionMetadata =
       metadata is TaprootTransactionSignatureMetadata;
   if (metadata is TaprootTransactionSignatureMetadata) {
@@ -41,6 +43,12 @@ RoastSigningRequest _mapSigningRequest(
       (details) =>
           details is TaprootKeySignDetails && details.hashType.schnorrDefault,
     );
+    if (usesSupportedSighash) {
+      thresholdTransaction = ThresholdWalletTransaction(
+        transaction: metadata.transaction,
+        signDetails: metadata.signDetails.cast<TaprootKeySignDetails>(),
+      );
+    }
     signedInputIndexes = [
       for (final details in metadata.signDetails) details.inputN,
     ];
@@ -103,6 +111,7 @@ RoastSigningRequest _mapSigningRequest(
       for (final signature in proposal.requiredSigs)
         List.unmodifiable(signature.hdDerivation),
     ],
+    thresholdTransaction: thresholdTransaction,
     message: transactionMetadata?.message ?? proposal.message,
     signedMessageText: metadata is MessageSignatureMetadata
         ? metadata.payload.text
@@ -111,5 +120,26 @@ RoastSigningRequest _mapSigningRequest(
     accountIndex: transactionMetadata?.accountIndex,
     changeOutputIndex: transactionMetadata?.changeOutputIndex,
     changeDerivationPath: transactionMetadata?.changeDerivationPath,
+  );
+}
+
+RoastSigningRequest _mapCompletedSigningRequest(
+  WorkerSigningResultEvent event,
+) {
+  final proposal = event.decodeProposal();
+  return _mapSigningRequest(
+    WorkerSigningRequest(
+      id: event.requestId,
+      proposalBytes: event.proposalBytes,
+      creator: event.creator,
+      expiry: proposal.expiry.time,
+      status: 'accepted',
+      progress: WorkerSigningProgress(
+        threshold: 0,
+        contributingParticipants: const [],
+        stage: 'completed',
+      ),
+    ),
+    idHex: bytesToHex(event.requestId),
   );
 }

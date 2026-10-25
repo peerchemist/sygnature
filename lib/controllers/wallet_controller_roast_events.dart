@@ -426,19 +426,40 @@ extension WalletRoastEventController on WalletController {
         final pendingKey = '${setup.id}:${event.requestIdHex}';
         _roastSigningRequests.remove(pendingKey);
         _notifyListeners();
-        if (event.creator != setup.localParticipant.identifierHex) return;
         var operation = await _roastSigningOperations.getSigningOperation(
           pendingKey,
         );
-        if (operation == null || operation.proposalHex != event.proposalHex) {
+        if (operation == null) {
+          final request = event.request;
+          if (request == null ||
+              request.kind != RoastSigningRequestKind.transaction) {
+            return;
+          }
+          operation = _completedRoastSigningOperation(
+            setup,
+            request,
+            event.signatures,
+          );
+          await _saveRoastSigningOperation(operation);
+        } else if (operation.proposalHex != event.proposalHex) {
           throw StateError(
             'The completed ROAST proposal does not match local state.',
           );
+        }
+        if (operation.signaturesHex.isEmpty) {
+          operation = operation.copyWith(
+            signaturesHex: [
+              for (final signature in event.signatures) bytesToHex(signature),
+            ],
+            clearError: true,
+          );
+          await _saveRoastSigningOperation(operation);
         }
         _storedRoastSigningOperations[pendingKey] = operation;
         if (operation.rawTransactionHex == null) {
           operation = await _completeRoastSigningOperation(operation);
         }
+        if (event.creator != setup.localParticipant.identifierHex) return;
         final pending = _pendingRoastSends[pendingKey];
         if (pending != null && !pending.completer.isCompleted) {
           pending.completer.complete(

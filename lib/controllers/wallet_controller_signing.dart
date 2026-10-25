@@ -870,9 +870,10 @@ extension WalletSigningController on WalletController {
 
   int? _validateRoastSigningRequest(
     RoastSetup setup,
-    RoastSigningRequest request,
-  ) {
-    if (request.expiry.isBefore(DateTime.now())) {
+    RoastSigningRequest request, {
+    bool completed = false,
+  }) {
+    if (!completed && request.expiry.isBefore(DateTime.now())) {
       throw const WalletSigningFailure(
         WalletSigningFailureKind.expired,
         'The signing request is expired.',
@@ -897,6 +898,7 @@ extension WalletSigningController on WalletController {
         !request.hasTransactionMetadata ||
         !request.usesSupportedSighash ||
         !request.usesExpectedTaprootTweak ||
+        (completed && request.thresholdTransaction == null) ||
         request.addressSchemeVersion == null ||
         request.accountIndex == null) {
       throw const WalletTransactionRejected(
@@ -984,16 +986,19 @@ extension WalletSigningController on WalletController {
     );
     final validOutpoints =
         request.inputOutpoints.length == request.transactionInputCount &&
-        request.inputOutpoints.every(knownUtxos.containsKey) &&
-        request.inputOutpoints.every(
-          (outpoint) => !reservedOutpoints.contains(outpoint),
-        );
+        (completed ||
+            request.inputOutpoints.every(knownUtxos.containsKey) &&
+                request.inputOutpoints.every(
+                  (outpoint) => !reservedOutpoints.contains(outpoint),
+                ));
     final validInputValues =
         request.previousOutputValues.length == request.transactionInputCount &&
-        request.previousOutputValues.indexed.every(
-          (entry) =>
-              knownUtxos[request.inputOutpoints[entry.$1]]?.value == entry.$2,
-        );
+        (completed ||
+            request.previousOutputValues.indexed.every(
+              (entry) =>
+                  knownUtxos[request.inputOutpoints[entry.$1]]?.value ==
+                  entry.$2,
+            ));
     int? learnedIndex = request.derivationPaths
         .where(pathIsAllowed)
         .map((path) => path.last)
@@ -1051,6 +1056,47 @@ extension WalletSigningController on WalletController {
       );
     }
     return learnedIndex;
+  }
+
+  RoastSigningOperation _completedRoastSigningOperation(
+    RoastSetup setup,
+    RoastSigningRequest request,
+    List<Uint8List> signatures,
+  ) {
+    _validateRoastSigningRequest(setup, request, completed: true);
+    final account = accounts.firstWhere(
+      (item) =>
+          item.sourceId == setup.id &&
+          item.accountIndex == request.accountIndex,
+    );
+    final network = networkForAccount(account);
+    final expectedInternalKeysHex = [
+      for (final path in request.derivationPaths)
+        _roastKeyService
+            .deriveAddress(
+              groupKeyHex: setup.groupKeyHex!,
+              threshold: setup.threshold,
+              network: network,
+              accountIndex: account.accountIndex,
+              pathLabel: 'R/${path.join('/')}',
+            )
+            .internalKeyHex,
+    ];
+    return RoastSigningOperation(
+      setupId: setup.id,
+      accountId: account.id,
+      requestIdHex: request.idHex,
+      proposalHex: request.proposalHex,
+      expectedInternalKeysHex: expectedInternalKeysHex,
+      thresholdTransaction: request.thresholdTransaction!.toJson(),
+      reservedOutpoints: request.inputOutpoints,
+      expiry: request.expiry,
+      state: RoastSigningOperationState.awaitingSignatures,
+      updatedAt: DateTime.now().toUtc(),
+      signaturesHex: [
+        for (final signature in signatures) bytesToHex(signature),
+      ],
+    );
   }
 
   Future<void> _persistLearnedRoastAllocation(

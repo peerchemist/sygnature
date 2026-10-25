@@ -125,6 +125,7 @@ class RoastSigningRequest({
   required final List<RoastSigningOutput> outputs,
   required final List<String> masterGroupKeys,
   required final List<List<int>> derivationPaths,
+  final ThresholdWalletTransaction? thresholdTransaction,
   final String message = '',
   final String? signedMessageText,
   final int? addressSchemeVersion,
@@ -157,6 +158,7 @@ class RoastSigningRequest({
     outputs: outputs,
     masterGroupKeys: masterGroupKeys,
     derivationPaths: derivationPaths,
+    thresholdTransaction: thresholdTransaction,
     message: message,
     signedMessageText: signedMessageText,
     addressSchemeVersion: addressSchemeVersion,
@@ -248,6 +250,7 @@ final class RoastRuntimeSigningResultEvent(
   required final String proposalHex,
   required final List<Uint8List> signatures,
   required final String creator,
+  final RoastSigningRequest? request,
 }) extends RoastRuntimeEvent;
 
 class RoastSignedMessage({

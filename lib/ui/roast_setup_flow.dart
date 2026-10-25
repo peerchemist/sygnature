@@ -8,6 +8,7 @@ import 'package:unique_names_generator/unique_names_generator.dart';
 
 import '../controllers/wallet_controller.dart';
 import '../models/roast_setup.dart';
+import '../models/roast_signing_operation.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import '../services/roast_runtime_manager.dart';
@@ -466,6 +467,7 @@ class const RoastSetupPanel({
     if (recoverableBroadcast != null) {
       return [
         FilledButton.icon(
+          key: const Key('broadcast-signed-roast-transaction'),
           onPressed: busy
               ? null
               : () => _perform(
@@ -473,7 +475,11 @@ class const RoastSetupPanel({
                   () => controller.retryRoastBroadcast(recoverableBroadcast),
                 ),
           icon: const Icon(Icons.send_rounded),
-          label: const Text('Retry saved broadcast'),
+          label: Text(
+            recoverableBroadcast.state == RoastSigningOperationState.signed
+                ? 'Broadcast signed transaction'
+                : 'Retry saved broadcast',
+          ),
         ),
       ];
     }

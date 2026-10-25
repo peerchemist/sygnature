@@ -350,7 +350,11 @@ round events normally refer to the established proposal by its 16-byte request
 ID and carry only the commitments or shares required for that round; the full
 proposal is not repeated in every round. The coordinator sends round-start
 events only to participants selected for that ROAST round. On completion, it
-stores the aggregate signatures and notifies the participants.
+stores the aggregate signatures and notifies the participants. Every
+participant independently verifies and assembles a completed transaction, so
+any participant can broadcast it. The request creator's active send flow
+broadcasts automatically, while every participant can explicitly broadcast a
+saved copy.
 
 ## 9. Offline clients, buffering and reconnect
 

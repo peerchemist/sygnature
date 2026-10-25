@@ -1009,6 +1009,7 @@ final class RoastRuntimeManager(
             proposalHex: proposalHex,
             signatures: event.signatures,
             creator: event.creator,
+            request: _mapCompletedSigningRequest(event),
           ),
         );
       }

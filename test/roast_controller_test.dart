@@ -33,6 +33,8 @@ import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
 
+import 'fixtures/peercoin_taproot_transaction_fixture.dart';
+
 void main() {
   setUpAll(() async {
     await loadCoinlib();
@@ -2402,6 +2404,64 @@ void main() {
     controller.dispose();
   });
 
+  test('allows a non-requester to broadcast a completed transaction', () async {
+    final unsigned = Transaction.fromHex(fixtureUnsignedTransactionHex);
+    final transaction = ThresholdWalletTransaction(
+      transaction: unsigned,
+      signDetails: [
+        TaprootKeySignDetails(
+          tx: unsigned,
+          inputN: 0,
+          prevOuts: [
+            Output.fromScriptBytes(BigInt.from(2000000), Uint8List(1)),
+          ],
+        ),
+      ],
+    );
+    final request = _signingRequest(
+      'aa' * 16,
+      expiry: DateTime.now().subtract(const Duration(minutes: 1)),
+      thresholdTransaction: transaction,
+    );
+    final operations = MemoryRoastSigningOperationRepository();
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    final electrumx = _FakeElectrumxService();
+    final controller = _controller(
+      runtime: runtime,
+      operationRepository: operations,
+      electrumx: electrumx,
+      transactionService: const _CompletingWalletTransactionService(),
+      active: true,
+    );
+    await controller.load();
+    await _flushEvents();
+
+    runtime.emit(
+      RoastRuntimeSigningResultEvent(
+        'setup',
+        requestIdHex: request.idHex,
+        proposalHex: request.proposalHex,
+        signatures: [Uint8List(64)],
+        creator: request.creator,
+        request: request,
+      ),
+    );
+    await _flushEvents();
+
+    final completed = controller.recoverableRoastSigningOperations.single;
+    expect(completed.state, RoastSigningOperationState.signed);
+    expect(completed.rawTransactionHex, isNotEmpty);
+
+    await controller.retryRoastBroadcast(completed);
+
+    expect(electrumx.broadcasts, [completed.rawTransactionHex]);
+    expect(
+      (await operations.getSigningOperation(completed.storageId))?.state,
+      RoastSigningOperationState.broadcasted,
+    );
+    controller.dispose();
+  });
+
   test('queues signing while quorum is offline', () async {
     final signingKey = ECPrivateKey.fromHex('${'0' * 63}1');
     final destinationKey = ECPrivateKey.fromHex('${'0' * 63}2');
@@ -2946,6 +3006,7 @@ WalletController _controller({
   MemoryWalletRepository? repository,
   RoastSetupRole role = RoastSetupRole.member,
   _FakeRoastKeyService? keyService,
+  WalletTransactionService? transactionService,
   RoastSigningOperationRepository? operationRepository,
   _FakeElectrumxService? electrumx,
   bool active = false,
@@ -2982,6 +3043,7 @@ WalletController _controller({
     walletRepository,
     roastRuntime: runtime,
     roastKeyService: keyService ?? _FakeRoastKeyService(),
+    transactionService: transactionService,
     roastSigningOperations: operationRepository,
     networkServiceFactory: electrumx == null ? null : (_) async => electrumx,
     onRoastSigningRequest: onRoastSigningRequest,
@@ -3043,6 +3105,7 @@ RoastSigningRequest _signingRequest(
   int accountIndex = 0,
   int? changeOutputIndex,
   List<int>? changeDerivationPath,
+  ThresholdWalletTransaction? thresholdTransaction,
 }) => RoastSigningRequest(
   idHex: idHex,
   proposalHex: 'dd',
@@ -3072,6 +3135,7 @@ RoastSigningRequest _signingRequest(
   derivationPaths: const [
     [0, 6, 0, 0, 0, 0],
   ],
+  thresholdTransaction: thresholdTransaction,
   message: 'Quarterly hosting bill',
   addressSchemeVersion: addressSchemeVersion,
   accountIndex: accountIndex,
@@ -3557,6 +3621,21 @@ final class _FakeElectrumxService implements ElectrumxService {
 
   @override
   Future<void> close() => _snapshots.close();
+}
+
+final class _CompletingWalletTransactionService
+    extends CoinlibWalletTransactionService {
+  const _CompletingWalletTransactionService();
+
+  @override
+  SignedWalletTransaction completeThresholdSigning({
+    required ThresholdWalletTransaction transaction,
+    required List<Uint8List> signatures,
+    required List<String> expectedInternalKeysHex,
+  }) => const SignedWalletTransaction(
+    transactionId: 'completed-transaction-id',
+    rawTransactionHex: 'completed-transaction',
+  );
 }
 
 final class _SigningRoastRuntime(
