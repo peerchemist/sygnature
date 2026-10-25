@@ -1,6 +1,16 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 const publicFeedNotificationPayloadPrefix = 'public-feed:';
+const androidWalletAlerts = AndroidNotificationDetails(
+  'sygnature_wallet_alerts',
+  'Wallet alerts',
+  channelDescription: 'Incoming funds and ROAST requests requiring attention.',
+  importance: Importance.high,
+  priority: Priority.high,
+  playSound: true,
+  enableVibration: true,
+  onlyAlertOnce: true,
+);
 
 /// Notification delivery for the headless Android public-feed worker.
 ///
@@ -40,16 +50,7 @@ class PublicFeedNotifications({FlutterLocalNotificationsPlugin? plugin}) {
             'Open Sygnature and unlock your wallet to review current requests.',
         payload: '$publicFeedNotificationPayloadPrefix$category',
         notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'sygnature_wallet_events',
-            'Wallet events',
-            channelDescription:
-                'Incoming funds and ROAST requests requiring attention.',
-            importance: Importance.high,
-            priority: Priority.high,
-            playSound: false,
-            onlyAlertOnce: true,
-          ),
+          android: androidWalletAlerts,
         ),
       );
       return true;

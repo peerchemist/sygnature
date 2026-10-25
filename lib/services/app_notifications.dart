@@ -253,16 +253,7 @@ class AppNotifications({
         body: body,
         payload: payload,
         notificationDetails: NotificationDetails(
-          android: const AndroidNotificationDetails(
-            'sygnature_wallet_events',
-            'Wallet events',
-            channelDescription:
-                'Incoming funds and ROAST requests requiring attention.',
-            importance: Importance.high,
-            priority: Priority.high,
-            playSound: false,
-            onlyAlertOnce: true,
-          ),
+          android: androidWalletAlerts,
           macOS: const DarwinNotificationDetails(
             presentSound: false,
             threadIdentifier: 'sygnature-wallet-events',

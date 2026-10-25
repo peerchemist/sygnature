@@ -113,8 +113,12 @@ void main() {
         expect(args['body'], contains('unlock your wallet'));
         expect(args['payload'], 'public-feed:signing');
         final details = args['platformSpecifics'] as Map;
+        expect(details['channelId'], 'sygnature_wallet_alerts');
+        expect(details['importance'], Importance.high.value);
+        expect(details['priority'], Priority.high.value);
         expect(details['onlyAlertOnce'], isTrue);
-        expect(details['playSound'], isFalse);
+        expect(details['playSound'], isTrue);
+        expect(details['enableVibration'], isTrue);
       }
     },
   );
