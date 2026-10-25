@@ -114,6 +114,8 @@ class WalletController extends ChangeNotifier {
   static const _maxAnnouncedRoastActions = 512;
   static const _defaultAddressRecoveryLookahead = 20;
   static const _maxAddressRecoveryIndex = 10000;
+  static const _initialRoastReconnectDelay = Duration(seconds: 2);
+  static const _maxRoastReconnectDelay = Duration(seconds: 30);
 
   WalletController(
     this._repository, {
@@ -194,6 +196,8 @@ class WalletController extends ChangeNotifier {
   Future<void> _utxoReconciliationQueue = Future.value();
   final Set<String> _roastOperations = {};
   final Map<String, Future<void>> _roastStarts = {};
+  final Map<String, Timer> _roastReconnectTimers = {};
+  final Map<String, int> _roastReconnectAttempts = {};
   final Set<String> _roastCoordinatorSwitches = {};
   final Map<String, RoastCoordinatorSwitchFailure> _roastCoordinatorRecovery =
       {};
@@ -255,6 +259,11 @@ class WalletController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _syncGeneration++;
+    for (final timer in _roastReconnectTimers.values) {
+      timer.cancel();
+    }
+    _roastReconnectTimers.clear();
+    _roastReconnectAttempts.clear();
     unawaited(_roastEvents?.cancel());
     final roastRuntime = _roastRuntime;
     if (roastRuntime != null) unawaited(roastRuntime.close());

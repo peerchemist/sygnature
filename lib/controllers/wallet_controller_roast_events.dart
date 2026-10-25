@@ -110,6 +110,9 @@ extension WalletRoastEventController on WalletController {
           ),
         );
       case RoastRuntimeSnapshotEvent():
+        if (event.connected && event.signerRunning) {
+          _cancelRoastReconnect(event.setupId);
+        }
         final presenceChanged = _setRoastPresence(
           event.setupId,
           connected: event.connected,

@@ -899,6 +899,59 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('offers a manual reconnect for a disconnected startup', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final runtime = _FakeRoastRuntime()
+      ..startSnapshot = RoastRuntimeSnapshot(
+        connected: false,
+        signerRunning: false,
+        onlineParticipantIds: const [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+        groupKeyHex: null,
+        pendingDkgProposalHex: null,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository()..value = _activeRoastVault(),
+      roastRuntime: runtime,
+      roastKeyService: _FakeRoastKeyService(),
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await tester.pumpWidget(
+      SygnatureApp(controllerFactory: () async => controller),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
+    expect(find.text('Reconnect'), findsOneWidget);
+
+    runtime.startSnapshot = RoastRuntimeSnapshot(
+      connected: true,
+      signerRunning: true,
+      onlineParticipantIds: const ['01'],
+      coordinatorId: 'coordinator',
+      coordinatorRelayUrls: const [],
+      coordinatorIpAddrs: const [],
+      groupKeyHex: 'group-key',
+      pendingDkgProposalHex: null,
+    );
+    await tester.tap(find.text('Reconnect'));
+    await tester.pumpAndSettle();
+
+    expect(runtime.startCalls, 2);
+    expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+    expect(find.text('Reconnect'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets(
     'syncs and shows shared wallet balance while coordinator is unavailable',
     (tester) async {
@@ -942,10 +995,30 @@ void main() {
       expect(controller.roastSetups.single.status, RoastSetupStatus.error);
       expect(find.text('1.25 PPC'), findsWidgets);
       expect(find.text('Resume setup'), findsNothing);
+      expect(find.text('Reconnect'), findsOneWidget);
       final sendButton = tester.widget<OutlinedButton>(
         find.widgetWithText(OutlinedButton, 'Send'),
       );
       expect(sendButton.onPressed, isNull);
+
+      runtime
+        ..startError = null
+        ..startSnapshot = RoastRuntimeSnapshot(
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: const ['01'],
+          coordinatorId: 'coordinator',
+          coordinatorRelayUrls: const [],
+          coordinatorIpAddrs: const [],
+          groupKeyHex: 'group-key',
+          pendingDkgProposalHex: null,
+        );
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(runtime.startCalls, 2);
+      expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+      expect(find.text('Reconnect'), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

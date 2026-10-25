@@ -63,6 +63,7 @@ class RoastSetup({
   bool get needsInvitationCreation =>
       role == RoastSetupRole.host &&
       isFinalized &&
+      groupKeyHex == null &&
       invitations.isEmpty &&
       (status == RoastSetupStatus.connecting ||
           status == RoastSetupStatus.error);

@@ -923,6 +923,7 @@ extension WalletRoastSetupController on WalletController {
       );
     }
     if (!setup.isFinalized || _roastOperations.contains(setupId)) return;
+    _cancelRoastReconnect(setupId);
     await _startRoastRuntime(
       setup.copyWith(status: RoastSetupStatus.connecting),
     );
@@ -1006,7 +1007,7 @@ extension WalletRoastSetupController on WalletController {
     await _updateSetup(
       setup.id,
       (setup) => setup.copyWith(
-        status: snapshot.connected
+        status: snapshot.connected && snapshot.signerRunning
             ? setup.groupKeyHex == null
                   ? RoastSetupStatus.ready
                   : RoastSetupStatus.active
@@ -1014,7 +1015,7 @@ extension WalletRoastSetupController on WalletController {
         coordinatorId: snapshot.coordinatorId,
         coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
         coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
-        clearError: snapshot.connected,
+        clearError: snapshot.connected && snapshot.signerRunning,
       ),
       notifyIfUnchanged: presenceChanged,
     );
@@ -1239,6 +1240,7 @@ extension WalletRoastSetupController on WalletController {
       );
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
+        _cancelRoastReconnect(setup.id);
       }
       final groupWasActive =
           setup.groupKeyHex == snapshot.groupKeyHex &&
@@ -1250,7 +1252,9 @@ extension WalletRoastSetupController on WalletController {
       await _updateSetup(
         setup.id,
         (setup) => setup.copyWith(
-          status: snapshot.groupKeyHex == null
+          status: !snapshot.connected || !snapshot.signerRunning
+              ? RoastSetupStatus.interrupted
+              : snapshot.groupKeyHex == null
               ? snapshot.pendingDkgProposalHex == null
                     ? RoastSetupStatus.ready
                     : snapshot.pendingDkgStage != 'waiting'
@@ -1270,7 +1274,7 @@ extension WalletRoastSetupController on WalletController {
           pendingDkgCreatorId: snapshot.pendingDkgCreator,
           pendingDkgExpiry: snapshot.pendingDkgExpiry,
           clearPendingDkgProposal: snapshot.pendingDkgProposalHex == null,
-          clearError: true,
+          clearError: snapshot.connected && snapshot.signerRunning,
         ),
       );
       final connected = _setupById(setup.id);
@@ -1301,10 +1305,79 @@ extension WalletRoastSetupController on WalletController {
           errorMessage: _cleanRoastError(error),
         ),
       );
+      if (_shouldAutoReconnectRoastSetup(setup.id)) {
+        _scheduleRoastReconnect(setup.id);
+      }
     } finally {
       _roastOperations.remove(setup.id);
       _notifyListeners();
     }
+  }
+
+  bool _shouldAutoReconnectRoastSetup(String setupId) =>
+      !_disposed &&
+      !_roastCoordinatorRecovery.containsKey(setupId) &&
+      accounts.any(
+        (account) =>
+            !account.isArchived &&
+            account.keySource == WalletKeySource.roast &&
+            account.sourceId == setupId,
+      );
+
+  void _scheduleRoastReconnect(String setupId) {
+    if (!_shouldAutoReconnectRoastSetup(setupId) ||
+        _roastReconnectTimers.containsKey(setupId)) {
+      return;
+    }
+    final attempt = _roastReconnectAttempts[setupId] ?? 0;
+    final multiplier = 1 << (attempt > 4 ? 4 : attempt);
+    final retryMilliseconds =
+        WalletController._initialRoastReconnectDelay.inMilliseconds *
+        multiplier;
+    final maxMilliseconds =
+        WalletController._maxRoastReconnectDelay.inMilliseconds;
+    final delay = Duration(
+      milliseconds: retryMilliseconds < maxMilliseconds
+          ? retryMilliseconds
+          : maxMilliseconds,
+    );
+    _roastReconnectAttempts[setupId] = attempt + 1;
+    AppLogger.info(
+      '${_roastLogScope(setupId)} Reconnecting in ${delay.inSeconds}s',
+    );
+    _roastReconnectTimers[setupId] = Timer(delay, () {
+      _roastReconnectTimers.remove(setupId);
+      unawaited(_retryRoastSetup(setupId));
+    });
+  }
+
+  Future<void> _retryRoastSetup(String setupId) async {
+    if (!_shouldAutoReconnectRoastSetup(setupId)) {
+      _cancelRoastReconnect(setupId);
+      return;
+    }
+    if (_busy || _roastOperations.contains(setupId)) {
+      _scheduleRoastReconnect(setupId);
+      return;
+    }
+    try {
+      final setup = _setupById(setupId);
+      await _startRoastRuntime(
+        setup.copyWith(status: RoastSetupStatus.connecting),
+      );
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '${_roastLogScope(setupId)} Automatic reconnect failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _scheduleRoastReconnect(setupId);
+    }
+  }
+
+  void _cancelRoastReconnect(String setupId) {
+    _roastReconnectTimers.remove(setupId)?.cancel();
+    _roastReconnectAttempts.remove(setupId);
   }
 
   RoastSetup _setupById(String setupId) => roastSetups.firstWhere(

@@ -324,8 +324,10 @@ extension WalletAccountsController on WalletController {
           ? account.sourceId
           : null;
       final setupStillActive =
-          setupId != null && accounts.any((item) => item.sourceId == setupId);
+          setupId != null &&
+          accounts.any((item) => !item.isArchived && item.sourceId == setupId);
       if (setupId != null && !setupStillActive) {
+        _cancelRoastReconnect(setupId);
         try {
           await _roastRuntime?.stopSetup(setupId);
         } on Object catch (error, stackTrace) {
@@ -457,6 +459,7 @@ extension WalletAccountsController on WalletController {
       Object? cleanupError;
       StackTrace? cleanupStack;
       if (roastSetupId != null) {
+        _cancelRoastReconnect(roastSetupId);
         try {
           await _roastRuntime?.deleteSetup(roastSetupId);
         } on Object catch (error, stackTrace) {
@@ -533,6 +536,11 @@ extension WalletAccountsController on WalletController {
 
   Future<void> resetWallet() async {
     await _guard(() async {
+      for (final timer in _roastReconnectTimers.values) {
+        timer.cancel();
+      }
+      _roastReconnectTimers.clear();
+      _roastReconnectAttempts.clear();
       final runtime = _roastRuntime;
       if (runtime != null) {
         for (final setup in roastSetups) {
