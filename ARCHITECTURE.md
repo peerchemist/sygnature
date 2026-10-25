@@ -1,15 +1,12 @@
 # Sygnature ROAST messaging architecture
 
-Status: implementation documentation checked against Sygnature and the pinned
-Noosphere revision on 2026-10-20. Sygnature supports participant-bound room
-enrollment and the preconfigured-roster flow, durable client, room and
-coordinator state, DKG, successor-group transitions, transaction and message
-signing, and retry-safe transaction broadcast persistence. Cross-peer UTXO
-reservations are not implemented; reservations are local to each wallet
-instance. A locally constructed DKG key is exposed to the wallet only after
-every configured participant has acknowledged it. Broadcast inputs remain
-locally reserved until a later ElectrumX snapshot no longer reports those
-outpoints.
+Sygnature supports room enrollment, DKG, group transitions, and threshold
+signing for transactions and messages. Client, room, and coordinator state are
+persisted.
+
+UTXO reservations are local to each wallet. A DKG key becomes available only
+after every participant acknowledges it, and broadcast inputs remain reserved
+until an ElectrumX snapshot no longer lists them.
 
 ## 1. Topology and responsibilities
 
@@ -48,9 +45,11 @@ signature. There is currently no direct client-to-client fallback.
 
 ## 2. Iroh connection and identity
 
-Noosphere uses Iroh's QUIC connection with the ALPN `noosphere/roast/1`. Iroh
-may establish a direct route or use a configured relay; that choice does not
-change the application wire format.
+Noosphere uses Iroh's QUIC connection with the ALPN
+`noosphere/roast-cbor/1`. Iroh may establish a direct route or use a configured
+relay; that choice does not change the application wire format.
+Unauthenticated public-feed polling uses the separate
+`noosphere/public-feed-cbor/1` ALPN.
 
 For new setups, the coordinator's Iroh endpoint secret is deterministically
 derived from the validated wallet BIP-39 seed using the domain-separated path
@@ -74,13 +73,13 @@ then signs the returned challenge with its participant authentication key. Only
 after successful authentication may the connection start a group session.
 
 Before that finalized group session exists, a new setup can use the separate
-`noosphere/roast-enrollment/1` protocol. The host persists room state and issues
-participant-bound, expiring invitations. A joining participant proves control
-of the expected authentication key while redeeming its invitation. When every
-expected participant has enrolled, the host freezes the roster and starts the
-ordinary coordinator and signer session for that immutable group. Room state
-survives a restart; an interrupted invitation redemption is reconciled instead
-of being replayed blindly.
+`noosphere/roast-enrollment-cbor/1` protocol. The host persists room state and
+issues participant-bound, expiring invitations. A joining participant proves
+control of the expected authentication key while redeeming its invitation.
+When every expected participant has enrolled, the host freezes the roster and
+starts the ordinary coordinator and signer session for that immutable group.
+Room state survives a restart; an interrupted invitation redemption is
+reconciled instead of being replayed blindly.
 
 The coordinator address may be replaced without changing the participant group
 or FROST key, but only after pending signing operations and nonce records have
@@ -101,9 +100,9 @@ Every RPC opens a new bidirectional QUIC stream:
 ```text
 client                                  coordinator
   │ openBi()                                 │
-  │── operation varint + request protobuf ──►│
+  │── operation varint + request CBOR ───────►│
   │ finish sending                           │
-  │◄─ status varint + response protobuf ─────│
+  │◄─ status varint + response CBOR ─────────│
   │ stream closes                            │
 ```
 
@@ -144,16 +143,17 @@ snapshot boundary without a separate `Ready` message.
 
 ## 4. Wire encoding layers
 
-A Noosphere message is not encoded entirely as protobuf. Each operation uses a
-concrete protobuf type, while most cryptographic domain objects use a
-deterministic Noosphere/coinlib binary representation carried in protobuf
-`bytes` fields.
+Noosphere 0.5.0 uses concrete typed messages encoded as restricted,
+deterministic CBOR. Each message is a definite-length map with stable
+nonnegative integer keys. Most cryptographic domain objects keep their
+deterministic Noosphere/coinlib binary representation and are carried unchanged
+as CBOR byte strings.
 
 ```text
 Iroh QUIC stream
 ├── operation/status QUIC varint
-└── concrete protobuf body, delimited by FIN
-    └── bytes fields
+└── concrete deterministic CBOR body, delimited by FIN
+    └── byte-string fields
         └── Noosphere domain binary encoding
             └── transaction, keys, commitments, signed details, ...
 ```
@@ -163,14 +163,22 @@ message-length prefix. Only the persistent session stream frames its
 `SessionStarted` and `EventMessage` records, using QUIC-varint lengths so an
 incremental decoder can handle arbitrary transport chunks.
 
-The preview `/1` ALPN remains in use, but the former envelope format is not
-decoded. Clients and servers must therefore be upgraded together. The login
-domain `protocol_version` remains separate from transport framing.
+The CBOR ALPNs are incompatible with the former protobuf ALPNs and do not serve
+the old encoding. Signer, enrollment and public-feed peers must therefore be
+upgraded together. The login domain `protocol_version` remains separate from
+the ALPN wire version.
+
+The CBOR profile follows RFC 8949 core deterministic ordering and uses shortest
+integer and length encodings. It permits only integers, byte and UTF-8 strings,
+arrays, maps and booleans. Decoding rejects duplicate, unknown or out-of-order
+map keys, unknown enum values, nonminimal or indefinite encodings, tags,
+floating-point values, nulls and trailing bytes. Required fields are present
+even for default values, while absent optional fields are omitted.
 
 ### Size limits
 
 The default `maxMessageLength` is 1 MiB (1,048,576 bytes) on both client and
-server. It bounds a FIN-delimited protobuf body and each persistent record. The
+server. It bounds a FIN-delimited CBOR body and each persistent record. The
 effective limit is the smaller of the client and server configurations.
 
 The signed request explanation in `SignaturesRequestDetails.message` is
@@ -181,32 +189,31 @@ group-key information, commitments, expiry and signatures may legitimately
 make the request larger. Both peers still enforce the independent 1 MiB
 transport limit.
 
-## 5. Protobuf transport messages
+## 5. CBOR transport messages
 
-Each `RoastOperation` or `EnrollmentOperation` ID selects one concrete request
-and response protobuf pair. QUIC stream ownership correlates the pair; response
+Each `RoastOperation` or `EnrollmentOperation` ID selects one concrete typed
+request and response pair. QUIC stream ownership correlates the pair; response
 status `0` carries the success type and status `1` carries `ProtocolError`.
-Signature creation uses:
+Signature creation uses this deterministic CBOR map:
 
 ```text
-SignaturesRequest
-  sid                 bytes
-  keys                repeated bytes
-  signed_details      bytes
-  commitments         repeated bytes
+1: sid                 byte string
+2: keys                array of byte strings
+3: signed_details      byte string
+4: commitments         array of byte strings
 ```
 
-The fields named `bytes` are opaque to protobuf. After protobuf parsing, the
-connection handler passes each byte sequence to its specific Noosphere domain
-decoder. Protobuf therefore provides transport routing and field framing, but
-does not describe the internal transaction, FROST or proposal structures.
+These byte strings are opaque to CBOR. After CBOR parsing, the connection
+handler passes each byte sequence to its specific Noosphere domain decoder.
+CBOR therefore provides transport structure, strict types and field framing,
+but does not replace the internal transaction, FROST or proposal encodings.
 
-Server-to-client events use an `EventMessage` protobuf `oneof` whose selected
-field identifies the concrete event payload:
+Server-to-client events use an `EventMessage` discriminator and one concrete
+typed payload, equivalent to:
 
 ```text
 EventMessage
-  oneof event
+  event variant
     signatures_request
     signature_new_rounds
     signatures_complete
@@ -233,9 +240,8 @@ fields in a fixed order. Readers must consume the same order using
 
 `Signed<T>` is encoded as the exact bytes of `T` followed by a 64-byte Schnorr
 signature. The signature is calculated over `T.sigHash`, not over the outer
-protobuf representation. Reordering protobuf fields or changing protobuf's
-wire representation therefore does not change the domain signature; changing
-any byte of the domain object does.
+CBOR representation. The CBOR migration therefore does not change the domain
+signature; changing any byte of the domain object does.
 
 `SignaturesRequestDetails` is encoded in this order:
 
@@ -258,17 +264,24 @@ Parsing is intentionally layered:
 
 1. decode the operation or response-status QUIC varint;
 2. read the FIN-delimited body, or one QUIC-varint-length session record;
-3. decode the concrete protobuf selected by the operation;
-4. route the selected `EventMessage` field for persistent events;
-5. extract protobuf `bytes` fields;
+3. validate and decode the concrete deterministic CBOR map selected by the
+   operation;
+4. route the `EventMessage` discriminator for persistent events;
+5. extract CBOR byte-string fields;
 6. invoke the exact domain `fromBytes`/`fromReader` decoder;
 7. validate lengths, ranges, expiry and object relationships;
 8. verify the participant signature against the group manifest;
 9. apply the state transition or expose a validated application event.
 
-Protobuf forward compatibility does not automatically extend to domain bytes.
-Each new domain format needs explicit framing, versioning and a registered
-decoder.
+Wire version 1 deliberately rejects unknown CBOR fields and variants. Both wire
+and domain extensions need an explicit compatibility decision, versioning and
+a registered decoder.
+
+Public-feed checkpoint signatures now cover the CBOR-specific context
+`noosphere/public-feed/checkpoint/cbor/v1`, followed by a zero byte and the
+canonical page bytes. Legacy protobuf checkpoints and coordinator snapshots
+that contain the old public-feed representation are intentionally rejected;
+Noosphere 0.5.0 does not provide a migration shim for them.
 
 ## 7. Signed request explanation and metadata
 
@@ -435,8 +448,10 @@ The behavior described above is defined primarily in:
 - `lib/services/roast_runtime_rooms.dart`
 - `lib/services/roast_runtime_signing_mapper.dart`
 - `lib/storage/roast_storage.dart`
-- [Noosphere at the pinned revision](https://github.com/peerchemist/noosphere/tree/115b1f84f9e9504a16fc8fd09aa744decbbb08f2):
-  `packages/noosphere_protocol/proto/noosphere.proto`,
+- [Noosphere 0.5.0](https://github.com/peerchemist/noosphere/tree/0.5.0):
+  `packages/noosphere_protocol/spec/CBOR_WIRE.cddl`,
+  `packages/noosphere_protocol/lib/src/wire/cbor_codec.dart`,
+  `packages/noosphere_protocol/lib/src/wire/messages.dart`,
   `packages/noosphere_protocol/lib/src/wire/framing.dart`,
   `packages/noosphere_protocol/lib/api/`,
   `packages/noosphere_client/lib/src/iroh/`,
