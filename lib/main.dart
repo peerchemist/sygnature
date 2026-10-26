@@ -461,13 +461,22 @@ class _SygnatureAppState extends State<SygnatureApp>
     if (!controller.roastAvailable) {
       throw _InvitationFailure.unsupported;
     }
-    final matchingDrafts = controller.roastSetups
+    final matchingSetups = controller.roastSetups
         .where(
           (setup) =>
               setup.role == RoastSetupRole.member &&
-              setup.status == RoastSetupStatus.draft &&
               setup.localParticipant.publicKeyHex == participantPublicKey,
         )
+        .toList(growable: false);
+    final configured = matchingSetups
+        .where((setup) => !setup.isWaitingForInvitation)
+        .firstOrNull;
+    if (configured != null) {
+      await _selectRoastAccount(controller, configured.id);
+      return;
+    }
+    final matchingDrafts = matchingSetups
+        .where((setup) => setup.isWaitingForInvitation)
         .toList(growable: false);
     if (matchingDrafts.length != 1) {
       throw _InvitationFailure.signerMismatch;
@@ -513,10 +522,7 @@ class _SygnatureAppState extends State<SygnatureApp>
       ),
     );
     if (confirmed != true || !mounted) return;
-    final accountIndex = controller.accounts.indexWhere(
-      (account) => account.sourceId == setup.id,
-    );
-    if (accountIndex >= 0) await controller.selectAccount(accountIndex);
+    await _selectRoastAccount(controller, setup.id);
     try {
       await controller.joinRoastSetup(setup.id, invitation);
     } catch (error, stackTrace) {
@@ -530,6 +536,16 @@ class _SygnatureAppState extends State<SygnatureApp>
         message: _displayError(error),
       );
     }
+  }
+
+  Future<void> _selectRoastAccount(
+    WalletController controller,
+    String setupId,
+  ) async {
+    final index = controller.accounts.indexWhere(
+      (account) => account.sourceId == setupId,
+    );
+    if (index >= 0) await controller.selectAccount(index);
   }
 
   Future<BuildContext?> _navigatorContext() async {

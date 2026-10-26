@@ -380,14 +380,17 @@ void main() {
     final participantPublicKey =
         controller.roastSetups.single.localParticipant.publicKeyHex;
     final invitation = _roomInviteFor(participantPublicKey).encode();
-    final appLink = sygnatureRoomInviteLink(invitation);
+    final appLink = Uri.parse(sygnatureRoomInviteLink(invitation));
+    final links = StreamController<Uri>();
+    addTearDown(links.close);
 
     await tester.pumpWidget(
       SygnatureApp(
         controllerFactory: () async => controller,
-        incomingLinks: Stream.value(Uri.parse(appLink)),
+        incomingLinks: links.stream,
       ),
     );
+    links.add(appLink);
     await tester.pumpAndSettle();
 
     expect(find.text('Join shared wallet?'), findsOneWidget);
@@ -406,7 +409,27 @@ void main() {
     expect(keyService.appliedInvitation, invitation);
     expect(find.text('Could not join shared wallet'), findsNothing);
     expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
+    final configuredSetupId = controller.roastSetups.single.id;
 
+    await controller.createRoastSetupDraft(
+      role: RoastSetupRole.member,
+      walletName: 'Other member wallet',
+      participantName: 'Other member',
+      threshold: 2,
+      participantCount: 2,
+      network: PeercoinNetworks.mainnet,
+    );
+    keyService.appliedInvitation = null;
+    links.add(appLink);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(keyService.appliedInvitation, isNull);
+    expect(controller.selectedAccount?.sourceId, configuredSetupId);
+    expect(controller.roastSetups.map((setup) => setup.status), [
+      RoastSetupStatus.ready,
+      RoastSetupStatus.draft,
+    ]);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });

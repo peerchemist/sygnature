@@ -710,7 +710,7 @@ extension WalletRoastSetupController on WalletController {
 
   Future<void> joinRoastSetup(String setupId, String invitation) async {
     final draft = _setupById(setupId);
-    if (draft.role != RoastSetupRole.member) {
+    if (!draft.isWaitingForInvitation) {
       throw StateError('This setup is not waiting for an invitation.');
     }
     var phase = _RoastJoinPhase.invitation;
