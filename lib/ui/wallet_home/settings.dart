@@ -284,7 +284,7 @@ class const _SettingsScreen({
                               labelText: 'Background check frequency',
                               helperText: snapshot.hasError
                                   ? 'Background frequency setting unavailable.'
-                                  : 'Approximate. Android may delay checks to save battery.',
+                                  : 'Android may delay checks to save battery.',
                             ),
                             items: [
                               for (final frequency
@@ -321,12 +321,11 @@ class const _SettingsScreen({
                           ),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 12),
                     ],
                     if (publicFeedNotificationWindow != null) ...[
-                      Text(
+                      const Text(
                         'How old can ROAST events be and still notify you?',
-                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
                       FutureBuilder<Duration>(
@@ -342,8 +341,7 @@ class const _SettingsScreen({
                               labelText: 'Maximum event age',
                               helperText: snapshot.hasError
                                   ? 'Event age setting unavailable.'
-                                  : 'When this device catches up, older events are ignored. '
-                                        'Expired requests never notify.',
+                                  : 'Older or expired events do not notify.',
                             ),
                             items: [
                               for (final option
