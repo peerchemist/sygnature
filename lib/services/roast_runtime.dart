@@ -15,6 +15,45 @@ const maxRoastTransactionSigningMessageBytes =
     maxRoastSigningMessageBytes - 256;
 const maxRoastSignedMessageBytes = SignedMessagePayload.maxTextBytes;
 const sygnatureRoomInvitePrefix = 'sygnature-roast-v1:';
+const sygnatureRoomInviteHost = 'noosphere.network';
+const sygnatureRoomInvitePath = '/roast';
+
+String sygnatureRoomInviteLink(String invitation) {
+  final normalized = invitation.trim();
+  if (!normalized.startsWith(sygnatureRoomInvitePrefix) ||
+      normalized.length == sygnatureRoomInvitePrefix.length) {
+    throw const FormatException('Invalid ROAST invitation.');
+  }
+  return Uri(
+    scheme: 'https',
+    host: sygnatureRoomInviteHost,
+    path: sygnatureRoomInvitePath,
+    fragment: normalized.substring(sygnatureRoomInvitePrefix.length),
+  ).toString();
+}
+
+String? sygnatureRoomInviteFromUri(Uri uri) {
+  if (uri.scheme == 'sygnature-roast-v1') return uri.toString();
+  if (uri.scheme != 'https' ||
+      uri.host != sygnatureRoomInviteHost ||
+      uri.path != sygnatureRoomInvitePath ||
+      uri.hasQuery ||
+      uri.hasPort ||
+      uri.userInfo.isNotEmpty ||
+      uri.fragment.isEmpty) {
+    return null;
+  }
+  return '$sygnatureRoomInvitePrefix${uri.fragment}';
+}
+
+String normalizeSygnatureRoomInvite(String invitation) {
+  final uri = Uri.tryParse(invitation.trim());
+  final normalized = uri == null ? null : sygnatureRoomInviteFromUri(uri);
+  if (normalized == null) {
+    throw const FormatException('Invalid ROAST invitation link.');
+  }
+  return normalized;
+}
 
 sealed class RoastRuntimeEvent {
   const RoastRuntimeEvent(this.setupId);

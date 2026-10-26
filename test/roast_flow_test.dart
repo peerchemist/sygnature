@@ -380,11 +380,12 @@ void main() {
     final participantPublicKey =
         controller.roastSetups.single.localParticipant.publicKeyHex;
     final invitation = _roomInviteFor(participantPublicKey).encode();
+    final appLink = sygnatureRoomInviteLink(invitation);
 
     await tester.pumpWidget(
       SygnatureApp(
         controllerFactory: () async => controller,
-        incomingLinks: Stream.value(Uri.parse(invitation)),
+        incomingLinks: Stream.value(Uri.parse(appLink)),
       ),
     );
     await tester.pumpAndSettle();
@@ -685,7 +686,7 @@ void main() {
               RoastIssuedInvitation(
                 participantName: remote.name,
                 participantPublicKeyHex: remote.publicKeyHex,
-                encoded: 'secret-invitation',
+                encoded: 'sygnature-roast-v1:secret-invitation',
                 issuedAt: DateTime.now().toUtc(),
                 expiresAt: DateTime.now().toUtc().add(const Duration(days: 1)),
                 copiedAt: DateTime.now().toUtc(),

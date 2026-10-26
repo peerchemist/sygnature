@@ -13,10 +13,11 @@ void main() {
         'xprv9s21ZrQH143K3abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789';
     const importKey = 'Kx123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqr';
     const invitation = 'sygnature-roast-v1:SECRET-INVITATION';
+    const appLink = 'https://noosphere.network/roast#SECRET-HTTPS-INVITATION';
 
     final redacted = AppLogger.redact(
       'mnemonic="$mnemonic", private_key=$privateKey; '
-      '$extendedKey $importKey $invitation '
+      '$extendedKey $importKey $invitation $appLink '
       'wss://alice:secret@example.test/socket?token=SECRET-TOKEN',
     );
 
@@ -29,6 +30,7 @@ void main() {
     expect(redacted, isNot(contains(extendedKey)));
     expect(redacted, isNot(contains(importKey)));
     expect(redacted, isNot(contains(invitation)));
+    expect(redacted, isNot(contains('SECRET-HTTPS-INVITATION')));
     expect(redacted, isNot(contains('SECRET-TOKEN')));
   });
 

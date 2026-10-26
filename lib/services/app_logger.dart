@@ -10,7 +10,7 @@ class AppLogger {
     caseSensitive: false,
   );
   static final RegExp _invite = RegExp(
-    r'\bsygnature-roast-v1:[^\s<>()\[\]{}]+',
+    r'\b(?:sygnature-roast-v1:|https://noosphere\.network/roast#)[^\s<>()\[\]{}]+',
     caseSensitive: false,
   );
   static final RegExp _privateExtendedKey = RegExp(

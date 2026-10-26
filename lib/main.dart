@@ -409,9 +409,10 @@ class _SygnatureAppState extends State<SygnatureApp>
   }
 
   Future<void> _handleIncomingLinkSafely(Uri uri) async {
-    if (uri.scheme != RoastExchangeCodec.uriScheme) return;
+    final invitation = sygnatureRoomInviteFromUri(uri);
+    if (invitation == null) return;
     try {
-      await _handleRoastInvitation(uri.toString());
+      await _handleRoastInvitation(invitation);
     } catch (error, stackTrace) {
       AppLogger.error(
         '[APP LINK] Failed to handle ROAST invitation',

@@ -717,7 +717,7 @@ extension WalletRoastSetupController on WalletController {
     try {
       // This validates the bound identity key before the runtime opens Iroh.
       final invite = NoosphereRoomInvite.decode(
-        invitation.trim(),
+        normalizeSygnatureRoomInvite(invitation),
         prefix: sygnatureRoomInvitePrefix,
       );
       _roastKeyService.validateRoomInvite(draft, invite);

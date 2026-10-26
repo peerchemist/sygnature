@@ -85,7 +85,7 @@ class const _RoastInvitationsDialog({
                     onShowQr: () => showShareQrDialog(
                       context,
                       title: 'Invitation for ${invitation.participantName}',
-                      data: invitation.encoded,
+                      data: sygnatureRoomInviteLink(invitation.encoded),
                     ),
                     onMarkSent: () => controller.markRoastInvitationSent(
                       setupId,
@@ -110,7 +110,9 @@ class const _RoastInvitationsDialog({
     BuildContext context,
     RoastIssuedInvitation invitation,
   ) async {
-    await Clipboard.setData(ClipboardData(text: invitation.encoded));
+    await Clipboard.setData(
+      ClipboardData(text: sygnatureRoomInviteLink(invitation.encoded)),
+    );
     await controller.markRoastInvitationCopied(
       setupId,
       invitation.participantPublicKeyHex,

@@ -11,6 +11,10 @@ void main() {
     ).readAsStringSync();
 
     expect(manifest, contains('android:enableOnBackInvokedCallback="true"'));
+    expect(manifest, contains('<intent-filter android:autoVerify="true">'));
+    expect(manifest, contains('android:scheme="https"'));
+    expect(manifest, contains('android:host="noosphere.network"'));
+    expect(manifest, contains('android:path="/roast"'));
     expect(activity, contains('setDecorFitsSystemWindows(window, false)'));
     for (final directory in ['values-v31', 'values-night-v31']) {
       final splash = File('android/app/src/main/res/$directory/styles.xml')
