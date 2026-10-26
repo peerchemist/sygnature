@@ -666,7 +666,7 @@ void main() {
     expect(find.text('1 hour'), findsOneWidget);
     expect(find.byKey(const Key('settings-version')), findsOneWidget);
     expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
-
+    expect(find.byKey(const Key('export-diagnostics-button')), findsOneWidget);
     await tester.tap(find.byKey(const Key('notification-sound-toggle')));
     await tester.pump();
 

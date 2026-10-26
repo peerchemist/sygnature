@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'app_diagnostics.dart';
+
 const publicFeedNotificationPayloadPrefix = 'public-feed:';
 const androidWalletAlerts = AndroidNotificationDetails(
   'sygnature_wallet_alerts',
@@ -44,8 +46,17 @@ class PublicFeedNotifications({FlutterLocalNotificationsPlugin? plugin}) {
       // mean that plugin setup failed on iOS.
       _initialized =
           defaultTargetPlatform == TargetPlatform.iOS || (initialized ?? false);
-    } on Object {
+      await AppDiagnostics.record(
+        _initialized
+            ? AppDiagnosticEvent.notificationInitializationSucceeded
+            : AppDiagnosticEvent.notificationInitializationFailed,
+      );
+    } on Object catch (error) {
       _initialized = false;
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.notificationInitializationFailed,
+        error: error,
+      );
     }
     if (!_initialized) {
       throw StateError('Notification plugin initialization failed');
@@ -68,8 +79,13 @@ class PublicFeedNotifications({FlutterLocalNotificationsPlugin? plugin}) {
           iOS: appleWalletAlerts,
         ),
       );
+      await AppDiagnostics.record(AppDiagnosticEvent.notificationDelivered);
       return true;
-    } on Object {
+    } on Object catch (error) {
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.notificationDeliveryFailed,
+        error: error,
+      );
       return false;
     }
   }

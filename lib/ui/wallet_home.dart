@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../models/wallet_activity.dart';
 import '../models/roast_setup.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
+import '../services/app_diagnostics.dart';
 import '../services/app_logger.dart';
 import '../services/app_notifications.dart';
 import '../services/android_public_feed_work.dart';

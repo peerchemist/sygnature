@@ -12,6 +12,7 @@ import 'controllers/wallet_controller.dart';
 import 'controllers/theme_controller.dart';
 import 'models/mnemonic_seed.dart';
 import 'models/roast_setup.dart';
+import 'services/app_diagnostics.dart';
 import 'services/app_logger.dart';
 import 'services/app_notifications.dart';
 import 'services/android_public_feed_work.dart';
@@ -46,6 +47,13 @@ Future<void> main() async {
     );
     return true;
   };
+  try {
+    await AppDiagnostics.initialize(
+      (await getApplicationSupportDirectory()).path,
+    );
+  } on Object {
+    // Diagnostics must never prevent the wallet from starting.
+  }
   final incomingLinks = AppLinks().uriLinkStream;
   await loadCoinlib();
   runApp(
@@ -142,10 +150,18 @@ class _SygnatureAppState extends State<SygnatureApp>
 
   Future<void> _initializeNoosphere() async {
     AppLogger.info('[NOOSPHERE] Initializing native runtime');
+    await AppDiagnostics.record(AppDiagnosticEvent.nativeInitializationStarted);
     try {
       await widget.noosphereInitializer!();
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.nativeInitializationSucceeded,
+      );
       AppLogger.info('[NOOSPHERE] Native runtime initialized');
     } catch (error, stackTrace) {
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.nativeInitializationFailed,
+        error: error,
+      );
       AppLogger.error(
         '[NOOSPHERE] Native runtime initialization failed',
         error: error,

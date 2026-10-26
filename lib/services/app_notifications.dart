@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'app_diagnostics.dart';
 import 'app_logger.dart';
 import 'public_feed_notifications.dart';
 import 'ui_sounds.dart';
@@ -273,8 +274,13 @@ class AppNotifications({
           ),
         ),
       );
+      await AppDiagnostics.record(AppDiagnosticEvent.notificationDelivered);
       return true;
     } catch (error, stackTrace) {
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.notificationDeliveryFailed,
+        error: error,
+      );
       AppLogger.warn(
         'Unable to show system notification',
         error: error,
@@ -326,6 +332,11 @@ class AppNotifications({
             defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS ||
             (initialized ?? false);
+        await AppDiagnostics.record(
+          _pluginInitialized
+              ? AppDiagnosticEvent.notificationInitializationSucceeded
+              : AppDiagnosticEvent.notificationInitializationFailed,
+        );
       }
       if (_pluginInitialized && !_launchChecked && onPublicFeedOpened != null) {
         _launchChecked = true;
@@ -376,6 +387,10 @@ class AppNotifications({
       }
       return true;
     } catch (error, stackTrace) {
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.notificationInitializationFailed,
+        error: error,
+      );
       AppLogger.warn(
         'System notifications unavailable',
         error: error,

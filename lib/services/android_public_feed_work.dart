@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../storage/public_feed_store.dart';
+import 'app_diagnostics.dart';
 import 'public_feed_notifications.dart';
 import 'public_feed_poller.dart';
 
@@ -104,16 +105,24 @@ final class PublicFeedBackgroundTask({
     try {
       try {
         await initializePlugins();
+        final directory = await supportDirectory();
+        await AppDiagnostics.initialize(directory.path);
+        await AppDiagnostics.record(AppDiagnosticEvent.backgroundWorkStarted);
         await initializeNative();
-        store = await openStore((await supportDirectory()).path);
+        store = await openStore(directory.path);
         final delivery = notifications();
         await delivery.initialize();
         await poll(store, delivery.publicFeedRequested);
       } finally {
         await store?.close();
       }
+      await AppDiagnostics.record(AppDiagnosticEvent.backgroundWorkSucceeded);
       return true;
-    } on Object {
+    } on Object catch (error) {
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.backgroundWorkFailed,
+        error: error,
+      );
       // Never log exceptions: native/transport errors may contain capabilities.
       return false;
     }

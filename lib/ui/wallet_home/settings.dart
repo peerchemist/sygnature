@@ -364,6 +364,26 @@ class const _SettingsScreen({
                     ],
                   ],
                   const Divider(height: 32),
+                  Text(
+                    'SUPPORT',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.of(context).inkMuted,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                    ),
+                  ),
+                  ListTile(
+                    key: const Key('export-diagnostics-button'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.bug_report_outlined),
+                    title: const Text('Export diagnostics'),
+                    subtitle: const Text(
+                      'Save a sanitized report to send to the developer. '
+                      'Nothing is uploaded automatically.',
+                    ),
+                    onTap: () => _exportDiagnostics(context, notifications),
+                  ),
+                  const Divider(height: 32),
                   ListTile(
                     key: const Key('about-button'),
                     contentPadding: EdgeInsets.zero,
@@ -441,6 +461,51 @@ class const _SettingsScreen({
       ),
     ),
   );
+}
+
+Future<void> _exportDiagnostics(
+  BuildContext context,
+  AppNotifications notifications,
+) async {
+  try {
+    final permission = await notifications.systemPermissionGranted();
+    final backgroundFrequency = defaultTargetPlatform == TargetPlatform.android
+        ? await loadAndroidPublicFeedWorkFrequency()
+        : null;
+    final bytes = await AppDiagnostics.exportReport(
+      appVersion: sygnatureVersionString,
+      platform: kIsWeb ? 'web' : defaultTargetPlatform.name,
+      notificationEnabled: notifications.systemEnabled,
+      notificationPermissionGranted: permission,
+      backgroundFrequencyMinutes: backgroundFrequency?.inMinutes,
+    );
+    final saved = await FilePicker.saveFile(
+      fileName:
+          'sygnature-diagnostics-${DateTime.now().toUtc().toIso8601String().substring(0, 10)}.json',
+      bytes: bytes,
+      mimeType: 'application/json',
+      dialogTitle: 'Save Sygnature diagnostics',
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved == null ? 'Diagnostics export cancelled.' : 'Diagnostics saved. Send the file to the developer if requested.',
+        ),
+      ),
+    );
+  } on Object catch (error, stackTrace) {
+    AppLogger.warn(
+      'Unable to export diagnostics',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Diagnostics could not be exported.')),
+      );
+    }
+  }
 }
 
 Future<void> _showElectrumEndpointSettings(
