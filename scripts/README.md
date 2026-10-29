@@ -20,7 +20,7 @@ only upload workflow artifacts; Android does not publish to Releases.
 `pubspec.yaml` fetches Noosphere directly from GitHub from branch
 `feature/resumable-dkg`, currently resolved to
 `115b1f84f9e9504a16fc8fd09aa744decbbb08f2`; no sibling checkout is required.
-Android and macOS builds require Git, Flutter 3.47.5, Rust and the native
+Android and macOS builds require Git, Flutter 3.47.8, Rust and the native
 toolchain for their target platform. The Linux Flatpak and Windows VM scripts
 provision their own SDKs.
 
@@ -91,7 +91,7 @@ The equivalent PowerShell command is:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "Z:\sygnature_ng\scripts\build_windows.ps1"
 ```
 
-The PowerShell script automatically installs portable Git, Flutter 3.47.5,
+The PowerShell script automatically installs portable Git, Flutter 3.47.8,
 stable Rust and Visual Studio Build Tools with the **C++ build tools** workload.
 The installed C++ components include MSVC, CMake and ATL as required by the
 Windows Flutter plugins. Windows might show one administrator confirmation for

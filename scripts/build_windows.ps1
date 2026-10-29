@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $ProgressPreference = "SilentlyContinue"
 
-$flutterVersion = "3.47.5"
-$flutterSha256 = "0ccd71931f49c2fbe394b1eeb6d79af3d624058a043ea0d03d34160581624fb8"
+$flutterVersion = "3.47.8"
+$flutterSha256 = "11e19ea3409808fe3b3765ea8149640c299e58cce6eda7c9f38fc1b4a193eb6e"
 $toolRoot = Join-Path $env:LOCALAPPDATA "SygnatureBuild\tools"
 $downloadRoot = Join-Path $env:TEMP "SygnatureBuildDownloads"
 
