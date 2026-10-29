@@ -231,7 +231,7 @@ extension WalletSyncController on WalletController {
         continue;
       }
       confirmed += utxo.value;
-      if (reservedOutpoints.contains(WalletSigningController._utxoKey(utxo))) {
+      if (reservedOutpoints.contains(_utxoKey(utxo))) {
         reserved += utxo.value;
       }
     }
@@ -263,10 +263,7 @@ extension WalletSyncController on WalletController {
     return utxosFor(account)
         .where(
           (utxo) =>
-              utxo.isConfirmed &&
-              !reservedOutpoints.contains(
-                WalletSigningController._utxoKey(utxo),
-              ),
+              utxo.isConfirmed && !reservedOutpoints.contains(_utxoKey(utxo)),
         )
         .toList(growable: false);
   }
@@ -473,7 +470,7 @@ extension WalletSyncController on WalletController {
     List<ElectrumxUtxo> utxos,
     List<ElectrumxTransactionHistoryEntry> history,
   ) {
-    final outpoints = utxos.map(WalletSigningController._utxoKey).toSet();
+    final outpoints = utxos.map(_utxoKey).toSet();
     _utxoReconciliationQueue = _utxoReconciliationQueue
         .then((_) async {
           if (_disposed) return;

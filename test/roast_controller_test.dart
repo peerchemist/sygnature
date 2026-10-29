@@ -2822,6 +2822,7 @@ void main() {
     );
 
     final sending = controller.sendTransaction(preview);
+    expect(controller.roastTransactionSigningInProgress('setup'), isTrue);
     await _flushEvents();
     await controller.cancelRoastTransactionSigning('setup');
     expect(runtime.cancelledSigningRequestIds, ['aa' * 16]);

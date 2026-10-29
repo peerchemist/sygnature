@@ -53,6 +53,9 @@ part 'wallet_controller_backup.dart';
 part 'wallet_controller_activity.dart';
 part 'wallet_controller_roast_events.dart';
 part 'wallet_controller_roast_setup.dart';
+part 'wallet_controller_group_transitions.dart';
+part 'wallet_controller_roast_coordinator.dart';
+part 'wallet_controller_transactions.dart';
 part 'wallet_controller_signing.dart';
 part 'wallet_controller_sync.dart';
 

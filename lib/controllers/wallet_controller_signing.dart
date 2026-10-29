@@ -121,91 +121,6 @@ extension WalletSigningController on WalletController {
   bool isRoastChangeOutput(RoastSigningInboxItem item, int outputIndex) =>
       item.request.changeOutputIndex == outputIndex;
 
-  Future<void> refreshBalances() => _restartElectrumxSync();
-
-  Future<String> broadcastTransaction(String rawTransactionHex) {
-    final account = selectedAccount;
-    final service = account == null
-        ? null
-        : _networkServices[networkForAccount(account).storageId];
-    if (service == null) {
-      throw const WalletBroadcastFailure(
-        WalletBroadcastFailureKind.unavailable,
-        'ElectrumX is unavailable for this wallet. Reconnect and retry.',
-      );
-    }
-    return service.broadcastTransaction(rawTransactionHex);
-  }
-
-  WalletTransactionPreview prepareSend(WalletSendRequest request) {
-    final account = selectedAccount;
-    final address = account?.address;
-    if (account == null ||
-        account.derivationState != WalletDerivationState.ready ||
-        address == null) {
-      throw const WalletSigningUnavailable();
-    }
-    final owned = ownedAddressesFor(account);
-    if (owned.isEmpty) throw const WalletSigningUnavailable();
-    WalletOwnedAddress change = owned.first;
-    if (request.useNewChangeAddress) {
-      final throughNext = _ownedAddressesThrough(
-        account,
-        account.highestAllocatedAddressIndex + 1,
-      );
-      if (throughNext.length != account.highestAllocatedAddressIndex + 2) {
-        throw const WalletSigningUnavailable();
-      }
-      change = throughNext.last;
-    }
-    return _transactionService.prepare(
-      accountId: account.id,
-      network: networkForAccount(account),
-      sourceAddress: address,
-      availableUtxos: availableUtxosFor(account),
-      request: request,
-      ownedAddressPaths: {
-        for (final item in owned) item.address: item.derivationPath,
-      },
-      changeAddress: change.address,
-      changeDerivationPath: change.derivationPath,
-      changeAddressIndex: change.index,
-    );
-  }
-
-  static String _utxoKey(ElectrumxUtxo utxo) => '${utxo.txHash}:${utxo.txPos}';
-
-  static String _changeAllocationOperationId(
-    WalletTransactionPreview preview,
-  ) => bytesToHex(
-    sha256Hash(
-      Uint8List.fromList(
-        utf8.encode(
-          jsonEncode({
-            'account': preview.accountId,
-            'destination': preview.destinationAddress,
-            'amount': preview.amountSats,
-            'fee': preview.feeSats,
-            'feeRate': preview.feeRateSatsPerKb,
-            'change': preview.changeSats,
-            'changeAddress': preview.changeAddress,
-            'changePath': preview.changeDerivationPath,
-            'changeIndex': preview.changeAddressIndex,
-            'message': preview.signingMessage,
-            'inputs': [
-              for (final utxo in preview.selectedUtxos)
-                {
-                  'outpoint': _utxoKey(utxo),
-                  'address': utxo.address,
-                  'value': utxo.value,
-                },
-            ],
-          }),
-        ),
-      ),
-    ),
-  );
-
   Future<RoastSignedMessage> signRoastMessage(
     WalletAccount account, {
     required String text,
@@ -232,9 +147,6 @@ extension WalletSigningController on WalletController {
       timeout: requestTimeout,
     );
     final pendingKey = '${setup.id}:${proposal.idHex}';
-    if (_pendingRoastMessages.containsKey(pendingKey)) {
-      throw StateError('This message signature request is already active.');
-    }
     final completer = Completer<RoastSignedMessage>();
     _pendingRoastMessages[pendingKey] = completer;
     _pendingRoastMessageProgress[pendingKey] = RoastSigningProgress(
@@ -276,531 +188,6 @@ extension WalletSigningController on WalletController {
     }
   }
 
-  Future<WalletSendResult> sendTransaction(
-    WalletTransactionPreview preview, {
-    Duration signatureRequestTimeout = defaultRoastSigningRequestTimeout,
-  }) async {
-    if (_backupInProgress) throw const WalletBusyFailure();
-    if (_sending) {
-      throw const WalletTransactionRejected(
-        'Another transaction is already being submitted.',
-      );
-    }
-    _sending = true;
-    try {
-      final foundAccount = accounts
-          .where((candidate) => candidate.id == preview.accountId)
-          .firstOrNull;
-      if (foundAccount == null) {
-        throw const WalletSigningUnavailable();
-      }
-      var account = foundAccount;
-      if (account.derivationState != WalletDerivationState.ready) {
-        throw const WalletSigningUnavailable();
-      }
-      final reservedOutpoints = _reservedOutpointsFor(account.id);
-      if (preview.selectedUtxos.any(
-        (utxo) => reservedOutpoints.contains(_utxoKey(utxo)),
-      )) {
-        throw const WalletTransactionRejected(
-          'A transaction input is reserved by another signing request.',
-        );
-      }
-      final availableByOutpoint = {
-        for (final utxo in availableUtxosFor(account)) _utxoKey(utxo): utxo,
-      };
-      final inputsStillMatch = preview.selectedUtxos.every((utxo) {
-        final current = availableByOutpoint[_utxoKey(utxo)];
-        return current != null &&
-            current.address == utxo.address &&
-            current.value == utxo.value &&
-            preview.inputDerivationPaths.containsKey(utxo.address);
-      });
-      if (!inputsStillMatch) {
-        throw const WalletTransactionRejected(
-          'Wallet funds changed after review. Review the transaction again.',
-        );
-      }
-      if (preview.changeSats > 0 && preview.changeAddressIndex > 0) {
-        final allocationOperationId = _changeAllocationOperationId(preview);
-        final operationIsKnown =
-            _vault?.changeAllocationOperationIds.contains(
-              allocationOperationId,
-            ) ??
-            false;
-        final allocated = _ownedAddressesThrough(
-          account,
-          preview.changeAddressIndex,
-        );
-        final expected = allocated
-            .where((owned) => owned.index == preview.changeAddressIndex)
-            .firstOrNull;
-        if (expected == null ||
-            expected.address != preview.changeAddress ||
-            expected.derivationPath != preview.changeDerivationPath ||
-            preview.changeAddressIndex >
-                account.highestAllocatedAddressIndex + 1 ||
-            preview.changeAddressIndex <=
-                    account.highestAllocatedAddressIndex &&
-                !operationIsKnown) {
-          throw const WalletTransactionRejected(
-            'Wallet state changed after review. Review the transaction again.',
-          );
-        }
-        if (preview.changeAddressIndex > account.highestAllocatedAddressIndex) {
-          await _updateVault((current) {
-            if (current == null) throw StateError('Wallet is not initialized.');
-            return current.copyWith(
-              accounts: [
-                for (final item in current.accounts)
-                  if (item.id == account.id)
-                    item.copyWith(
-                      highestAllocatedAddressIndex: preview.changeAddressIndex,
-                    )
-                  else
-                    item,
-              ],
-              changeAllocationOperationIds: [
-                allocationOperationId,
-                ...current.changeAllocationOperationIds,
-              ].take(512).toList(growable: false),
-            );
-          });
-          account = accounts.firstWhere((item) => item.id == preview.accountId);
-          await _restartElectrumxSync();
-        }
-      }
-      final SignedWalletTransaction signed;
-      RoastSigningOperation? signingOperation;
-      if (account.keySource == WalletKeySource.watchOnly) {
-        throw const WalletSigningUnavailable();
-      } else if (account.keySource == WalletKeySource.personal) {
-        signed = _transactionService.sign(
-          network: networkForAccount(account),
-          preview: preview,
-          privateKeysByAddress: {
-            for (final owned in ownedAddressesFor(account))
-              owned.address: ?owned.privateKeyHex,
-          },
-        );
-        await _recordActivity(
-          id: 'transaction-signed:${account.id}:${signed.transactionId}',
-          accountId: account.id,
-          type: WalletActivityType.transactionSigned,
-          reference: signed.transactionId,
-        );
-      } else {
-        final setup = setupForAccount(account);
-        final runtime = _roastRuntime;
-        if (setup == null || runtime == null || setup.groupKeyHex == null) {
-          throw const WalletSigningUnavailable();
-        }
-        _requireRoastCoordinator(setup);
-        final network = networkForAccount(account);
-        final ownedByAddress = {
-          for (final owned in ownedAddressesFor(account)) owned.address: owned,
-        };
-        final inputAddresses = [
-          for (final utxo in preview.selectedUtxos)
-            ownedByAddress[utxo.address] ??
-                (throw const WalletTransactionRejected(
-                  'A transaction input does not belong to this wallet.',
-                )),
-        ];
-        final transaction = _transactionService.prepareThresholdSigning(
-          network: network,
-          preview: preview,
-        );
-        final paths = [
-          for (final owned in inputAddresses) _roastPath(owned.derivationPath),
-        ];
-        final inputInternalKeys = [
-          for (final path in paths)
-            _roastKeyService
-                .deriveAddress(
-                  groupKeyHex: setup.groupKeyHex!,
-                  threshold: setup.threshold,
-                  network: network,
-                  accountIndex: account.accountIndex,
-                  pathLabel: 'R/${path.join('/')}',
-                )
-                .internalKeyHex,
-        ];
-        final changeOutputIndex = preview.changeAddress == null
-            ? null
-            : transaction.transaction.outputs.lastIndexWhere(
-                (output) =>
-                    bytesToHex(output.scriptPubKey) ==
-                    _roastKeyService.scriptHexForAddress(
-                      network,
-                      preview.changeAddress!,
-                    ),
-              );
-        final proposal = runtime.createTransactionSigningProposal(
-          setup,
-          transaction,
-          paths,
-          accountIndex: account.accountIndex,
-          changeOutputIndex: changeOutputIndex == -1 ? null : changeOutputIndex,
-          changeDerivationPath: preview.changeDerivationPath == null
-              ? null
-              : _roastPath(preview.changeDerivationPath!),
-          message: preview.signingMessage,
-          timeout: signatureRequestTimeout,
-        );
-        final pendingKey = '${setup.id}:${proposal.idHex}';
-        final completer = Completer<_RoastSendOutcome>();
-        _pendingRoastSends[pendingKey] = _PendingRoastSend(
-          completer: completer,
-        );
-        signingOperation = RoastSigningOperation(
-          setupId: setup.id,
-          accountId: account.id,
-          requestIdHex: proposal.idHex,
-          proposalHex: proposal.proposalHex,
-          expectedInternalKeysHex: inputInternalKeys,
-          thresholdTransaction: transaction.toJson(),
-          reservedOutpoints: [
-            for (final utxo in preview.selectedUtxos) _utxoKey(utxo),
-          ],
-          expiry: proposal.expiry,
-          state: RoastSigningOperationState.prepared,
-          updatedAt: DateTime.now().toUtc(),
-        );
-        await _saveRoastSigningOperation(signingOperation);
-        try {
-          signingOperation = signingOperation.copyWith(
-            state: RoastSigningOperationState.requesting,
-          );
-          await _saveRoastSigningOperation(signingOperation);
-          signingOperation = signingOperation.copyWith(
-            state: RoastSigningOperationState.awaitingSignatures,
-          );
-          await _saveRoastSigningOperation(signingOperation);
-          await _recordActivity(
-            id: 'transaction-signature-requested:$pendingKey',
-            accountId: account.id,
-            type: WalletActivityType.transactionSignatureRequested,
-            expiresAt: proposal.expiry,
-            reference: proposal.idHex,
-            details: preview.signingMessage.isEmpty
-                ? null
-                : preview.signingMessage,
-          );
-          try {
-            await runtime.requestSignatures(setup, proposal);
-          } on Object catch (error, stackTrace) {
-            Error.throwWithStackTrace(
-              WalletSigningFailure(
-                WalletSigningFailureKind.interrupted,
-                'Could not send the approval request. Make sure the ROAST '
-                'coordinator is running and connected, then try again.',
-                cause: error,
-              ),
-              stackTrace,
-            );
-          }
-          final outcome = await completer.future.timeout(
-            proposal.expiry.difference(DateTime.now()),
-            onTimeout: () => throw const WalletSigningFailure(
-              WalletSigningFailureKind.expired,
-              'The signing request expired before enough signatures arrived.',
-            ),
-          );
-          if (outcome.error case final error?) {
-            Error.throwWithStackTrace(
-              error,
-              outcome.stackTrace ?? StackTrace.current,
-            );
-          }
-          signed = outcome.signed!;
-          signingOperation = _storedRoastSigningOperations[pendingKey];
-        } on Object catch (error, stackTrace) {
-          final current = _storedRoastSigningOperations[pendingKey];
-          if (current != null && current.rawTransactionHex == null) {
-            final expired =
-                current.expiry.isBefore(DateTime.now()) ||
-                error is WalletSigningFailure &&
-                    error.kind == WalletSigningFailureKind.expired;
-            final rejected =
-                error is WalletSigningFailure &&
-                error.kind == WalletSigningFailureKind.rejected;
-            final cancelled =
-                error is WalletSigningFailure &&
-                error.kind == WalletSigningFailureKind.cancelled;
-            await _saveRoastSigningOperation(
-              current.copyWith(
-                state: expired
-                    ? RoastSigningOperationState.expired
-                    : rejected
-                    ? RoastSigningOperationState.rejected
-                    : cancelled
-                    ? RoastSigningOperationState.cancelled
-                    : RoastSigningOperationState.interrupted,
-                errorMessage: expired
-                    ? 'The signing request expired before enough signatures arrived.'
-                    : rejected
-                    ? 'The signing request was rejected.'
-                    : cancelled
-                    ? 'The signing request was cancelled.'
-                    : 'The signing request was interrupted.',
-              ),
-            );
-            if (expired) {
-              await _recordActivity(
-                id: 'signature-request-expired:${current.storageId}',
-                accountId: current.accountId,
-                type: WalletActivityType.signatureRequestExpired,
-                reference: current.requestIdHex,
-              );
-              Error.throwWithStackTrace(
-                WalletSigningFailure(
-                  WalletSigningFailureKind.expired,
-                  'The signing request expired before enough signatures arrived.',
-                  cause: error,
-                ),
-                stackTrace,
-              );
-            }
-          }
-          rethrow;
-        } finally {
-          _pendingRoastSends.remove(pendingKey);
-          _notifyListeners();
-        }
-      }
-      return signingOperation == null
-          ? await _broadcastSigned(
-              account,
-              signed,
-              inputOutpoints: [
-                for (final utxo in preview.selectedUtxos) _utxoKey(utxo),
-              ],
-            )
-          : await _broadcastRoastOperation(account, signingOperation, signed);
-    } on WalletTransactionFailure {
-      rethrow;
-    } on Object catch (error, stackTrace) {
-      AppLogger.error(
-        '[WALLET SEND ${preview.accountId}] Transaction submission failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      Error.throwWithStackTrace(
-        WalletSubmissionFailure(_sendFailureMessage(error), cause: error),
-        stackTrace,
-      );
-    } finally {
-      _sending = false;
-    }
-  }
-
-  Future<WalletSendResult> _broadcastRoastOperation(
-    WalletAccount account,
-    RoastSigningOperation operation,
-    SignedWalletTransaction signed,
-  ) async {
-    var current = operation.copyWith(
-      state: RoastSigningOperationState.broadcasting,
-      rawTransactionHex: signed.rawTransactionHex,
-      transactionId: signed.transactionId,
-      clearError: true,
-    );
-    await _saveRoastSigningOperation(current);
-    try {
-      final result = await _broadcastSigned(
-        account,
-        signed,
-        inputOutpoints: operation.reservedOutpoints,
-      );
-      current = current.copyWith(
-        state: RoastSigningOperationState.broadcasted,
-        serverTransactionId: result.serverTransactionId,
-        clearError: true,
-      );
-      await _saveRoastSigningOperation(current);
-      return result;
-    } on Object catch (_) {
-      await _saveRoastSigningOperation(
-        current.copyWith(
-          state: RoastSigningOperationState.broadcastUnknown,
-          errorMessage: 'The transaction broadcast outcome is unknown.',
-        ),
-      );
-      rethrow;
-    }
-  }
-
-  Future<WalletSendResult> retryRoastBroadcast(
-    RoastSigningOperation operation,
-  ) async {
-    final current = _storedRoastSigningOperations[operation.storageId];
-    if (current == null || !current.canRetryBroadcast) {
-      throw const WalletTransactionRejected(
-        'This ROAST transaction cannot be rebroadcast.',
-      );
-    }
-    final account = accounts
-        .where((candidate) => candidate.id == current.accountId)
-        .firstOrNull;
-    if (account == null) throw const WalletSigningUnavailable();
-    return _broadcastRoastOperation(
-      account,
-      current,
-      SignedWalletTransaction(
-        transactionId: current.transactionId!,
-        rawTransactionHex: current.rawTransactionHex!,
-      ),
-    );
-  }
-
-  Future<WalletSendResult> retryPersonalBroadcast(
-    WalletActivity activity,
-  ) async {
-    final current = _vault?.activities
-        .where((candidate) => candidate.id == activity.id)
-        .firstOrNull;
-    final account = current == null
-        ? null
-        : accounts
-              .where((candidate) => candidate.id == current.accountId)
-              .firstOrNull;
-    if (current == null ||
-        account == null ||
-        account.keySource != WalletKeySource.personal ||
-        !current.canRetryBroadcast) {
-      throw const WalletTransactionRejected(
-        'This transaction cannot be rebroadcast.',
-      );
-    }
-    return _broadcastSigned(
-      account,
-      SignedWalletTransaction(
-        transactionId: current.reference!,
-        rawTransactionHex: current.rawTransactionHex!,
-      ),
-      inputOutpoints: current.transactionInputOutpoints,
-    );
-  }
-
-  Future<WalletSendResult> _broadcastSigned(
-    WalletAccount account,
-    SignedWalletTransaction signed, {
-    List<String> inputOutpoints = const [],
-  }) async {
-    if (_broadcastedTransactionIds.contains(signed.transactionId) ||
-        !_broadcastingTransactionIds.add(signed.transactionId)) {
-      throw const WalletTransactionRejected(
-        'This transaction has already been submitted.',
-      );
-    }
-    try {
-      await _setTransactionStatus(
-        accountId: account.id,
-        transactionId: signed.transactionId,
-        status: WalletTransactionStatus.broadcasting,
-        inputOutpoints: inputOutpoints,
-        rawTransactionHex: signed.rawTransactionHex,
-      );
-      late final String serverTransactionId;
-      try {
-        final service = _networkServices[networkForAccount(account).storageId];
-        if (service == null) {
-          throw const WalletBroadcastFailure(
-            WalletBroadcastFailureKind.unavailable,
-            'ElectrumX is unavailable for this wallet. Reconnect and retry.',
-          );
-        }
-        serverTransactionId = await service.broadcastTransaction(
-          signed.rawTransactionHex,
-        );
-      } on Object catch (error, stackTrace) {
-        final network = networkForAccount(account);
-        final failure = _broadcastFailure(error);
-        AppLogger.error(
-          '[ELECTRUMX ${network.storageId}] Transaction broadcast failed; '
-          'localTxId=${signed.transactionId}; '
-          'rawBytes=${(signed.rawTransactionHex.length + 1) ~/ 2}',
-          error: error,
-          stackTrace: stackTrace,
-        );
-        await _setTransactionStatus(
-          accountId: account.id,
-          transactionId: signed.transactionId,
-          status: WalletTransactionStatus.failed,
-          details: failure.message,
-        );
-        Error.throwWithStackTrace(failure, stackTrace);
-      }
-      _broadcastedTransactionIds.add(signed.transactionId);
-      await _setTransactionStatus(
-        accountId: account.id,
-        transactionId: signed.transactionId,
-        status: WalletTransactionStatus.broadcast,
-      );
-      await _restartElectrumxSync();
-      return WalletSendResult(
-        transactionId: signed.transactionId,
-        serverTransactionId: serverTransactionId,
-      );
-    } finally {
-      _broadcastingTransactionIds.remove(signed.transactionId);
-    }
-  }
-
-  WalletBroadcastFailure _broadcastFailure(Object error) {
-    if (error is WalletBroadcastFailure) return error;
-    Object cause = error;
-    for (var depth = 0; depth < 8; depth++) {
-      if (cause is ElectrumxException &&
-          cause is! ElectrumxRpcException &&
-          cause.cause != null) {
-        cause = cause.cause!;
-        continue;
-      }
-      break;
-    }
-
-    if (cause is ElectrumxRpcException) {
-      return WalletBroadcastFailure(
-        WalletBroadcastFailureKind.rejected,
-        'ElectrumX rejected the transaction (code ${cause.code}).',
-        cause: error,
-        rpcCode: cause.code,
-      );
-    }
-    if (cause is TimeoutException) {
-      return WalletBroadcastFailure(
-        WalletBroadcastFailureKind.timeout,
-        'Broadcast timed out. Verify the network connection and retry.',
-        cause: error,
-      );
-    }
-    if (cause is ElectrumxException) {
-      return WalletBroadcastFailure(
-        WalletBroadcastFailureKind.connection,
-        'ElectrumX could not broadcast the transaction. '
-        'Verify the network connection and retry.',
-        cause: error,
-      );
-    }
-    return WalletBroadcastFailure(
-      WalletBroadcastFailureKind.unexpected,
-      'Broadcast failed. Verify the network connection and retry.',
-      cause: error,
-    );
-  }
-
-  String _sendFailureMessage(Object error) => switch (error) {
-    NoosphereWorkerException() =>
-      'ROAST signing failed. Check signer connectivity and retry.',
-    TimeoutException() =>
-      'Transaction signing timed out. Check signer connectivity and retry.',
-    StateError() =>
-      'Transaction submission failed. Check wallet state and retry.',
-    _ => 'Transaction submission failed. Check the application log and retry.',
-  };
-
   void _requireRoastCoordinator(RoastSetup setup) {
     if (setup.requiresBackupReconciliation) {
       throw const WalletSigningFailure(
@@ -820,53 +207,59 @@ extension WalletSigningController on WalletController {
     );
   }
 
-  Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) async {
+  Future<void> acceptRoastSigningRequest(RoastSigningInboxItem item) =>
+      _respondToRoastSigningRequest(item, approve: true);
+
+  Future<void> rejectRoastSigningRequest(RoastSigningInboxItem item) =>
+      _respondToRoastSigningRequest(item, approve: false);
+
+  Future<void> _respondToRoastSigningRequest(
+    RoastSigningInboxItem item, {
+    required bool approve,
+  }) async {
     if (_backupInProgress) throw const WalletBusyFailure();
     final setup = _setupById(item.setupId);
-    final learnedIndex = _validateRoastSigningRequest(setup, item.request);
-    if (learnedIndex != null) {
-      await _persistLearnedRoastAllocation(setup.id, learnedIndex);
+    if (approve) {
+      final learnedIndex = _validateRoastSigningRequest(setup, item.request);
+      if (learnedIndex != null) {
+        await _persistLearnedRoastAllocation(setup.id, learnedIndex);
+      }
+      await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
+    } else {
+      await _roastRuntime!.rejectSignatures(setup.id, item.request.idHex);
     }
-    await _roastRuntime!.acceptSignatures(setup.id, item.request.idHex);
     final requestKey = '${setup.id}:${item.request.idHex}';
-    final current = _roastSigningRequests[requestKey];
-    if (current != null) {
+    if (_roastSigningRequests[requestKey] case final current?) {
       _roastSigningRequests[requestKey] = RoastSigningInboxItem(
         setupId: current.setupId,
         walletName: current.walletName,
-        request: current.request.copyWith(status: 'accepted'),
+        request: current.request.copyWith(
+          status: approve ? 'accepted' : 'rejected',
+        ),
       );
     }
     await _recordSetupActivity(
       setup,
-      id: 'signature-request-approved:${setup.id}:${item.request.idHex}',
-      type: WalletActivityType.signatureRequestApproved,
+      id: 'signature-request-${approve ? 'approved' : 'rejected'}:$requestKey',
+      type: approve
+          ? WalletActivityType.signatureRequestApproved
+          : WalletActivityType.signatureRequestRejected,
       reference: item.request.idHex,
     );
     _notifyListeners();
   }
 
-  Future<void> rejectRoastSigningRequest(RoastSigningInboxItem item) async {
-    if (_backupInProgress) throw const WalletBusyFailure();
-    final setup = _setupById(item.setupId);
-    await _roastRuntime!.rejectSignatures(item.setupId, item.request.idHex);
-    final requestKey = '${item.setupId}:${item.request.idHex}';
-    final current = _roastSigningRequests[requestKey];
-    if (current != null) {
-      _roastSigningRequests[requestKey] = RoastSigningInboxItem(
-        setupId: current.setupId,
-        walletName: current.walletName,
-        request: current.request.copyWith(status: 'rejected'),
-      );
-    }
-    await _recordSetupActivity(
-      setup,
-      id: 'signature-request-rejected:${setup.id}:${item.request.idHex}',
-      type: WalletActivityType.signatureRequestRejected,
-      reference: item.request.idHex,
-    );
-    _notifyListeners();
-  }
+  RoastDerivedAddress _deriveRoastAddress(
+    RoastSetup setup,
+    WalletAccount account,
+    List<int> path,
+  ) => _roastKeyService.deriveAddress(
+    groupKeyHex: setup.groupKeyHex!,
+    threshold: setup.threshold,
+    network: networkForAccount(account),
+    accountIndex: account.accountIndex,
+    pathLabel: 'R/${path.join('/')}',
+  );
 
   int? _validateRoastSigningRequest(
     RoastSetup setup,
@@ -937,12 +330,10 @@ extension WalletSigningController on WalletController {
     final requestedAddressesByPath = <String, RoastDerivedAddress>{};
     for (final path in request.derivationPaths) {
       if (!pathIsAllowed(path)) continue;
-      requestedAddressesByPath[path.join('/')] = _roastKeyService.deriveAddress(
-        groupKeyHex: setup.groupKeyHex!,
-        threshold: setup.threshold,
-        network: network,
-        accountIndex: account.accountIndex,
-        pathLabel: 'R/${path.join('/')}',
+      requestedAddressesByPath[path.join('/')] = _deriveRoastAddress(
+        setup,
+        account,
+        path,
       );
     }
     final validKeys =
@@ -1022,13 +413,7 @@ extension WalletSigningController on WalletController {
         validChange = false;
       } else {
         final index = changePath.last;
-        final derivedChange = _roastKeyService.deriveAddress(
-          groupKeyHex: setup.groupKeyHex!,
-          threshold: setup.threshold,
-          network: network,
-          accountIndex: account.accountIndex,
-          pathLabel: 'R/${changePath.join('/')}',
-        );
+        final derivedChange = _deriveRoastAddress(setup, account, changePath);
         validChange =
             request.outputs[changeOutputIndex].scriptHex ==
             _roastKeyService.scriptHexForAddress(
@@ -1069,18 +454,9 @@ extension WalletSigningController on WalletController {
           item.sourceId == setup.id &&
           item.accountIndex == request.accountIndex,
     );
-    final network = networkForAccount(account);
     final expectedInternalKeysHex = [
       for (final path in request.derivationPaths)
-        _roastKeyService
-            .deriveAddress(
-              groupKeyHex: setup.groupKeyHex!,
-              threshold: setup.threshold,
-              network: network,
-              accountIndex: account.accountIndex,
-              pathLabel: 'R/${path.join('/')}',
-            )
-            .internalKeyHex,
+        _deriveRoastAddress(setup, account, path).internalKeyHex,
     ];
     return RoastSigningOperation(
       setupId: setup.id,
@@ -1125,9 +501,6 @@ extension WalletSigningController on WalletController {
     if (changed) await _restartElectrumxSync();
   }
 
-  static List<int> _roastPath(String label) =>
-      label.split('/').skip(1).map(int.parse).toList(growable: false);
-
   Future<void> _announceRoastAction(String id, VoidCallback? notify) async {
     if (!_announcedRoastActions.add(id)) return;
     try {
@@ -1151,3 +524,6 @@ extension WalletSigningController on WalletController {
     notify?.call();
   }
 }
+
+List<int> _roastPath(String label) =>
+    label.split('/').skip(1).map(int.parse).toList(growable: false);

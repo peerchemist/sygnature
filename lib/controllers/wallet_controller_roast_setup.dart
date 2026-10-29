@@ -4,11 +4,7 @@ enum _RoastJoinPhase { invitation, enrollment, localSetup, signerStartup }
 
 extension WalletRoastSetupController on WalletController {
   List<RoastSetup> get roastSetups => _vault?.roastSetups ?? const [];
-  List<WalletGroupTransition> get groupTransitions =>
-      _vault?.groupTransitions ?? const [];
   bool get roastAvailable => _roastRuntime != null;
-  bool get roastCoordinatorSwitchAvailable =>
-      _roastRuntime is RoastCoordinatorRuntime;
   RoastSetup? setupForAccount(WalletAccount account) {
     final setupId = account.sourceId;
     if (account.keySource != WalletKeySource.roast || setupId == null) {
@@ -19,31 +15,6 @@ extension WalletRoastSetupController on WalletController {
 
   bool roastOperationInProgress(String setupId) =>
       _roastOperations.contains(setupId);
-  RoastCoordinatorLocalState roastCoordinatorState(String setupId) {
-    if (_roastCoordinatorSwitches.contains(setupId)) {
-      return RoastCoordinatorLocalState.switching;
-    }
-    if (_roastCoordinatorRecovery.containsKey(setupId)) {
-      return RoastCoordinatorLocalState.recoveryRequired;
-    }
-    final presence = _roastPresence[setupId];
-    return presence?.connected == true && presence?.signerRunning == true
-        ? RoastCoordinatorLocalState.connected
-        : RoastCoordinatorLocalState.stopped;
-  }
-
-  RoastCoordinatorSwitchFailure? roastCoordinatorRecovery(String setupId) =>
-      _roastCoordinatorRecovery[setupId];
-
-  RoastCoordinatorAddress parseRoastCoordinatorAddress({
-    required String id,
-    required Iterable<String> relayUrls,
-    required Iterable<String> ipAddrs,
-  }) => RoastCoordinatorAddress.parse(
-    id: id,
-    relayUrls: relayUrls,
-    ipAddrs: ipAddrs,
-  );
   List<RoastIssuedInvitation> issuedRoastInvitations(String setupId) =>
       _setupById(setupId).invitations;
   int enrolledRoastParticipantCount(RoastSetup setup) {
@@ -77,51 +48,6 @@ extension WalletRoastSetupController on WalletController {
     participantPublicKeyHex,
     (invitation) => invitation.copyWith(sentAt: DateTime.now().toUtc()),
   );
-  int onlineSignerCount(RoastSetup setup) {
-    return setup.participants
-        .where((participant) => isRoastParticipantOnline(setup, participant))
-        .length;
-  }
-
-  bool isRoastParticipantOnline(
-    RoastSetup setup,
-    RoastParticipant participant,
-  ) {
-    final presence = _roastPresence[setup.id];
-    if (presence?.connected != true) return false;
-    if (participant.cardId == setup.localCardId) {
-      return presence!.signerRunning;
-    }
-    return presence!.onlineParticipantIds.contains(participant.identifierHex);
-  }
-
-  List<String> onlineRoastParticipantIds(String setupId) {
-    final presence = _roastPresence[setupId];
-    return presence?.connected == true
-        ? presence!.onlineParticipantIds
-        : const [];
-  }
-
-  bool _setRoastPresence(
-    String setupId, {
-    required bool connected,
-    required bool signerRunning,
-    required List<String> onlineParticipantIds,
-  }) {
-    final previous = _roastPresence[setupId];
-    if (previous?.connected == connected &&
-        previous?.signerRunning == signerRunning &&
-        listEquals(previous?.onlineParticipantIds, onlineParticipantIds)) {
-      return false;
-    }
-    _roastPresence[setupId] = _RoastPresence(
-      connected: connected,
-      signerRunning: signerRunning,
-      onlineParticipantIds: List.unmodifiable(onlineParticipantIds),
-    );
-    return true;
-  }
-
   Future<String> createRoastSetupDraft({
     required RoastSetupRole role,
     required String walletName,
@@ -180,18 +106,7 @@ extension WalletRoastSetupController on WalletController {
       irohIdentityIndex: irohIdentityIndexForSetup(setupId),
       usesRoomEnrollment: true,
     );
-    final account = WalletAccount(
-      id: 'roast-$setupId-${selectedNetwork.storageId}-0',
-      name: cleanWalletName,
-      accountIndex: 0,
-      blockchainId: selectedNetwork.blockchainId,
-      networkId: selectedNetwork.networkId,
-      derivationState: WalletDerivationState.pending,
-      keySource: WalletKeySource.roast,
-      sourceId: setupId,
-      keyId: setup.keyName,
-      createdAt: DateTime.now().toUtc(),
-    );
+    final account = _pendingRoastAccount(setup);
     await _updateVault(
       (current) => current == null
           ? WalletVault(
@@ -210,400 +125,28 @@ extension WalletRoastSetupController on WalletController {
     return setupId;
   }
 
-  String participantCard(String setupId) {
-    final setup = _setupById(setupId);
-    final participant = setup.localParticipant;
-    return RoastExchangeCodec.encodeParticipantCard(
-      cardId: participant.cardId,
-      name: participant.name,
-      publicKeyHex: participant.publicKeyHex,
-    );
-  }
+  WalletAccount _pendingRoastAccount(
+    RoastSetup setup, {
+    String? name,
+    DateTime? createdAt,
+  }) => WalletAccount(
+    id: 'roast-${setup.id}-${setup.blockchainId}:${setup.networkId}-0',
+    name: name ?? setup.name,
+    accountIndex: 0,
+    blockchainId: setup.blockchainId,
+    networkId: setup.networkId,
+    derivationState: WalletDerivationState.pending,
+    keySource: WalletKeySource.roast,
+    sourceId: setup.id,
+    keyId: setup.keyName,
+    createdAt: createdAt ?? DateTime.now().toUtc(),
+  );
 
   String participantPublicKey(String setupId) =>
       _setupById(setupId).localParticipant.publicKeyHex;
 
   String normalizeRoastParticipantPublicKey(String value) =>
       _roastKeyService.normalizeParticipantPublicKey(value);
-
-  /// Any signer in an active source setup may host a proposed successor.
-  Future<RoastGroupTransitionCreation> proposeRoastGroupTransition({
-    required String sourceSetupId,
-    required String successorWalletName,
-    required int successorThreshold,
-    required List<({String name, String publicKeyHex})> otherParticipants,
-    SygnatureWalletTransitionPolicy? migrationPolicy,
-    Duration validity = const Duration(days: 7),
-  }) async {
-    final runtime = _roastRuntime;
-    final current = _vault;
-    if (runtime == null) {
-      throw UnsupportedError(
-        'ROAST is unavailable in this application session.',
-      );
-    }
-    if (current == null) {
-      throw StateError('Wallet is not initialized.');
-    }
-    if (validity <= Duration.zero) {
-      throw ArgumentError.value(validity, 'validity', 'must be positive');
-    }
-    final source = _setupById(sourceSetupId);
-    if (!source.isActive || source.groupKeyHex == null) {
-      throw StateError('Only an active ROAST setup can be transitioned.');
-    }
-    final sourceAccount = current.accounts.singleWhere(
-      (account) => account.sourceId == source.id,
-      orElse: () => throw StateError(
-        'The source ROAST setup does not have a wallet account.',
-      ),
-    );
-    final network = PeercoinNetworks.fromWalletNetwork(
-      _networkById(source.blockchainId, source.networkId),
-    );
-    final transitionPolicy =
-        migrationPolicy ??
-        SygnatureWalletTransitionPolicy(
-          sourceAccountId: sourceAccount.id,
-          blockchainId: source.blockchainId,
-          networkId: source.networkId,
-          keyId: sourceAccount.keyId ?? source.keyName,
-          destinationDerivationPath: thresholdBip86DerivationPath(
-            coinType: network.coinType,
-            account: 0,
-          ),
-          maxTotalFeeSats: 0,
-          maxFeeRateSatsPerKb: network.network.feePerKb.toInt(),
-          minimumConfirmations: 6,
-          maxMigrationAttempts: 1,
-          sweepLateDeposits: false,
-        );
-    if (transitionPolicy.sourceAccountId != sourceAccount.id ||
-        transitionPolicy.blockchainId != source.blockchainId ||
-        transitionPolicy.networkId != source.networkId ||
-        transitionPolicy.keyId != sourceAccount.keyId) {
-      throw ArgumentError.value(
-        transitionPolicy,
-        'migrationPolicy',
-        'does not match the source wallet account',
-      );
-    }
-    final existingTransition = current.groupTransitions
-        .where(
-          (transition) =>
-              transition.sourceSetupId == source.id &&
-              transition.phase != WalletGroupTransitionPhase.failed &&
-              transition.phase != WalletGroupTransitionPhase.retired,
-        )
-        .firstOrNull;
-    if (existingTransition != null) {
-      throw StateError(
-        'This wallet already has an unfinished signer-group change.',
-      );
-    }
-    final participantCount = otherParticipants.length + 1;
-    if (successorThreshold < 2 || successorThreshold > participantCount) {
-      throw ArgumentError.value(
-        successorThreshold,
-        'successorThreshold',
-        'must be between 2 and the successor participant count',
-      );
-    }
-    final successorName = successorWalletName.trim();
-    if (successorName.isEmpty) {
-      throw ArgumentError('Successor wallet name cannot be empty.');
-    }
-
-    final local = source.localParticipant;
-    final participantCards = <String>[];
-    for (final candidate in otherParticipants) {
-      final publicKeyHex = _roastKeyService.normalizeParticipantPublicKey(
-        candidate.publicKeyHex,
-      );
-      if (publicKeyHex == local.publicKeyHex) {
-        throw ArgumentError(
-          'The initiating signer is already included in the successor group.',
-        );
-      }
-      final retained = source.participants
-          .where((participant) => participant.publicKeyHex == publicKeyHex)
-          .firstOrNull;
-      participantCards.add(
-        retained == null
-            ? _roastKeyService.participantCardFromPublicKey(
-                name: candidate.name,
-                publicKeyHex: publicKeyHex,
-              )
-            : RoastExchangeCodec.encodeParticipantCard(
-                cardId: retained.cardId,
-                name: candidate.name.trim().isEmpty
-                    ? retained.name
-                    : candidate.name.trim(),
-                publicKeyHex: retained.publicKeyHex,
-              ),
-      );
-    }
-
-    final successorSetupId = _roastKeyService.newSetupId();
-    final successorGroupId = _roastKeyService.newSetupId();
-    final transitionId = _roastKeyService.newSetupId();
-    var successor = RoastSetup(
-      id: successorSetupId,
-      groupId: successorGroupId,
-      name: successorName,
-      role: RoastSetupRole.host,
-      status: RoastSetupStatus.connecting,
-      threshold: successorThreshold,
-      participantCount: participantCount,
-      blockchainId: source.blockchainId,
-      networkId: source.networkId,
-      localCardId: local.cardId,
-      localParticipantPrivateKeyHex: source.localParticipantPrivateKeyHex,
-      participants: [
-        RoastParticipant(
-          cardId: local.cardId,
-          name: local.name,
-          identifierHex: '',
-          publicKeyHex: local.publicKeyHex,
-        ),
-      ],
-      keyName: roastKeyName(successorGroupId),
-      createdAt: DateTime.now().toUtc(),
-      irohIdentityIndex: irohIdentityIndexForSetup(successorSetupId),
-      usesRoomEnrollment: true,
-    );
-    final participants = _roastKeyService.finalizeRoster(
-      successor,
-      participantCards,
-    );
-    successor = successor.copyWith(
-      participants: participants,
-      hostParticipantId: participants
-          .singleWhere((participant) => participant.cardId == local.cardId)
-          .identifierHex,
-    );
-    successor = successor.copyWith(
-      groupFingerprintHex: _roastKeyService.groupFingerprint(successor),
-    );
-
-    RoastSetup? persistedSuccessor;
-    WalletGroupTransition? persistedTransition;
-    try {
-      final room = await runtime.createRoom(
-        successor,
-        beforeInvitations: (preparedRoom) async {
-          final now = DateTime.now().toUtc();
-          final expiresAt = now.add(validity);
-          final dkgDetails = NewDkgDetails(
-            name: successor.keyName,
-            description: roastKeyDescription(successor),
-            threshold: successor.threshold,
-            expiry: Expiry.fromTime(expiresAt),
-            groupFingerprint: hexToBytes(successor.groupFingerprintHex!),
-          );
-          final keyPlan = GroupTransitionKeyPlan(
-            keyId: transitionPolicy.keyId,
-            sourceGroupKey: ECCompressedPublicKey.fromHex(source.groupKeyHex!),
-            sourceThreshold: source.threshold,
-            targetThreshold: successor.threshold,
-            dkgDetailsHash: dkgDetails.sigHash,
-          );
-          final proposal = GroupTransitionProposal(
-            transitionId: transitionId,
-            sourceGroup: GroupConfig(
-              id: source.groupId,
-              participants: {
-                for (final participant in source.participants)
-                  Identifier.fromHex(participant.identifierHex):
-                      ECCompressedPublicKey.fromHex(participant.publicKeyHex),
-              },
-            ),
-            successorRoomId: successor.groupId,
-            coordinatorEndpointId: preparedRoom.coordinatorEndpointId,
-            successorParticipants: [
-              for (final participant in successor.participants)
-                ECCompressedPublicKey.fromHex(participant.publicKeyHex),
-            ],
-            keyPlans: [keyPlan],
-            migrationPolicy: transitionPolicy.noospherePolicy,
-            createdAt: now,
-            expiresAt: expiresAt,
-          );
-          var transition = WalletGroupTransition.proposed(
-            sourceSetupId: source.id,
-            successorSetupId: successor.id,
-            proposal: proposal,
-            dkgDetailsByKey: {transitionPolicy.keyId: dkgDetails},
-            now: now,
-          );
-          transition = transition.withApproval(
-            GroupTransitionApproval.forProposal(
-              proposal: proposal,
-              participantPublicKey: ECCompressedPublicKey.fromHex(
-                local.publicKeyHex,
-              ),
-              approvedAt: now,
-            ).sign(ECPrivateKey.fromHex(source.localParticipantPrivateKeyHex)),
-            now: now,
-          );
-          final preparedSuccessor = successor.copyWith(
-            coordinatorId: preparedRoom.coordinatorId,
-            coordinatorRelayUrls: preparedRoom.coordinatorRelayUrls,
-            coordinatorIpAddrs: preparedRoom.coordinatorIpAddrs,
-          );
-          final successorAccount = WalletAccount(
-            id:
-                'roast-${successor.id}-'
-                '${source.blockchainId}:${source.networkId}-0',
-            name: successor.name,
-            accountIndex: 0,
-            blockchainId: source.blockchainId,
-            networkId: source.networkId,
-            derivationState: WalletDerivationState.pending,
-            keySource: WalletKeySource.roast,
-            sourceId: successor.id,
-            keyId: successor.keyName,
-            createdAt: now,
-          );
-          await _updateVault((latest) {
-            if (latest == null ||
-                !latest.roastSetups.any((setup) => setup.id == source.id)) {
-              throw StateError(
-                'The source ROAST setup is no longer available.',
-              );
-            }
-            return latest.copyWith(
-              accounts: [...latest.accounts, successorAccount],
-              roastSetups: [...latest.roastSetups, preparedSuccessor],
-              groupTransitions: [...latest.groupTransitions, transition],
-              selectedAccountId: successorAccount.id,
-            );
-          }, updateSelection: true);
-          persistedSuccessor = preparedSuccessor;
-          persistedTransition = transition;
-        },
-      );
-      final savedSetup = persistedSuccessor;
-      final savedTransition = persistedTransition;
-      if (savedSetup == null || savedTransition == null) {
-        throw StateError(
-          'The transition proposal was not persisted before invitations.',
-        );
-      }
-      final invitations = [
-        for (final invite in room.invites)
-          RoastIssuedInvitation(
-            participantName: savedSetup.participants
-                .singleWhere(
-                  (participant) =>
-                      participant.publicKeyHex ==
-                      invite.invite.expectedParticipantPublicKey.hex,
-                )
-                .name,
-            participantPublicKeyHex:
-                invite.invite.expectedParticipantPublicKey.hex,
-            issuedAt: DateTime.now().toUtc(),
-            expiresAt: invite.invite.expiresAt,
-            encoded: invite.encode(),
-          ),
-      ];
-      await _updateSetup(
-        savedSetup.id,
-        (savedSetup) => savedSetup.copyWith(invitations: invitations),
-      );
-      return RoastGroupTransitionCreation(
-        transitionId: savedTransition.transitionId,
-        successorSetupId: savedSetup.id,
-        invitations: List.unmodifiable(invitations),
-      );
-    } catch (error) {
-      final savedSetup = persistedSuccessor;
-      if (savedSetup != null) {
-        await _updateSetup(
-          savedSetup.id,
-          (savedSetup) => savedSetup.copyWith(
-            status: RoastSetupStatus.error,
-            errorMessage: _cleanRoastError(error),
-          ),
-        );
-      }
-      rethrow;
-    }
-  }
-
-  /// Creates a successor draft with the identity already used in [sourceSetupId].
-  /// The room invitation still supplies and validates the successor roster.
-  Future<String> createRoastTransitionJoinDraft({
-    required String sourceSetupId,
-    required String walletName,
-    required int threshold,
-    required int participantCount,
-  }) async {
-    final current = _vault;
-    if (current == null) throw StateError('Wallet is not initialized.');
-    final source = _setupById(sourceSetupId);
-    if (!source.isActive || source.groupKeyHex == null) {
-      throw StateError('The source ROAST wallet is not active.');
-    }
-    if (participantCount < 2 || participantCount > 0xffff) {
-      throw ArgumentError('Invalid successor participant count.');
-    }
-    if (threshold < 2 || threshold > participantCount) {
-      throw ArgumentError('Invalid successor signing threshold.');
-    }
-    final setupId = _roastKeyService.newSetupId();
-    final local = source.localParticipant;
-    final name = walletName.trim().isEmpty
-        ? 'Shared wallet'
-        : walletName.trim();
-    final draftGroupId = _roastKeyService.newSetupId();
-    final setup = RoastSetup(
-      id: setupId,
-      groupId: draftGroupId,
-      name: name,
-      role: RoastSetupRole.member,
-      status: RoastSetupStatus.draft,
-      threshold: threshold,
-      participantCount: participantCount,
-      blockchainId: source.blockchainId,
-      networkId: source.networkId,
-      localCardId: local.cardId,
-      localParticipantPrivateKeyHex: source.localParticipantPrivateKeyHex,
-      participants: [
-        RoastParticipant(
-          cardId: local.cardId,
-          name: local.name,
-          identifierHex: '',
-          publicKeyHex: local.publicKeyHex,
-        ),
-      ],
-      keyName: roastKeyName(draftGroupId),
-      createdAt: DateTime.now().toUtc(),
-      irohIdentityIndex: irohIdentityIndexForSetup(setupId),
-      usesRoomEnrollment: true,
-    );
-    final account = WalletAccount(
-      id: 'roast-$setupId-${source.blockchainId}:${source.networkId}-0',
-      name: name,
-      accountIndex: 0,
-      blockchainId: source.blockchainId,
-      networkId: source.networkId,
-      derivationState: WalletDerivationState.pending,
-      keySource: WalletKeySource.roast,
-      sourceId: setupId,
-      keyId: setup.keyName,
-      createdAt: DateTime.now().toUtc(),
-    );
-    await _updateVault((current) {
-      if (current == null) throw StateError('Wallet is not initialized.');
-      return current.copyWith(
-        accounts: [...current.accounts, account],
-        roastSetups: [...current.roastSetups, setup],
-        selectedAccountId: account.id,
-      );
-    }, updateSelection: true);
-    return setupId;
-  }
 
   Future<List<RoastIssuedInvitation>> createHostedRoastInvitations(
     String setupId,
@@ -624,11 +167,14 @@ extension WalletRoastSetupController on WalletController {
     if (draft.role != RoastSetupRole.host) {
       throw StateError('Only a host can finalize this participant roster.');
     }
-    final participants = _roastKeyService.finalizeRoster(
-      draft,
-      participantCards,
-    );
-    var setup = draft.copyWith(
+    final setup = _finalizeRoastRoster(draft, participantCards);
+    await _updateSetup(setup.id, (_) => setup);
+    return _createHostedRoastInvitations(setup);
+  }, errorMessage: _cleanRoastInvitationError);
+
+  RoastSetup _finalizeRoastRoster(RoastSetup draft, List<String> cards) {
+    final participants = _roastKeyService.finalizeRoster(draft, cards);
+    final setup = draft.copyWith(
       participants: participants,
       hostParticipantId: participants
           .singleWhere((participant) => participant.cardId == draft.localCardId)
@@ -636,12 +182,10 @@ extension WalletRoastSetupController on WalletController {
       status: RoastSetupStatus.connecting,
       clearError: true,
     );
-    setup = setup.copyWith(
+    return setup.copyWith(
       groupFingerprintHex: _roastKeyService.groupFingerprint(setup),
     );
-    await _updateSetup(setup.id, (_) => setup);
-    return _createHostedRoastInvitations(setup);
-  }, errorMessage: _cleanRoastInvitationError);
+  }
 
   Future<List<RoastIssuedInvitation>> retryHostedRoastInvitations(
     String setupId,
@@ -676,23 +220,7 @@ extension WalletRoastSetupController on WalletController {
         ),
       );
       setup = _setupById(setup.id);
-      final invitations = [
-        for (final invite in room.invites)
-          RoastIssuedInvitation(
-            participantName: setup.participants
-                .singleWhere(
-                  (participant) =>
-                      participant.publicKeyHex ==
-                      invite.invite.expectedParticipantPublicKey.hex,
-                )
-                .name,
-            participantPublicKeyHex:
-                invite.invite.expectedParticipantPublicKey.hex,
-            issuedAt: DateTime.now().toUtc(),
-            expiresAt: invite.invite.expiresAt,
-            encoded: invite.encode(),
-          ),
-      ];
+      final invitations = _roomInvitations(setup, room);
       await _updateSetup(
         setup.id,
         (latest) => latest.copyWith(invitations: invitations),
@@ -707,6 +235,26 @@ extension WalletRoastSetupController on WalletController {
       rethrow;
     }
   }
+
+  List<RoastIssuedInvitation> _roomInvitations(
+    RoastSetup setup,
+    RoastRoomCreation room,
+  ) => [
+    for (final invite in room.invites)
+      RoastIssuedInvitation(
+        participantName: setup.participants
+            .singleWhere(
+              (participant) =>
+                  participant.publicKeyHex ==
+                  invite.invite.expectedParticipantPublicKey.hex,
+            )
+            .name,
+        participantPublicKeyHex: invite.invite.expectedParticipantPublicKey.hex,
+        issuedAt: DateTime.now().toUtc(),
+        expiresAt: invite.invite.expiresAt,
+        encoded: invite.encode(),
+      ),
+  ];
 
   Future<void> joinRoastSetup(String setupId, String invitation) async {
     final draft = _setupById(setupId);
@@ -734,18 +282,9 @@ extension WalletRoastSetupController on WalletController {
         final account = current.accounts.firstWhere(
           (item) => item.sourceId == setupId,
         );
-        final replacementAccount = WalletAccount(
-          id:
-              'roast-$setupId-'
-              '${enrolled.blockchainId}:${enrolled.networkId}-0',
+        final replacementAccount = _pendingRoastAccount(
+          enrolled,
           name: account.name,
-          accountIndex: 0,
-          blockchainId: enrolled.blockchainId,
-          networkId: enrolled.networkId,
-          derivationState: WalletDerivationState.pending,
-          keySource: WalletKeySource.roast,
-          sourceId: setupId,
-          keyId: enrolled.keyName,
           createdAt: account.createdAt,
         );
         return current.copyWith(
@@ -820,228 +359,6 @@ extension WalletRoastSetupController on WalletController {
       return setup.copyWith(invitations: invitations);
     });
   }
-
-  Future<void> switchRoastCoordinator(
-    String setupId,
-    RoastCoordinatorAddress newCoordinator, {
-    required bool approved,
-  }) async {
-    if (!approved) {
-      throw StateError(
-        'Approve the exact coordinator endpoint ID before switching.',
-      );
-    }
-    final runtime = _roastRuntime;
-    if (runtime == null || runtime is! RoastCoordinatorRuntime) {
-      throw UnsupportedError('Coordinator switching is not available.');
-    }
-    final coordinatorRuntime = runtime as RoastCoordinatorRuntime;
-    final setup = _setupById(setupId);
-    if (!setup.isFinalized || setup.coordinatorId == null) {
-      throw StateError('The ROAST signer setup is not ready to switch.');
-    }
-    final unchangedIdentity = setup.coordinatorId == newCoordinator.id;
-    final unchangedAddress =
-        unchangedIdentity &&
-        _sameStrings(setup.coordinatorRelayUrls, newCoordinator.relayUrls) &&
-        _sameStrings(setup.coordinatorIpAddrs, newCoordinator.ipAddrs);
-    if (unchangedAddress) {
-      throw StateError('This coordinator address is already selected.');
-    }
-    if (!_roastOperations.add(setupId)) {
-      throw StateError('Another ROAST operation is already in progress.');
-    }
-    _roastCoordinatorSwitches.add(setupId);
-    _notifyListeners();
-    Future<void>? persistence;
-    try {
-      final RoastRuntimeSnapshot snapshot;
-      if (unchangedIdentity) {
-        final write = _persistCoordinatorSelection(setupId, newCoordinator);
-        persistence = write;
-        try {
-          await write;
-        } on Object catch (error, stackTrace) {
-          Error.throwWithStackTrace(
-            RoastCoordinatorSwitchFailure(
-              kind: RoastCoordinatorSwitchFailureKind.persistence,
-              code: 'host_state',
-              cause: error,
-            ),
-            stackTrace,
-          );
-        }
-        snapshot = await coordinatorRuntime.updateCoordinatorAddress(
-          _setupById(setupId),
-          newCoordinator,
-        );
-      } else {
-        snapshot = await coordinatorRuntime.switchCoordinator(
-          setup,
-          newCoordinator: newCoordinator,
-          persist: (address) {
-            final write = _persistCoordinatorSelection(setupId, address);
-            persistence = write;
-            return write;
-          },
-        );
-      }
-      _roastCoordinatorRecovery.remove(setupId);
-      await _applyCoordinatorSnapshot(setupId, snapshot);
-    } on RoastCoordinatorSwitchFailure catch (failure, stackTrace) {
-      if (failure.kind == RoastCoordinatorSwitchFailureKind.persistence) {
-        try {
-          await persistence;
-        } on Object {
-          // The durable repository is authoritative after an ambiguous write.
-        }
-        await _recoverCoordinatorPersistence(setupId, runtime, failure);
-      } else {
-        await _requireCoordinatorRecovery(setupId, failure);
-      }
-      Error.throwWithStackTrace(failure, stackTrace);
-    } on Object catch (error, stackTrace) {
-      final failure = RoastCoordinatorSwitchFailure(
-        kind: RoastCoordinatorSwitchFailureKind.connection,
-        code: 'application_failure',
-        cause: error,
-      );
-      await _requireCoordinatorRecovery(setupId, failure);
-      Error.throwWithStackTrace(error, stackTrace);
-    } finally {
-      _roastCoordinatorSwitches.remove(setupId);
-      _roastOperations.remove(setupId);
-      _notifyListeners();
-    }
-  }
-
-  Future<void> resumeRoastSetup(String setupId) async {
-    final setup = _setupById(setupId);
-    if (setup.requiresBackupReconciliation) {
-      throw StateError(
-        'Compare the restored group with authenticated live participants before reconnecting.',
-      );
-    }
-    if (!setup.isFinalized || _roastOperations.contains(setupId)) return;
-    _cancelRoastReconnect(setupId);
-    await _startRoastRuntime(
-      setup.copyWith(status: RoastSetupStatus.connecting),
-    );
-  }
-
-  Future<void> _persistCoordinatorSelection(
-    String setupId,
-    RoastCoordinatorAddress address,
-  ) => _updateSetup(setupId, (existing) {
-    if (existing.coordinatorId == address.id &&
-        _sameStrings(existing.coordinatorRelayUrls, address.relayUrls) &&
-        _sameStrings(existing.coordinatorIpAddrs, address.ipAddrs)) {
-      return existing;
-    }
-    return existing.copyWith(
-      coordinatorId: address.id,
-      coordinatorRelayUrls: List.unmodifiable(address.relayUrls),
-      coordinatorIpAddrs: List.unmodifiable(address.ipAddrs),
-    );
-  });
-
-  Future<void> _recoverCoordinatorPersistence(
-    String setupId,
-    RoastRuntime runtime,
-    RoastCoordinatorSwitchFailure failure,
-  ) async {
-    try {
-      final selected = await _queueVaultMutation(() async {
-        final stored = await _repository.load();
-        if (stored == null) throw StateError('The wallet vault is missing.');
-        final selected = stored.roastSetups.singleWhere(
-          (setup) => setup.id == setupId,
-        );
-        _vault = stored;
-        _vaultNeedsReload = false;
-        _notifyListeners();
-        return selected;
-      });
-      final snapshot = await runtime.startSetup(selected);
-      _roastCoordinatorRecovery.remove(setupId);
-      await _applyCoordinatorSnapshot(setupId, snapshot);
-    } on Object catch (recoveryError) {
-      await _requireCoordinatorRecovery(
-        setupId,
-        RoastCoordinatorSwitchFailure(
-          kind: RoastCoordinatorSwitchFailureKind.persistence,
-          code: failure.code,
-          cause: recoveryError,
-        ),
-      );
-    }
-  }
-
-  Future<void> _requireCoordinatorRecovery(
-    String setupId,
-    RoastCoordinatorSwitchFailure failure,
-  ) async {
-    _roastCoordinatorRecovery[setupId] = failure;
-    _roastPresence.remove(setupId);
-    final setup = _setupById(setupId);
-    await _updateSetup(
-      setup.id,
-      (setup) => setup.copyWith(
-        status: RoastSetupStatus.interrupted,
-        errorMessage: _coordinatorSwitchError(failure),
-      ),
-    );
-  }
-
-  Future<void> _applyCoordinatorSnapshot(
-    String setupId,
-    RoastRuntimeSnapshot snapshot,
-  ) async {
-    final presenceChanged = _setRoastPresence(
-      setupId,
-      connected: snapshot.connected,
-      signerRunning: snapshot.signerRunning,
-      onlineParticipantIds: snapshot.onlineParticipantIds,
-    );
-    final setup = _setupById(setupId);
-    await _updateSetup(
-      setup.id,
-      (setup) => setup.copyWith(
-        status: snapshot.connected && snapshot.signerRunning
-            ? setup.groupKeyHex == null
-                  ? RoastSetupStatus.ready
-                  : RoastSetupStatus.active
-            : RoastSetupStatus.interrupted,
-        coordinatorId: snapshot.coordinatorId,
-        coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
-        coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
-        clearError: snapshot.connected && snapshot.signerRunning,
-      ),
-      notifyIfUnchanged: presenceChanged,
-    );
-  }
-
-  static bool _sameStrings(List<String> left, List<String> right) {
-    if (left.length != right.length) return false;
-    for (var index = 0; index < left.length; index++) {
-      if (left[index] != right[index]) return false;
-    }
-    return true;
-  }
-
-  static String _coordinatorSwitchError(
-    RoastCoordinatorSwitchFailure failure,
-  ) => switch (failure.kind) {
-    RoastCoordinatorSwitchFailureKind.pendingSigningOperations =>
-      'Coordinator switch stopped because signing operations or nonce records '
-          'are still pending. Reconcile them before retrying.',
-    RoastCoordinatorSwitchFailureKind.persistence =>
-      'Coordinator storage outcome requires recovery. The signer remains '
-          'stopped until the durable selection is reconciled.',
-    RoastCoordinatorSwitchFailureKind.connection =>
-      'The approved coordinator is saved but the signer could not connect. '
-          'Verify that it serves this exact group, then retry explicitly.',
-  };
 
   Future<void> startRoastDkg(
     String setupId, {
@@ -1190,9 +507,9 @@ extension WalletRoastSetupController on WalletController {
     try {
       return await operation();
     } catch (error) {
-      if (roastSetups
-          .where((setup) => setup.id == setupId)
-          .any((setup) => setup.isFinalized)) {
+      if (roastSetups.any(
+        (setup) => setup.id == setupId && setup.isFinalized,
+      )) {
         await _updateSetup(
           setupId,
           (setup) => setup.copyWith(
@@ -1206,178 +523,6 @@ extension WalletRoastSetupController on WalletController {
       _roastOperations.remove(setupId);
       _notifyListeners();
     }
-  }
-
-  Future<void> _startRoastRuntime(RoastSetup setup) {
-    final pending = _roastStarts[setup.id];
-    if (pending != null) return pending;
-    final starting = _startRoastRuntimeNow(setup).whenComplete(() {
-      _roastStarts.remove(setup.id);
-    });
-    _roastStarts[setup.id] = starting;
-    return starting;
-  }
-
-  Future<void> _startRoastRuntimeNow(RoastSetup setup) async {
-    if (_busy) throw const WalletBusyFailure();
-    if (setup.requiresBackupReconciliation) {
-      throw StateError('Restored group requires live reconciliation.');
-    }
-    final runtime = _roastRuntime;
-    if (runtime == null || !_roastOperations.add(setup.id)) return;
-    _notifyListeners();
-    try {
-      await _updateSetup(
-        setup.id,
-        (setup) => setup.copyWith(status: RoastSetupStatus.connecting),
-      );
-      final snapshot = await runtime.startSetup(setup);
-      _setRoastPresence(
-        setup.id,
-        connected: snapshot.connected,
-        signerRunning: snapshot.signerRunning,
-        onlineParticipantIds: snapshot.onlineParticipantIds,
-      );
-      if (snapshot.connected && snapshot.signerRunning) {
-        _roastCoordinatorRecovery.remove(setup.id);
-        _cancelRoastReconnect(setup.id);
-      }
-      final groupWasActive =
-          setup.groupKeyHex == snapshot.groupKeyHex &&
-          accounts.any(
-            (account) =>
-                account.sourceId == setup.id &&
-                account.derivationState == WalletDerivationState.ready,
-          );
-      await _updateSetup(
-        setup.id,
-        (setup) => setup.copyWith(
-          status: !snapshot.connected || !snapshot.signerRunning
-              ? RoastSetupStatus.interrupted
-              : snapshot.groupKeyHex == null
-              ? snapshot.pendingDkgProposalHex == null
-                    ? RoastSetupStatus.ready
-                    : snapshot.pendingDkgStage != 'waiting'
-                    ? RoastSetupStatus.creatingKey
-                    : RoastSetupStatus.awaitingDkgApproval
-              : RoastSetupStatus.active,
-          coordinatorId: snapshot.coordinatorId,
-          coordinatorRelayUrls: snapshot.coordinatorRelayUrls,
-          coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
-          groupKeyHex: snapshot.groupKeyHex,
-          pendingDkgProposalHex: snapshot.pendingDkgProposalHex,
-          pendingDkgStage: snapshot.pendingDkgStage,
-          pendingDkgCompletedParticipantIds:
-              snapshot.pendingDkgCompletedParticipantIds,
-          pendingDkgName: snapshot.pendingDkgName,
-          pendingDkgThreshold: snapshot.pendingDkgThreshold,
-          pendingDkgCreatorId: snapshot.pendingDkgCreator,
-          pendingDkgExpiry: snapshot.pendingDkgExpiry,
-          clearPendingDkgProposal: snapshot.pendingDkgProposalHex == null,
-          clearError: snapshot.connected && snapshot.signerRunning,
-        ),
-      );
-      final connected = _setupById(setup.id);
-      final pendingDkgProposalHex = connected.pendingDkgProposalHex;
-      if (connected.status == RoastSetupStatus.awaitingDkgApproval &&
-          pendingDkgProposalHex != null) {
-        await _announceRoastAction(
-          'dkg:${connected.id}:$pendingDkgProposalHex',
-          onDkgRequest,
-        );
-      }
-      if (snapshot.groupKeyHex != null) {
-        await _activateRoastAccount(connected, snapshot.groupKeyHex!);
-        await _markTransitionReadyForSetup(setup.id);
-        if (!groupWasActive) {
-          await _announceRoastAction(
-            'group-created:${setup.id}:${connected.keyName}',
-            onRoastGroupCreated,
-          );
-        }
-      }
-    } catch (error) {
-      _roastPresence.remove(setup.id);
-      await _updateSetup(
-        setup.id,
-        (setup) => setup.copyWith(
-          status: RoastSetupStatus.error,
-          errorMessage: _cleanRoastError(error),
-        ),
-      );
-      if (_shouldAutoReconnectRoastSetup(setup.id)) {
-        _scheduleRoastReconnect(setup.id);
-      }
-    } finally {
-      _roastOperations.remove(setup.id);
-      _notifyListeners();
-    }
-  }
-
-  bool _shouldAutoReconnectRoastSetup(String setupId) =>
-      !_disposed &&
-      !_roastCoordinatorRecovery.containsKey(setupId) &&
-      accounts.any(
-        (account) =>
-            !account.isArchived &&
-            account.keySource == WalletKeySource.roast &&
-            account.sourceId == setupId,
-      );
-
-  void _scheduleRoastReconnect(String setupId) {
-    if (!_shouldAutoReconnectRoastSetup(setupId) ||
-        _roastReconnectTimers.containsKey(setupId)) {
-      return;
-    }
-    final attempt = _roastReconnectAttempts[setupId] ?? 0;
-    final multiplier = 1 << (attempt > 4 ? 4 : attempt);
-    final retryMilliseconds =
-        WalletController._initialRoastReconnectDelay.inMilliseconds *
-        multiplier;
-    final maxMilliseconds =
-        WalletController._maxRoastReconnectDelay.inMilliseconds;
-    final delay = Duration(
-      milliseconds: retryMilliseconds < maxMilliseconds
-          ? retryMilliseconds
-          : maxMilliseconds,
-    );
-    _roastReconnectAttempts[setupId] = attempt + 1;
-    AppLogger.info(
-      '${_roastLogScope(setupId)} Reconnecting in ${delay.inSeconds}s',
-    );
-    _roastReconnectTimers[setupId] = Timer(delay, () {
-      _roastReconnectTimers.remove(setupId);
-      unawaited(_retryRoastSetup(setupId));
-    });
-  }
-
-  Future<void> _retryRoastSetup(String setupId) async {
-    if (!_shouldAutoReconnectRoastSetup(setupId)) {
-      _cancelRoastReconnect(setupId);
-      return;
-    }
-    if (_busy || _roastOperations.contains(setupId)) {
-      _scheduleRoastReconnect(setupId);
-      return;
-    }
-    try {
-      final setup = _setupById(setupId);
-      await _startRoastRuntime(
-        setup.copyWith(status: RoastSetupStatus.connecting),
-      );
-    } catch (error, stackTrace) {
-      AppLogger.error(
-        '${_roastLogScope(setupId)} Automatic reconnect failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      _scheduleRoastReconnect(setupId);
-    }
-  }
-
-  void _cancelRoastReconnect(String setupId) {
-    _roastReconnectTimers.remove(setupId)?.cancel();
-    _roastReconnectAttempts.remove(setupId);
   }
 
   RoastSetup _setupById(String setupId) => roastSetups.firstWhere(
@@ -1417,39 +562,6 @@ extension WalletRoastSetupController on WalletController {
       );
     });
     if (notifyIfUnchanged && !changed) _notifyListeners();
-  }
-
-  Future<void> _updateGroupTransition(
-    String transitionId,
-    WalletGroupTransition Function(WalletGroupTransition transition) update,
-  ) => _updateVault((current) {
-    if (current == null) return current;
-    return current.copyWith(
-      groupTransitions: [
-        for (final transition in current.groupTransitions)
-          if (transition.transitionId == transitionId)
-            update(transition)
-          else
-            transition,
-      ],
-    );
-  });
-
-  Future<void> _markTransitionReadyForSetup(String setupId) async {
-    final transition = groupTransitions
-        .where((item) => item.successorSetupId == setupId)
-        .firstOrNull;
-    if (transition == null ||
-        transition.phase == WalletGroupTransitionPhase.ready) {
-      return;
-    }
-    await _updateGroupTransition(
-      transition.transitionId,
-      (transition) => transition.copyWith(
-        phase: WalletGroupTransitionPhase.ready,
-        clearError: true,
-      ),
-    );
   }
 
   static bool _dkgMatchesSetup(RoastRuntimeDkgEvent event, RoastSetup setup) =>
@@ -1556,9 +668,7 @@ extension WalletRoastSetupController on WalletController {
   };
 
   static String _cleanRoastInvitationError(Object error) => switch (error) {
-    TimeoutException() =>
-      'Creating signer invitations timed out. Check the network connection '
-          'and try again.',
+    TimeoutException() ||
     NoosphereWorkerException(code: 'timeout' || 'host_timeout') =>
       'Creating signer invitations timed out. Check the network connection '
           'and try again.',
