@@ -10,9 +10,137 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  FlMethodChannel* notification_channel;
+  gchar* pending_notification_payload;
+  gboolean notification_channel_ready;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static constexpr char kNotificationChannel[] =
+    "network.noosphere.sygnature/notifications";
+
+static void notification_method_response_cb(GObject* object,
+                                            GAsyncResult* result,
+                                            gpointer user_data) {
+  FlMethodCall* method_call = FL_METHOD_CALL(user_data);
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(GVariant) response = g_dbus_connection_call_finish(
+      G_DBUS_CONNECTION(object), result, &error);
+  g_autoptr(FlMethodResponse) method_response = nullptr;
+  if (response == nullptr) {
+    method_response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "portal-error", error->message, nullptr));
+  } else {
+    g_autoptr(FlValue) value = fl_value_new_bool(TRUE);
+    method_response =
+        FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+  }
+  fl_method_call_respond(method_call, method_response, nullptr);
+  g_object_unref(method_call);
+}
+
+static void notification_method_call_cb(FlMethodChannel* channel,
+                                        FlMethodCall* method_call,
+                                        gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  if (g_strcmp0(method, "initialize") == 0) {
+    self->notification_channel_ready = TRUE;
+    g_autoptr(FlValue) pending = self->pending_notification_payload == nullptr
+        ? fl_value_new_null()
+        : fl_value_new_string(self->pending_notification_payload);
+    g_clear_pointer(&self->pending_notification_payload, g_free);
+    g_autoptr(FlMethodResponse) response =
+        FL_METHOD_RESPONSE(fl_method_success_response_new(pending));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+  if (g_strcmp0(method, "show") != 0) {
+    fl_method_call_respond_not_implemented(method_call, nullptr);
+    return;
+  }
+
+  FlValue* arguments = fl_method_call_get_args(method_call);
+  FlValue* id = arguments == nullptr
+                    ? nullptr
+                    : fl_value_lookup_string(arguments, "id");
+  FlValue* title = arguments == nullptr
+                       ? nullptr
+                       : fl_value_lookup_string(arguments, "title");
+  FlValue* body = arguments == nullptr
+                      ? nullptr
+                      : fl_value_lookup_string(arguments, "body");
+  FlValue* payload = arguments == nullptr
+                         ? nullptr
+                         : fl_value_lookup_string(arguments, "payload");
+  if (arguments == nullptr ||
+      fl_value_get_type(arguments) != FL_VALUE_TYPE_MAP || id == nullptr ||
+      title == nullptr || body == nullptr || payload == nullptr ||
+      fl_value_get_type(id) != FL_VALUE_TYPE_INT ||
+      fl_value_get_type(title) != FL_VALUE_TYPE_STRING ||
+      fl_value_get_type(body) != FL_VALUE_TYPE_STRING ||
+      fl_value_get_type(payload) != FL_VALUE_TYPE_STRING) {
+    g_autoptr(FlMethodResponse) response =
+        FL_METHOD_RESPONSE(fl_method_error_response_new(
+            "bad-arguments", "Invalid notification details", nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
+  GDBusConnection* connection =
+      g_application_get_dbus_connection(G_APPLICATION(self));
+  if (connection == nullptr) {
+    g_autoptr(FlMethodResponse) response =
+        FL_METHOD_RESPONSE(fl_method_error_response_new(
+            "portal-unavailable", "No session D-Bus connection", nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
+  GVariantBuilder notification;
+  g_variant_builder_init(&notification, G_VARIANT_TYPE_VARDICT);
+  g_variant_builder_add(&notification, "{sv}", "title",
+                        g_variant_new_string(fl_value_get_string(title)));
+  g_variant_builder_add(&notification, "{sv}", "body",
+                        g_variant_new_string(fl_value_get_string(body)));
+  g_variant_builder_add(&notification, "{sv}", "sound",
+                        g_variant_new_string("silent"));
+  g_variant_builder_add(
+      &notification, "{sv}", "default-action",
+      g_variant_new_string("app.open-notification"));
+  g_variant_builder_add(
+      &notification, "{sv}", "default-action-target",
+      g_variant_new_string(fl_value_get_string(payload)));
+  g_autofree gchar* notification_id =
+      g_strdup_printf("%" G_GINT64_FORMAT, fl_value_get_int(id));
+  g_dbus_connection_call(
+      connection, "org.freedesktop.portal.Desktop",
+      "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Notification",
+      "AddNotification",
+      g_variant_new("(s@a{sv})", notification_id,
+                    g_variant_builder_end(&notification)),
+      nullptr, G_DBUS_CALL_FLAGS_NONE, -1, nullptr,
+      notification_method_response_cb, g_object_ref(method_call));
+}
+
+static void notification_action_cb(GSimpleAction* action,
+                                   GVariant* parameter,
+                                   gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* payload = g_variant_get_string(parameter, nullptr);
+  if (self->notification_channel_ready &&
+      self->notification_channel != nullptr) {
+    g_autoptr(FlValue) value = fl_value_new_string(payload);
+    fl_method_channel_invoke_method(self->notification_channel,
+                                    "notificationResponse", value, nullptr,
+                                    nullptr, nullptr);
+  } else {
+    g_free(self->pending_notification_payload);
+    self->pending_notification_payload = g_strdup(payload);
+  }
+  g_application_activate(G_APPLICATION(self));
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -90,6 +218,13 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->notification_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      kNotificationChannel, FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->notification_channel, notification_method_call_cb, self, nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -98,6 +233,11 @@ static gboolean my_application_local_command_line(GApplication* application,
                                                   gchar*** arguments,
                                                   int* exit_status) {
   MyApplication* self = MY_APPLICATION(application);
+  if (g_strv_length(*arguments) == 2 &&
+      g_strcmp0((*arguments)[1], "--gapplication-service") == 0) {
+    return G_APPLICATION_CLASS(my_application_parent_class)
+        ->local_command_line(application, arguments, exit_status);
+  }
   // Strip out the first argument as it is the binary name.
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
 
@@ -116,11 +256,14 @@ static gboolean my_application_local_command_line(GApplication* application,
 
 // Implements GApplication::startup.
 static void my_application_startup(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
-
-  // Perform any actions required at application startup.
-
   G_APPLICATION_CLASS(my_application_parent_class)->startup(application);
+
+  g_autoptr(GSimpleAction) notification_action = g_simple_action_new(
+      "open-notification", G_VARIANT_TYPE_STRING);
+  g_signal_connect(notification_action, "activate",
+                   G_CALLBACK(notification_action_cb), application);
+  g_action_map_add_action(G_ACTION_MAP(application),
+                          G_ACTION(notification_action));
 }
 
 // Implements GApplication::shutdown.
@@ -136,6 +279,8 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->notification_channel);
+  g_clear_pointer(&self->pending_notification_payload, g_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

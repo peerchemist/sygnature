@@ -56,6 +56,17 @@ The script installs the required Freedesktop 26.08 runtime and SDK for the
 current user. The bundle is written to
 `build/flatpak/network.noosphere.sygnature.flatpak`.
 
+Flatpak notifications use the XDG desktop portal and request silent delivery,
+so the app can play its own wallet event tones. Older host portals or desktop
+backends may ignore that request; control their system notification sounds in
+the desktop's notification settings. Notifications remain available on those
+hosts.
+
+The desktop launcher uses `Exec` so URI links reach `app_links_linux` through
+the command line. The separately installed D-Bus service handles notification
+actions, including clicks after the app has exited; it does not require
+`DBusActivatable=true` in the desktop file.
+
 ## Windows application
 
 On a Linux host with Podman, KVM and TUN support, start the persistent

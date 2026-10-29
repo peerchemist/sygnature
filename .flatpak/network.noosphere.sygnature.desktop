@@ -9,3 +9,5 @@ Categories=Finance;Network;
 Keywords=Peercoin;wallet;cryptocurrency;ROAST;
 MimeType=x-scheme-handler/sygnature-roast-v1;
 StartupNotify=true
+# Keep URI launches on Exec for app_links; notification actions use the D-Bus service.
+X-GNOME-UsesNotifications=true

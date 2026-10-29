@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -39,13 +41,18 @@ void main() {
     'dexterous.com/flutter/local_notifications',
   );
   const apns = MethodChannel('network.noosphere.sygnature/apns');
+  const linuxPortal = MethodChannel(
+    'network.noosphere.sygnature/notifications',
+  );
   late List<MethodCall> pluginCalls;
+  late List<MethodCall> portalCalls;
   late List<MethodCall> storageCalls;
 
   setUp(() {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     AndroidFlutterLocalNotificationsPlugin.registerWith();
     pluginCalls = [];
+    portalCalls = [];
     storageCalls = [];
     binding.defaultBinaryMessenger.setMockMethodCallHandler(storage, (
       call,
@@ -66,6 +73,12 @@ void main() {
       apns,
       (_) async => null,
     );
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(linuxPortal, (
+      call,
+    ) async {
+      portalCalls.add(call);
+      return call.method == 'show' ? true : null;
+    });
   });
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;
@@ -75,7 +88,73 @@ void main() {
       null,
     );
     binding.defaultBinaryMessenger.setMockMethodCallHandler(apns, null);
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(linuxPortal, null);
   });
+
+  test('Flatpak Linux notifications use the portal channel', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final categories = <String>[];
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(linuxPortal, (
+      call,
+    ) async {
+      portalCalls.add(call);
+      return switch (call.method) {
+        'initialize' => 'public-feed:signing',
+        'show' => true,
+        _ => null,
+      };
+    });
+    final delivery = AppNotifications(
+      useLinuxPortal: true,
+      onPublicFeedOpened: categories.add,
+    );
+
+    await delivery.initialize();
+    expect(await delivery.publicFeedRequested(0x40000000, 'dkg'), isTrue);
+
+    expect(categories, ['signing']);
+    expect(pluginCalls, isEmpty);
+    expect(portalCalls.map((call) => call.method), ['initialize', 'show']);
+    expect(portalCalls.last.arguments, {
+      'id': 0x40000000,
+      'title': 'New key generation request',
+      'body':
+          'Open Sygnature and unlock your wallet to review current requests.',
+      'payload': 'public-feed:dkg',
+    });
+    delivery.dispose();
+  });
+
+  test(
+    'portal clicks reach the running app and suppress duplicate tones',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      final categories = <String>[];
+      final sounds = _RecordingUiSounds();
+      final delivery = AppNotifications(
+        useLinuxPortal: true,
+        sounds: sounds,
+        onPublicFeedOpened: categories.add,
+      );
+      await delivery.initialize();
+
+      final response = Completer<void>();
+      binding.channelBuffers.push(
+        linuxPortal.name,
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('notificationResponse', 'public-feed:signing'),
+        ),
+        (_) => response.complete(),
+      );
+      await response.future;
+      delivery.roastSigningRequest();
+      delivery.dkgRequest();
+
+      expect(categories, ['signing']);
+      expect(sounds.cues, [UiSoundCue.dkgRequest]);
+      delivery.dispose();
+    },
+  );
 
   test(
     'locked background notification delivery never opens secure storage',

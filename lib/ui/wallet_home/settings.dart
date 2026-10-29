@@ -204,8 +204,10 @@ class const _SettingsScreen({
                     contentPadding: EdgeInsets.zero,
                     secondary: const Icon(Icons.volume_up_outlined),
                     title: const Text('Notification sound'),
-                    subtitle: const Text(
-                      'Play a tone for incoming wallet events.',
+                    subtitle: Text(
+                      defaultTargetPlatform == TargetPlatform.linux
+                          ? 'Play wallet event tones. Your desktop may control system notification sounds separately.'
+                          : 'Play a tone for incoming wallet events.',
                     ),
                     value: notifications.soundEnabled,
                     onChanged: notifications.setSoundEnabled,

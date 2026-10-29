@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -15,9 +16,13 @@ class AppNotifications({
   FlutterSecureStorage? storage,
   UiSounds? sounds,
   FlutterLocalNotificationsPlugin? plugin,
+  bool? useLinuxPortal,
   final void Function(String category)? onPublicFeedOpened,
 }) extends ChangeNotifier {
   static const _apnsChannel = MethodChannel('network.noosphere.sygnature/apns');
+  static const _linuxPortalChannel = MethodChannel(
+    'network.noosphere.sygnature/notifications',
+  );
   // Keep the original key so existing notification preferences migrate.
   static const _systemEnabledKey = 'notifications.desktop_enabled';
   static const _systemPreferenceSetKey = 'notifications.system_preference_set';
@@ -39,6 +44,11 @@ class AppNotifications({
   UiSounds get _uiSounds => _sounds ??= UiSounds();
   final FlutterLocalNotificationsPlugin _plugin =
       plugin ?? FlutterLocalNotificationsPlugin();
+  final bool _useLinuxPortal =
+      useLinuxPortal ??
+      (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.linux &&
+          Platform.environment.containsKey('FLATPAK_ID'));
 
   bool _systemEnabled = true;
   bool _systemPreferenceSet = false;
@@ -46,6 +56,7 @@ class AppNotifications({
   double _soundVolume = 0.5;
   bool _loaded = false;
   bool _pluginInitialized = false;
+  bool _linuxPortalInitialized = false;
   bool _disposed = false;
   bool _launchChecked = false;
   int _notificationId = 0;
@@ -67,13 +78,15 @@ class AppNotifications({
   Future<void> initialize({bool requestPermission = true}) async {
     await _load(failOnError: !requestPermission);
     if (onPublicFeedOpened != null && supportsSystemNotifications) {
-      await _ensurePluginInitialized();
+      await _ensureNotificationBackendInitialized();
     }
     final permissionReady = await _restoreAutomaticallyDisabledSetting();
     if (_systemEnabled && supportsSystemNotifications) {
       final ready =
           permissionReady ||
-          await _ensurePluginInitialized(requestPermission: requestPermission);
+          await _ensureNotificationBackendInitialized(
+            requestPermission: requestPermission,
+          );
       if (!ready && !requestPermission) {
         throw StateError('Notification plugin initialization failed');
       }
@@ -152,7 +165,9 @@ class AppNotifications({
   Future<bool> setSystemEnabled(bool enabled) async {
     if (enabled && !supportsSystemNotifications) return false;
     if (enabled) {
-      final ready = await _ensurePluginInitialized(requestPermission: true);
+      final ready = await _ensureNotificationBackendInitialized(
+        requestPermission: true,
+      );
       if (!ready) return false;
     }
     if (_systemEnabled == enabled) {
@@ -254,8 +269,22 @@ class AppNotifications({
     int? id,
     String? payload,
   }) async {
-    if (!await _ensurePluginInitialized()) return false;
+    if (!await _ensureNotificationBackendInitialized()) return false;
     try {
+      if (_useLinuxPortal) {
+        final shown =
+            await _linuxPortalChannel.invokeMethod<bool>('show', {
+              'id': id ?? (_notificationId++ & 0x3fffffff),
+              'title': title,
+              'body': body,
+              'payload': payload ?? '',
+            }) ??
+            false;
+        if (shown) {
+          await AppDiagnostics.record(AppDiagnosticEvent.notificationDelivered);
+        }
+        return shown;
+      }
       await _plugin.show(
         id: id ?? (_notificationId++ & 0x3fffffff),
         title: title,
@@ -283,6 +312,48 @@ class AppNotifications({
       );
       AppLogger.warn(
         'Unable to show system notification',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _ensureNotificationBackendInitialized({
+    bool requestPermission = false,
+    bool checkPermission = false,
+  }) => _useLinuxPortal
+      ? _ensureLinuxPortalInitialized()
+      : _ensurePluginInitialized(
+          requestPermission: requestPermission,
+          checkPermission: checkPermission,
+        );
+
+  Future<bool> _ensureLinuxPortalInitialized() async {
+    if (_linuxPortalInitialized) return true;
+    try {
+      _linuxPortalChannel.setMethodCallHandler((call) async {
+        if (call.method == 'notificationResponse') {
+          _handleNotificationPayload(call.arguments as String?);
+        }
+      });
+      final pendingPayload = await _linuxPortalChannel.invokeMethod<String?>(
+        'initialize',
+      );
+      _linuxPortalInitialized = true;
+      _handleNotificationPayload(pendingPayload);
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.notificationInitializationSucceeded,
+      );
+      return true;
+    } catch (error, stackTrace) {
+      _linuxPortalChannel.setMethodCallHandler(null);
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.notificationInitializationFailed,
+        error: error,
+      );
+      AppLogger.warn(
+        'System notifications unavailable',
         error: error,
         stackTrace: stackTrace,
       );
@@ -401,7 +472,10 @@ class AppNotifications({
   }
 
   void _handleNotificationResponse(NotificationResponse response) {
-    final payload = response.payload;
+    _handleNotificationPayload(response.payload);
+  }
+
+  void _handleNotificationPayload(String? payload) {
     if (payload == null ||
         !payload.startsWith(publicFeedNotificationPayloadPrefix)) {
       return;
@@ -447,6 +521,9 @@ class AppNotifications({
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    if (_linuxPortalInitialized) {
+      _linuxPortalChannel.setMethodCallHandler(null);
+    }
     unawaited(_sounds?.dispose());
     super.dispose();
   }

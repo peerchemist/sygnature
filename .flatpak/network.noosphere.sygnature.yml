@@ -1,4 +1,3 @@
-# Use the supported 26.08 branch, including its maintenance releases.
 app-id: network.noosphere.sygnature
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"
@@ -15,7 +14,6 @@ finish-args:
   - --socket=wayland
   - --socket=pulseaudio
   - --device=dri
-  - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.secrets
 
 modules:
@@ -37,6 +35,7 @@ modules:
       - cp -a app/build/linux/*/release/bundle/. /app/lib/sygnature/
       - ln -s /app/lib/sygnature/sygnature /app/bin/sygnature
       - install -Dm644 app/.flatpak/network.noosphere.sygnature.desktop /app/share/applications/network.noosphere.sygnature.desktop
+      - install -Dm644 app/.flatpak/network.noosphere.sygnature.service /app/share/dbus-1/services/network.noosphere.sygnature.service
       - |
         version="$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' app/pubspec.yaml)"
         test -n "$version"
