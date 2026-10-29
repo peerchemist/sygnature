@@ -9,11 +9,7 @@ assembled. Ordinary personal wallets are supported too.
 A team treasury, community fund or family savings pool can use Sygnature to
 share responsibility without giving one person sole control of the money.
 
-> **Alpha software — use at your own risk.** Breaking changes, including changes
-> to storage formats and protocols, are possible at any time. Backward
-> compatibility and data preservation are not guaranteed. The software is
-> provided without warranty of any kind. Do not use it for funds you cannot
-> afford to lose, and keep secure backups of your recovery material.
+[![Watch the shared wallet setup demo](screenshots/1.png)](https://github.com/user-attachments/assets/59e0db62-0948-4aa1-af76-84cdd23c5003)
 
 ## What can be done with it?
 
@@ -63,8 +59,6 @@ wallet creation and shared approvals without using real funds.
 4. **Review and approve.** Propose a payment, check its destination, amount and
    fee, and collect the required approvals. Sygnature signs and broadcasts the
    transaction when the threshold is met.
-
-[![Watch the shared wallet setup demo](screenshots/1.png)](https://github.com/user-attachments/assets/59e0db62-0948-4aa1-af76-84cdd23c5003)
 
 ## Shared control, private signing policy
 
