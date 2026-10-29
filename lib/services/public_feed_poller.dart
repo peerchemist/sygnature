@@ -86,6 +86,9 @@ final class PublicFeedPoller(
       _running ??= _withLease().whenComplete(() => _running = null);
 
   Future<void> _withLease() async {
+    // An empty wallet has nothing to poll. Avoid rewriting the lease and poll
+    // status every minute; the next run will pick up new subscriptions.
+    if (((await store.snapshot())['bindings'] as Map).isEmpty) return;
     final owner = await store.acquirePollingLease(
       duration: maxDuration + const Duration(minutes: 2),
     );

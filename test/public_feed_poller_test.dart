@@ -111,6 +111,47 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test(
+    'idle polling leaves storage unchanged and resumes after subscribing',
+    () async {
+      await store.unsubscribe('g1');
+      final before = await store.snapshot();
+      final database = File(
+        '${directory.path}/${PublicFeedStore.boxName}.hive',
+      );
+      final size = await database.length();
+      var connections = 0;
+      final connection = FakeConnection((_) async => page(0, 0));
+      final service = PublicFeedPoller(
+        store,
+        notify: (_, _) async => true,
+        connect: (_) async {
+          connections++;
+          return connection;
+        },
+      );
+
+      // Nine hours of minute-by-minute polls, without waiting in real time.
+      for (var minute = 0; minute < 9 * 60; minute++) {
+        await service.run();
+      }
+      expect(connections, 0);
+      expect(await store.snapshot(), before);
+      expect(await database.length(), size);
+
+      await store.subscribe(
+        groupId: 'g1',
+        address: 'mock-address',
+        pin: 'pin-a',
+        feedId: feedId.hex,
+      );
+      await service.run();
+      expect(connections, 1);
+      expect(connection.closed, isTrue);
+      expect((await store.snapshot())['polls']['foreground'], isNotNull);
+    },
+  );
+
   test('locked-wallet service needs only public storage and never initializes signer native libraries', () async {
     final connection = FakeConnection(
       (_) async => page(0, 1, entries: [entry(1)]),
