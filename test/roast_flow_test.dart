@@ -255,25 +255,46 @@ void main() {
     await tester.tap(find.text('ROAST shared wallet'));
     await tester.pumpAndSettle();
 
-    final participantCountField = find.byKey(
+    final participantCountSlider = find.byKey(
       const Key('roast-participant-count'),
     );
-    await tester.enterText(participantCountField, '40');
+    tester
+        .widget<Slider>(
+          find.descendant(
+            of: participantCountSlider,
+            matching: find.byType(Slider),
+          ),
+        )
+        .onChanged!(8);
     await tester.pump();
-    expect(
-      tester.widget<TextFormField>(participantCountField).controller!.text,
-      '32',
+    final thresholdSlider = find.byKey(const Key('roast-required-signers'));
+    Slider threshold() => tester.widget<Slider>(
+      find.descendant(of: thresholdSlider, matching: find.byType(Slider)),
     );
-    await tester.enterText(participantCountField, '8');
-    final thresholdField = find.byKey(const Key('roast-required-signers'));
-    await tester.enterText(thresholdField, '10');
+    threshold().onChanged!(5);
     await tester.pump();
-    expect(tester.widget<TextFormField>(thresholdField).controller!.text, '8');
-    await tester.enterText(participantCountField, '4');
+    expect(threshold().value, 5);
+    tester
+        .widget<Slider>(
+          find.descendant(
+            of: participantCountSlider,
+            matching: find.byType(Slider),
+          ),
+        )
+        .onChanged!(4);
     await tester.pump();
-    expect(tester.widget<TextFormField>(thresholdField).controller!.text, '4');
-    await tester.enterText(participantCountField, '8');
-    await tester.enterText(thresholdField, '5');
+    expect(threshold().value, 4);
+    tester
+        .widget<Slider>(
+          find.descendant(
+            of: participantCountSlider,
+            matching: find.byType(Slider),
+          ),
+        )
+        .onChanged!(8);
+    await tester.pump();
+    threshold().onChanged!(5);
+    await tester.pump();
     await tester.tap(find.byKey(const Key('create-roast-draft')));
     await tester.pumpAndSettle();
 

@@ -36,53 +36,22 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
   late final String _participantAlias = _newParticipantAliases(1).single;
   late WalletNetwork _network = widget.controller.supportedNetworks.first;
   RoastSetupRole _role = RoastSetupRole.host;
-  final TextEditingController _participantCount = TextEditingController(
-    text: '2',
-  );
-  final TextEditingController _threshold = TextEditingController(text: '2');
+  int _participantCount = 2;
+  int _threshold = 2;
   bool _busy = false;
   String? _error;
 
-  int? get _parsedParticipantCount =>
-      int.tryParse(_participantCount.text.trim());
-
-  void _thresholdValuesChanged(String _) {
-    var participantCount = _parsedParticipantCount;
-    if (participantCount != null && participantCount > _maxRoastParticipants) {
-      participantCount = _maxRoastParticipants;
-      _setParticipantCount(participantCount);
-    }
-    final threshold = int.tryParse(_threshold.text.trim());
-    if (participantCount != null &&
-        participantCount >= 2 &&
-        threshold != null &&
-        threshold > participantCount) {
-      _setThreshold(participantCount);
-    }
-    setState(() => _error = null);
-  }
-
-  void _setParticipantCount(int value) {
-    final text = '$value';
-    _participantCount.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-  }
-
-  void _setThreshold(int value) {
-    final text = '$value';
-    _threshold.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
+  void _setParticipantCount(double value) {
+    setState(() {
+      _participantCount = value.round();
+      _threshold = _threshold.clamp(2, _participantCount);
+      _error = null;
+    });
   }
 
   @override
   void dispose() {
     _walletName.dispose();
-    _participantCount.dispose();
-    _threshold.dispose();
     super.dispose();
   }
 
@@ -90,24 +59,6 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
     if (_busy) return;
     if (_walletName.text.trim().isEmpty) {
       setState(() => _error = 'Enter a wallet name before continuing.');
-      return;
-    }
-    final participantCount = _parsedParticipantCount;
-    if (participantCount == null ||
-        participantCount < 2 ||
-        participantCount > _maxRoastParticipants) {
-      setState(
-        () => _error =
-            'Participants must be between 2 and $_maxRoastParticipants.',
-      );
-      return;
-    }
-    final threshold = int.tryParse(_threshold.text.trim());
-    if (threshold == null || threshold < 2 || threshold > participantCount) {
-      setState(
-        () => _error =
-            'Required signers must be between 2 and the participant count.',
-      );
       return;
     }
     setState(() {
@@ -119,8 +70,8 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
         role: _role,
         walletName: _walletName.text,
         participantName: _participantAlias,
-        threshold: threshold,
-        participantCount: participantCount,
+        threshold: _threshold,
+        participantCount: _participantCount,
         network: _network,
       );
       if (mounted) Navigator.pop(context, setupId);
@@ -267,44 +218,53 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
                 },
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                decoration: BoxDecoration(
+                  color: AppColors.of(context).surface,
+                  border: Border.all(color: AppColors.of(context).line),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Approval policy',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$_threshold of $_participantCount signers must approve',
+                      style: TextStyle(
+                        color: AppColors.of(context).inkMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _RoastPolicySlider(
                       key: const Key('roast-participant-count'),
-                      controller: _participantCount,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(5),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'Participants',
-                      ),
-                      onChanged: _thresholdValuesChanged,
+                      label: 'Participants',
+                      value: _participantCount,
+                      min: 2,
+                      max: _maxRoastParticipants,
+                      onChanged: _setParticipantCount,
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
+                    const SizedBox(height: 10),
+                    _RoastPolicySlider(
                       key: const Key('roast-required-signers'),
-                      controller: _threshold,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(5),
-                      ],
-                      decoration: InputDecoration(
-                        labelText: 'Required signers',
-                        suffixText: 'of ${_parsedParticipantCount ?? 'n'}',
-                      ),
-                      onChanged: _thresholdValuesChanged,
-                      onFieldSubmitted: (_) => _create(),
+                      label: 'Required signers',
+                      value: _threshold,
+                      min: 2,
+                      max: _participantCount,
+                      onChanged: _participantCount == 2
+                          ? null
+                          : (value) => setState(() {
+                              _threshold = value.round();
+                              _error = null;
+                            }),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
             if (_error != null) ...[
@@ -334,6 +294,65 @@ class _RoastCreationDialogState extends State<_RoastCreationDialog> {
               ? 'Create wallet setup'
               : 'Prepare to join',
         ),
+      ),
+    ],
+  );
+}
+
+class const _RoastPolicySlider({
+  super.key,
+  required this.label,
+  required this.value,
+  required this.min,
+  required this.max,
+  required this.onChanged,
+}) extends StatelessWidget {
+  final String label;
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<double>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(child: Text(label)),
+          Container(
+            constraints: const BoxConstraints(minWidth: 36),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.of(context).lime,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '$value',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.of(context).forest,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+      Row(
+        children: [
+          Text('$min', style: Theme.of(context).textTheme.bodySmall),
+          Expanded(
+            child: Slider(
+              value: value.toDouble(),
+              min: min.toDouble(),
+              max: max.toDouble(),
+              divisions: max == min ? null : max - min,
+              label: '$value',
+              onChanged: onChanged,
+            ),
+          ),
+          Text('$max', style: Theme.of(context).textTheme.bodySmall),
+        ],
       ),
     ],
   );
