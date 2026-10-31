@@ -566,6 +566,16 @@ class _WalletDashboard extends StatelessWidget {
               controller.setupForAccount(account)!,
             )
           : null,
+      onResetCoordinator:
+          roastSetup?.role == RoastSetupRole.host &&
+              roastSetup?.isFinalized == true &&
+              controller.roastAvailable
+          ? () => _confirmResetRoastCoordinator(
+              context,
+              controller,
+              controller.setupForAccount(account)!,
+            )
+          : null,
     );
     return SafeArea(
       top: !mobile,
@@ -934,6 +944,7 @@ class _DashboardHeader extends StatelessWidget {
     this.onOpenPublicFeed,
     this.onChangeSignerGroup,
     this.onSwitchCoordinator,
+    this.onResetCoordinator,
   });
   final WalletAccount account;
   final String networkLabel;
@@ -946,6 +957,7 @@ class _DashboardHeader extends StatelessWidget {
   final VoidCallback? onOpenPublicFeed;
   final VoidCallback? onChangeSignerGroup;
   final VoidCallback? onSwitchCoordinator;
+  final VoidCallback? onResetCoordinator;
 
   @override
   Widget build(BuildContext context) {
@@ -1040,6 +1052,9 @@ class _DashboardHeader extends StatelessWidget {
                 if (value == 'public-feed') onOpenPublicFeed?.call();
                 if (value == 'signers') onChangeSignerGroup?.call();
                 if (value == 'coordinator') onSwitchCoordinator?.call();
+                if (value == 'reset-coordinator') {
+                  onResetCoordinator?.call();
+                }
                 if (value == 'recovery-scan') onExtendRecoveryScan?.call();
                 if (value == 'archive') onArchive();
                 if (value == 'delete') onDelete();
@@ -1089,6 +1104,18 @@ class _DashboardHeader extends StatelessWidget {
                       ],
                     ),
                   ),
+                if (onResetCoordinator != null)
+                  const PopupMenuItem(
+                    key: Key('reset-roast-coordinator'),
+                    value: 'reset-coordinator',
+                    child: Row(
+                      children: [
+                        Icon(Icons.restart_alt_rounded),
+                        SizedBox(width: 10),
+                        Flexible(child: Text('Reset ROAST coordinator')),
+                      ],
+                    ),
+                  ),
                 if (onExtendRecoveryScan != null)
                   const PopupMenuItem(
                     key: Key('open-recovery-scan'),
@@ -1131,6 +1158,40 @@ class _DashboardHeader extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> _confirmResetRoastCoordinator(
+  BuildContext context,
+  WalletController controller,
+  RoastSetup setup,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Reset ROAST coordinator?'),
+      content: const Text(
+        'This temporarily disconnects every signer while this device stops '
+        'and restarts the coordinator. The saved group and coordinator '
+        'identity will not change.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm-reset-roast-coordinator'),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Reset coordinator'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  await _runWalletAction(
+    context,
+    () => controller.resetHostedRoastCoordinator(setup.id),
+  );
 }
 
 Future<void> _confirmArchiveWallet(

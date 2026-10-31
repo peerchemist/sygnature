@@ -181,6 +181,28 @@ extension WalletRoastCoordinatorController on WalletController {
     );
   }
 
+  Future<void> resetHostedRoastCoordinator(String setupId) async {
+    final setup = _setupById(setupId);
+    if (setup.role != RoastSetupRole.host) {
+      throw StateError('Only the coordinator device can reset it.');
+    }
+    if (!setup.isFinalized) {
+      throw StateError('Finalize the participant roster before resetting.');
+    }
+    final runtime = _roastRuntime;
+    if (runtime == null) throw UnsupportedError('ROAST is unavailable.');
+    await _guardRoastOperation(setupId, () async {
+      _cancelRoastReconnect(setupId);
+      await runtime.stopSetup(setupId);
+      _roastPresence.remove(setupId);
+    });
+    await resumeRoastSetup(setupId);
+    if (roastCoordinatorState(setupId) !=
+        RoastCoordinatorLocalState.connected) {
+      throw StateError('The ROAST coordinator could not be restarted.');
+    }
+  }
+
   Future<void> _persistCoordinatorSelection(
     String setupId,
     RoastCoordinatorAddress address,

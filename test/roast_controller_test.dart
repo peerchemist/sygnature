@@ -975,6 +975,25 @@ void main() {
     },
   );
 
+  test('resets a hosted coordinator', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(repository, runtime);
+    await controller.load();
+    await _flushEvents();
+    final startsBeforeReset = runtime.startedCoordinatorIds.length;
+
+    await controller.resetHostedRoastCoordinator('setup');
+
+    expect(runtime.stoppedSetupIds, ['setup']);
+    expect(runtime.startedCoordinatorIds.length, startsBeforeReset + 1);
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.connected,
+    );
+    controller.dispose();
+  });
+
   test(
     'uses address update when the approved endpoint ID is unchanged',
     () async {
@@ -3478,6 +3497,12 @@ final class _CoordinatorRoastRuntime extends _FakeRoastRuntime
   Completer<void>? switchGate;
   bool failBeforePersistenceSettles = false;
   Object? startFailure;
+  final List<String> stoppedSetupIds = [];
+
+  @override
+  Future<void> stopSetup(String setupId) async {
+    stoppedSetupIds.add(setupId);
+  }
 
   @override
   Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
