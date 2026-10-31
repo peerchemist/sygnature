@@ -147,10 +147,10 @@ void main() {
     expect(notifications.initializations, 1);
   });
 
-  test('no subscriptions is a successful no-op', () async {
+  test('no subscriptions succeeds without recording a poll', () async {
     expect(await task().execute(publicFeedWorkTaskName), isTrue);
     final store = await PublicFeedStore.open(directory.path);
-    expect((await store.snapshot())['polls']['background'], isNotNull);
+    expect((await store.snapshot())['polls'], isNull);
     await store.close();
   });
 
