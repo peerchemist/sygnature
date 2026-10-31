@@ -88,10 +88,10 @@ void main() {
   test('participant cards and clickable room invites round trip', () {
     const groupId = 'abcdef0123456789abcdef0123456789';
     final service = _InvitationTestRoastKeyService();
-    final memberKey = ECPrivateKey.generate();
+    final memberKey = ECPrivateKey.fromHex('${'00' * 31}01');
     final memberPublicKey = ECCompressedPublicKey.fromPubkey(memberKey.pubkey);
     final hostPublicKey = ECCompressedPublicKey.fromPubkey(
-      ECPrivateKey.generate().pubkey,
+      ECPrivateKey.fromHex('${'00' * 31}02').pubkey,
     );
     final card = RoastExchangeCodec.encodeParticipantCard(
       cardId: 'card-b',
@@ -199,6 +199,44 @@ void main() {
       '00' * 31 + '02',
     ]);
     expect(() => PublicKey.fromZ32(setup.coordinatorId!), returnsNormally);
+
+    final recoveredFromFrozenRoom = service.applyRoomEnrollment(
+      draft,
+      invitation.invite,
+      _roomSnapshot(
+        roomId: groupId,
+        coordinatorEndpointId: coordinator.asBytes(),
+        hostPublicKey: hostPublicKey,
+        memberPublicKey: memberPublicKey,
+        lifecycle: RoomLifecycle.frozen,
+        full: true,
+      ),
+    );
+    expect(recoveredFromFrozenRoom.hostParticipantId, setup.hostParticipantId);
+    expect(
+      recoveredFromFrozenRoom.participants
+          .singleWhere(
+            (participant) =>
+                participant.identifierHex == setup.hostParticipantId,
+          )
+          .name,
+      'Coordinator',
+    );
+
+    expect(
+      () => service.applyRoomEnrollment(
+        draft,
+        invitation.invite,
+        _roomSnapshot(
+          roomId: groupId,
+          coordinatorEndpointId: coordinator.asBytes(),
+          hostPublicKey: hostPublicKey,
+          memberPublicKey: memberPublicKey,
+          lifecycle: RoomLifecycle.closed,
+        ),
+      ),
+      throwsFormatException,
+    );
   });
 
   test('issued invitation state round trips with its local progress', () {
@@ -368,6 +406,8 @@ RoomSnapshot _roomSnapshot({
   required Uint8List coordinatorEndpointId,
   required ECCompressedPublicKey hostPublicKey,
   required ECCompressedPublicKey memberPublicKey,
+  RoomLifecycle lifecycle = RoomLifecycle.enrolling,
+  bool full = false,
 }) {
   final now = DateTime.now().toUtc();
   RoomInviteSnapshot invite(String id, ECCompressedPublicKey publicKey) =>
@@ -381,20 +421,39 @@ RoomSnapshot _roomSnapshot({
         revokedAt: null,
         status: RoomInviteStatus.pending,
       );
+  final enrolled = <({ECCompressedPublicKey key, DateTime at})>[
+    (key: hostPublicKey, at: now),
+    if (full) (key: memberPublicKey, at: now.add(const Duration(seconds: 1))),
+  ];
+  if (lifecycle == RoomLifecycle.frozen) {
+    enrolled.sort((a, b) => a.key.hex.compareTo(b.key.hex));
+  }
+  final participants = [
+    for (var index = 0; index < enrolled.length; index++)
+      RoomParticipantSnapshot(
+        publicKey: enrolled[index].key,
+        enrolledAt: enrolled[index].at,
+        identifier: lifecycle == RoomLifecycle.frozen
+            ? Identifier.fromUint16(index + 1)
+            : null,
+      ),
+  ];
   return RoomSnapshot(
     roomId: roomId,
-    lifecycle: RoomLifecycle.enrolling,
+    lifecycle: lifecycle,
     expectedParticipants: 2,
     threshold: 2,
     coordinatorEndpointId: coordinatorEndpointId,
     invites: [invite('host', hostPublicKey), invite('member', memberPublicKey)],
-    participants: [
-      RoomParticipantSnapshot(
-        publicKey: hostPublicKey,
-        enrolledAt: now,
-        identifier: null,
-      ),
-    ],
-    groupConfig: null,
+    participants: participants,
+    groupConfig: lifecycle == RoomLifecycle.frozen
+        ? GroupConfig(
+            id: roomId,
+            participants: {
+              for (final participant in participants)
+                participant.identifier!: participant.publicKey,
+            },
+          )
+        : null,
   );
 }

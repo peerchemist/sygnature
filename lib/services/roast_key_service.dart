@@ -199,6 +199,9 @@ class RoastKeyService {
     RoomInvite invite,
     RoomSnapshot enrollment,
   ) {
+    if (enrollment.lifecycle == RoomLifecycle.closed) {
+      throw const FormatException('The enrollment room is closed.');
+    }
     if (enrollment.roomId != invite.roomId ||
         !bytesEqual(
           enrollment.coordinatorEndpointId,
@@ -220,13 +223,30 @@ class RoastKeyService {
             .toSet()
             .toList()
           ..sort();
-    final hostParticipantPublicKeyHex =
-        enrollment.participants.first.publicKey.hex;
     if (publicKeys.length != enrollment.expectedParticipants ||
+        enrollment.participants.isEmpty ||
         !publicKeys.contains(draft.localParticipant.publicKeyHex) ||
-        !publicKeys.contains(hostParticipantPublicKeyHex)) {
+        enrollment.participants.any(
+          (participant) => !publicKeys.contains(participant.publicKey.hex),
+        )) {
       throw const FormatException('The enrolled room roster is incomplete.');
     }
+    // The host enrolls locally before remote invitations are returned. A
+    // frozen room sorts participants by public key, so list order no longer
+    // identifies the host; the durable enrollment time still does.
+    final firstEnrolledAt = enrollment.participants
+        .map((participant) => participant.enrolledAt)
+        .reduce((first, next) => next.isBefore(first) ? next : first);
+    final firstParticipants = enrollment.participants
+        .where(
+          (participant) =>
+              participant.enrolledAt.isAtSameMomentAs(firstEnrolledAt),
+        )
+        .toList();
+    if (firstParticipants.length != 1) {
+      throw const FormatException('The room host identity is ambiguous.');
+    }
+    final hostParticipantPublicKeyHex = firstParticipants.single.publicKey.hex;
     final participants = [
       for (var index = 0; index < publicKeys.length; index++)
         if (publicKeys[index] == draft.localParticipant.publicKeyHex)
