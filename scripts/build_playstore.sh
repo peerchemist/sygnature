@@ -4,18 +4,20 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
-readonly bundle="$script_dir/build/app/outputs/bundle/release/app-release.aab"
-readonly signing_properties="$script_dir/android/key.properties"
+project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly project_dir
+readonly bundle="$project_dir/build/app/outputs/bundle/release/app-release.aab"
+readonly signing_properties="$project_dir/android/key.properties"
 
 usage() {
   cat <<'EOF'
-Usage: ./build_playstore.sh [FLUTTER_BUILD_OPTIONS]
+Usage: ./scripts/build_playstore.sh [FLUTTER_BUILD_OPTIONS]
 
 Builds the Sygnature release Android App Bundle using the project's configured
 signing key. Additional options are forwarded to `flutter build appbundle`,
 for example:
 
-  ./build_playstore.sh --build-name 1.0.0 --build-number 27
+  ./scripts/build_playstore.sh --build-name 1.0.0 --build-number 27
 EOF
 }
 
@@ -37,7 +39,7 @@ for tool in flutter cargo java javac; do
   fi
 done
 
-cd -- "$script_dir"
+cd -- "$project_dir"
 flutter build appbundle \
   --release \
   --target-platform android-arm64,android-x64 \
