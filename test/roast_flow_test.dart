@@ -741,8 +741,8 @@ void main() {
       );
     final runtime = _FakeRoastRuntime()
       ..startSnapshot = RoastRuntimeSnapshot(
-        connected: true,
-        signerRunning: true,
+        connected: false,
+        signerRunning: false,
         onlineParticipantIds: const [],
         coordinatorId: 'coordinator',
         coordinatorRelayUrls: const [],
@@ -762,6 +762,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
+    expect(find.byKey(const Key('coordinator-enrolling')), findsOneWidget);
+    expect(find.text('Coordinator online'), findsOneWidget);
+    expect(find.text('Waiting for 1 more signer to join.'), findsOneWidget);
+    expect(find.text('ROAST operation was interrupted'), findsNothing);
     expect(find.byKey(const Key('roast-enrollment-progress')), findsOneWidget);
     expect(find.text('1 of 2 signers have joined the room.'), findsOneWidget);
     await tester.tap(find.byTooltip('Dismiss signer enrollment'));

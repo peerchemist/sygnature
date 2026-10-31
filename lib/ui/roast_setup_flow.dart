@@ -221,6 +221,7 @@ class const RoastSetupPanel({
                 key: ValueKey('${setup.id}-${coordinatorState.name}'),
                 state: coordinatorState,
                 endpointId: setup.coordinatorId,
+                remainingSigners: setup.participantCount - enrolledSigners,
               ),
               if (setup.role == RoastSetupRole.host &&
                   setup.invitations.isNotEmpty) ...[
@@ -743,6 +744,7 @@ class const _CoordinatorConnectionStatus({
   super.key,
   required final RoastCoordinatorLocalState state,
   required final String? endpointId,
+  required final int remainingSigners,
 }) extends StatefulWidget {
   @override
   State<_CoordinatorConnectionStatus> createState() =>
@@ -763,6 +765,13 @@ class _CoordinatorConnectionStatusState
         'The signer is stopped while the approved selection is saved.',
         Icons.sync_rounded,
         AppColors.of(context).warningDark,
+      ),
+      RoastCoordinatorLocalState.enrolling => (
+        'Coordinator online',
+        'Waiting for ${widget.remainingSigners} more '
+            '${widget.remainingSigners == 1 ? 'signer' : 'signers'} to join.',
+        Icons.hub_outlined,
+        AppColors.of(context).success,
       ),
       RoastCoordinatorLocalState.connected => (
         'Signer connected',

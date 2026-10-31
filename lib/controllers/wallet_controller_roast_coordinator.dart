@@ -11,9 +11,18 @@ extension WalletRoastCoordinatorController on WalletController {
       return RoastCoordinatorLocalState.recoveryRequired;
     }
     final presence = _roastPresence[setupId];
-    return presence?.connected == true && presence?.signerRunning == true
-        ? RoastCoordinatorLocalState.connected
-        : RoastCoordinatorLocalState.stopped;
+    if (presence?.connected == true && presence?.signerRunning == true) {
+      return RoastCoordinatorLocalState.connected;
+    }
+    final setup = _setupById(setupId);
+    if (presence != null &&
+        setup.status == RoastSetupStatus.ready &&
+        setup.role == RoastSetupRole.host &&
+        setup.usesRoomEnrollment &&
+        enrolledRoastParticipantCount(setup) < setup.participantCount) {
+      return RoastCoordinatorLocalState.enrolling;
+    }
+    return RoastCoordinatorLocalState.stopped;
   }
 
   RoastCoordinatorSwitchFailure? roastCoordinatorRecovery(String setupId) =>
@@ -197,8 +206,9 @@ extension WalletRoastCoordinatorController on WalletController {
       _roastPresence.remove(setupId);
     });
     await resumeRoastSetup(setupId);
-    if (roastCoordinatorState(setupId) !=
-        RoastCoordinatorLocalState.connected) {
+    final state = roastCoordinatorState(setupId);
+    if (state != RoastCoordinatorLocalState.connected &&
+        state != RoastCoordinatorLocalState.enrolling) {
       throw StateError('The ROAST coordinator could not be restarted.');
     }
   }
@@ -333,6 +343,13 @@ extension WalletRoastCoordinatorController on WalletController {
         (setup) => setup.copyWith(status: RoastSetupStatus.connecting),
       );
       final snapshot = await runtime.startSetup(setup);
+      final waitingForEnrollment =
+          setup.role == RoastSetupRole.host &&
+          setup.usesRoomEnrollment &&
+          enrolledRoastParticipantCount(setup) < setup.participantCount &&
+          snapshot.coordinatorId != null &&
+          !snapshot.connected &&
+          !snapshot.signerRunning;
       _setRoastPresence(
         setup.id,
         connected: snapshot.connected,
@@ -353,7 +370,9 @@ extension WalletRoastCoordinatorController on WalletController {
       await _updateSetup(
         setup.id,
         (setup) => setup.copyWith(
-          status: !snapshot.connected || !snapshot.signerRunning
+          status: waitingForEnrollment
+              ? RoastSetupStatus.ready
+              : !snapshot.connected || !snapshot.signerRunning
               ? RoastSetupStatus.interrupted
               : snapshot.groupKeyHex == null
               ? snapshot.pendingDkgProposalHex == null
@@ -375,7 +394,9 @@ extension WalletRoastCoordinatorController on WalletController {
           pendingDkgCreatorId: snapshot.pendingDkgCreator,
           pendingDkgExpiry: snapshot.pendingDkgExpiry,
           clearPendingDkgProposal: snapshot.pendingDkgProposalHex == null,
-          clearError: snapshot.connected && snapshot.signerRunning,
+          clearError:
+              waitingForEnrollment ||
+              snapshot.connected && snapshot.signerRunning,
         ),
       );
       final connected = _setupById(setup.id);

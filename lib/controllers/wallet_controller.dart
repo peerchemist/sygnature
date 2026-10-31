@@ -63,6 +63,7 @@ enum AccountSyncStatus { unavailable, syncing, synced, offline, stale, error }
 
 enum RoastCoordinatorLocalState {
   switching,
+  enrolling,
   connected,
   stopped,
   recoveryRequired,
