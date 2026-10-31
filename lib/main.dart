@@ -531,9 +531,13 @@ class _SygnatureAppState extends State<SygnatureApp>
         error: error,
         stackTrace: stackTrace,
       );
+      final enrollmentError = controller.roastSetups
+          .where((candidate) => candidate.id == setup.id)
+          .firstOrNull
+          ?.errorMessage;
       await _showInvitationMessage(
         title: 'Could not join shared wallet',
-        message: _displayError(error),
+        message: enrollmentError ?? _displayError(error),
       );
     }
   }

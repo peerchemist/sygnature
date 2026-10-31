@@ -455,6 +455,67 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('shows the specific app-link enrollment failure', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final keyService = _FakeRoastKeyService()..acceptInvitation = true;
+    final runtime = _FakeRoastRuntime()
+      ..joinRoomError = RoastEnrollmentFailure(
+        kind: RoastEnrollmentFailureKind.rejected,
+        cause: StateError('rejected'),
+        roomFailureCode: 7,
+      );
+    final controller = WalletController(
+      MemoryWalletRepository(),
+      roastRuntime: runtime,
+      roastKeyService: keyService,
+      networkServiceFactory: (_) async => null,
+    );
+    await controller.load();
+    await controller.createRoastSetupDraft(
+      role: RoastSetupRole.member,
+      walletName: 'Member wallet',
+      participantName: 'Member',
+      threshold: 2,
+      participantCount: 2,
+      network: PeercoinNetworks.mainnet,
+    );
+    final invitation = _roomInviteFor(
+      controller.roastSetups.single.localParticipant.publicKeyHex,
+    ).encode();
+
+    await tester.pumpWidget(
+      SygnatureApp(
+        controllerFactory: () async => controller,
+        incomingLinks: Stream.value(
+          Uri.parse(sygnatureRoomInviteLink(invitation)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('roast-invite-link-join')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not join shared wallet'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('This room invitation has already been used.'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'The invitation is invalid, expired or belongs to another wallet.',
+      ),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('requires a matching member draft for an app link', (
     tester,
   ) async {
@@ -2077,6 +2138,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   Object? startError;
   List<RoastSigningRequest> snapshotSigningRequests = const [];
   RoastRuntimeSnapshot? joinSnapshot;
+  Object? joinRoomError;
   RoastRoomCreation? roomCreation;
   Object? createRoomError;
   Completer<void>? signatureRequestGate;
@@ -2123,6 +2185,7 @@ class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) async {
+    if (joinRoomError case final error?) throw error;
     final now = DateTime.now().toUtc();
     final hostPublicKey = ECCompressedPublicKey.fromPubkey(
       ECPrivateKey.fromHex('22' * 32).pubkey,

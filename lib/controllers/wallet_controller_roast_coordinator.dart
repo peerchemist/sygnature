@@ -346,6 +346,7 @@ extension WalletRoastCoordinatorController on WalletController {
       final waitingForEnrollment =
           setup.role == RoastSetupRole.host &&
           setup.usesRoomEnrollment &&
+          setup.groupKeyHex == null &&
           enrolledRoastParticipantCount(setup) < setup.participantCount &&
           snapshot.coordinatorId != null &&
           !snapshot.connected &&
