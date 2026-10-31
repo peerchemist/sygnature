@@ -648,6 +648,10 @@ void main() {
     expect(copiedPublicKey, remoteParticipant.publicKeyHex);
     expect(find.text('Signer public key copied.'), findsOneWidget);
 
+    await tester.tap(find.byKey(const Key('copy-roast-group-fingerprint')));
+    await tester.pump();
+    expect(copiedPublicKey, 'aa' * 32);
+
     final setup = controller.roastSetups.single;
     await tester.tap(find.text('Create shared key'));
     await tester.pumpAndSettle();

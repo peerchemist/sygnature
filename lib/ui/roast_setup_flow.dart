@@ -274,6 +274,19 @@ class const RoastSetupPanel({
                               ),
                             ),
                           ),
+                          if (setup.groupFingerprintHex case final fingerprint?)
+                            IconButton(
+                              key: const Key('copy-roast-group-fingerprint'),
+                              tooltip: 'Copy group fingerprint',
+                              onPressed: () => _copy(
+                                context,
+                                fingerprint,
+                                'Group fingerprint copied.',
+                              ),
+                              visualDensity: VisualDensity.compact,
+                              iconSize: 14,
+                              icon: const Icon(Icons.copy_rounded),
+                            ),
                         ],
                       ),
                     ),
