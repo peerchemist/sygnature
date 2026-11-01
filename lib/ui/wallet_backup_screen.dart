@@ -195,11 +195,9 @@ class _WalletBackupScreenState extends State<WalletBackupScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Anyone with this file and its passphrase can recover your wallet and local signing shares. '
-                  'Each ROAST signer needs a separate, clearly labeled backup; one signer\'s backup cannot replace another\'s. '
-                  'Choose a high-entropy passphrase, such as several randomly chosen words, and store it separately from the backup file. '
-                  'Sygnature cannot recover or reset a lost backup passphrase. '
-                  'Spaces, capitalization and Unicode characters must match exactly.',
+                  'Anyone with this backup and its passphrase can recover your wallet and signing shares. '
+                  'Each ROAST signer needs their own backup. Use a strong, unique passphrase and keep it separate from the file. '
+                  'Lost passphrases cannot be recovered, and every character must match exactly.',
                 ),
                 const SizedBox(height: 20),
                 TextField(
@@ -250,8 +248,8 @@ class _WalletBackupScreenState extends State<WalletBackupScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Export pauses ROAST and closes its worker for a consistent snapshot, then reconnects previously running groups. Finish pending signing operations first. '
-                  'Import requires an empty wallet and never overwrites existing records.',
+                  'Finish pending signing before exporting. ROAST pauses briefly during export and reconnects afterward. '
+                  'Import requires an empty wallet and never overwrites existing data.',
                 ),
                 if (_busy)
                   const Padding(
