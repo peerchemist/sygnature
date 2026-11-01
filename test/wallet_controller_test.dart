@@ -5,7 +5,6 @@ import 'package:coinlib/coinlib.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
-import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
@@ -29,8 +28,8 @@ void main() {
         keyService: _FakeWalletKeyService(),
       );
       await controller.load();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       final accountId = controller.accounts.single.id;
@@ -63,7 +62,10 @@ void main() {
       networkServiceFactory: (_) async => _FakeElectrumxService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     final preview = controller.prepareSend(
       const WalletSendRequest(
         destinationAddress: 'pc1pdestination',
@@ -104,7 +106,10 @@ void main() {
       keyService: _FakeWalletKeyService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     final accountId = controller.accounts.single.id;
     repository.saveError = StateError('storage unavailable');
     await expectLater(
@@ -127,7 +132,10 @@ void main() {
       keyService: _FakeWalletKeyService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     final accountId = controller.accounts.single.id;
     repository.commitBeforeError = true;
     repository.saveError = StateError('write outcome unknown');
@@ -147,7 +155,7 @@ void main() {
     controller.dispose();
   });
 
-  test('stores the recovery phrase before a network is selected', () async {
+  test('creates a random root before a network is selected', () async {
     final repository = MemoryWalletRepository();
     final controller = WalletController(
       repository,
@@ -155,11 +163,9 @@ void main() {
     );
     await controller.load();
 
-    await controller.createVault(_mnemonic);
-
     expect(controller.hasWallet, isTrue);
     expect(controller.accounts, isEmpty);
-    expect(controller.vault?.mnemonic, _mnemonic.phrase);
+    expect(controller.vault?.rootSeedHex, hasLength(128));
     expect(controller.vault?.nextAccountIndex, 0);
 
     await controller.addAccount(
@@ -197,7 +203,7 @@ void main() {
     expect(account.address, address);
     expect(account.derivationPath, isNull);
     expect(account.privateKeyHex, isNull);
-    expect(controller.vault?.mnemonic, isNull);
+    expect(controller.vault?.rootSeedHex, hasLength(128));
     expect(controller.vault?.nextAccountIndex, 0);
     expect(electrumx.watchedAddresses.single, {address});
 
@@ -227,7 +233,7 @@ void main() {
     controller.dispose();
   });
 
-  test('persists mnemonic and automatically derives every account', () async {
+  test('persists the random root and derives every account', () async {
     final repository = MemoryWalletRepository();
     final controller = WalletController(
       repository,
@@ -235,7 +241,10 @@ void main() {
     );
     await controller.load();
 
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
     await controller.selectAccount(0);
 
@@ -251,9 +260,7 @@ void main() {
     expect(restored.accounts[1].address, 'tpc1paccount1');
     expect(restored.accounts[1].privateKeyHex, 'private-key-1');
     expect(restored.accounts[1].derivationPath, "m/86'/1'/1'/0/0");
-    expect(restored.vault?.mnemonic, _mnemonic.phrase);
-    expect(restored.vault?.languageId, 'english');
-    expect(restored.vault?.mnemonicWordCount, 12);
+    expect(restored.vault?.rootSeedHex, repository.value?.rootSeedHex);
     expect(restored.accounts[0].networkId, 'mainnet');
     expect(restored.accounts[1].networkId, 'testnet');
     expect(restored.selectedAccount?.name, 'Main wallet');
@@ -270,8 +277,8 @@ void main() {
       );
       addTearDown(controller.dispose);
       await controller.load();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       final account = controller.accounts.single;
@@ -393,7 +400,10 @@ void main() {
       onCoinsReceived: () => receivedSoundCount++,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     final account = controller.accounts.single;
     expect(controller.syncStatusFor(account), AccountSyncStatus.syncing);
@@ -500,16 +510,15 @@ void main() {
         networkServiceFactory: (_) async => electrumx,
       );
       await controller.load();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       final account = controller.accounts.single;
       final destination = CoinlibWalletKeyService()
           .deriveAddress(
             network: PeercoinNetworks.mainnet,
-            mnemonic: _mnemonic.phrase,
-            language: _mnemonic.language,
+            rootSeed: hexToBytes(controller.vault!.rootSeedHex!),
             accountIndex: 0,
             addressIndex: 5,
           )
@@ -645,13 +654,15 @@ void main() {
       networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     final account = controller.accounts.single;
     final destination = CoinlibWalletKeyService()
         .deriveAddress(
           network: PeercoinNetworks.mainnet,
-          mnemonic: _mnemonic.phrase,
-          language: _mnemonic.language,
+          rootSeed: hexToBytes(controller.vault!.rootSeedHex!),
           accountIndex: 0,
           addressIndex: 5,
         )
@@ -704,7 +715,10 @@ void main() {
     );
     await controller.load();
 
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.testnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.testnet,
+    );
 
     expect(requestedNetworks.single.storageId, 'peercoin:testnet');
     expect(controller.accounts.single.networkId, 'testnet');
@@ -732,7 +746,10 @@ void main() {
           services.putIfAbsent(network.storageId, _FakeElectrumxService.new),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount(
       'Test wallet',
       network: PeercoinNetworks.testnet,
@@ -760,7 +777,10 @@ void main() {
       },
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     final original = services.single;
 
     await controller.reconnectElectrumx();
@@ -784,7 +804,10 @@ void main() {
       networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     final firstRefresh = controller.refreshBalances();
     await cancellationStarted.future;
@@ -810,7 +833,10 @@ void main() {
           services.putIfAbsent(network.storageId, _FakeElectrumxService.new),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
 
     await controller.deleteAccount(controller.accounts.last.id);
@@ -841,7 +867,10 @@ void main() {
       },
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount('Savings', network: PeercoinNetworks.testnet);
     final savingsId = controller.selectedAccount!.id;
 
@@ -882,7 +911,10 @@ void main() {
       keyService: _FakeWalletKeyService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
     final mainId = controller.accounts.first.id;
     final savingsId = controller.accounts.last.id;
@@ -901,7 +933,10 @@ void main() {
       keyService: _FakeWalletKeyService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     await controller.renameAccount(controller.accounts.single.id, 'Daily');
 
@@ -909,34 +944,31 @@ void main() {
     expect(repository.value?.accounts.single.name, 'Daily');
   });
 
-  test(
-    'deleting the last account keeps the vault and recovery phrase',
-    () async {
-      final repository = MemoryWalletRepository();
-      final controller = WalletController(
-        repository,
-        keyService: _FakeWalletKeyService(),
-      );
-      await controller.load();
-      await controller.createWallet(
-        _mnemonic,
-        network: PeercoinNetworks.mainnet,
-      );
+  test('deleting the last account keeps the vault and random root', () async {
+    final repository = MemoryWalletRepository();
+    final controller = WalletController(
+      repository,
+      keyService: _FakeWalletKeyService(),
+    );
+    await controller.load();
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
-      await controller.deleteAccount(controller.accounts.single.id);
+    await controller.deleteAccount(controller.accounts.single.id);
 
-      expect(controller.hasWallet, isTrue);
-      expect(controller.accounts, isEmpty);
-      expect(repository.value?.mnemonic, _mnemonic.phrase);
-      expect(repository.value?.nextAccountIndex, 1);
+    expect(controller.hasWallet, isTrue);
+    expect(controller.accounts, isEmpty);
+    expect(repository.value?.rootSeedHex, hasLength(128));
+    expect(repository.value?.nextAccountIndex, 1);
 
-      await controller.addAccount(
-        'Replacement',
-        network: PeercoinNetworks.mainnet,
-      );
-      expect(controller.accounts.single.accountIndex, 1);
-    },
-  );
+    await controller.addAccount(
+      'Replacement',
+      network: PeercoinNetworks.mainnet,
+    );
+    expect(controller.accounts.single.accountIndex, 1);
+  });
 
   test('previews, signs and broadcasts a send exactly once', () async {
     final electrumx = _FakeElectrumxService();
@@ -948,7 +980,10 @@ void main() {
       networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     electrumx.snapshots.add(
       const PeercoinElectrumxUtxoSnapshot(
         address: 'pc1paccount0',
@@ -1111,8 +1146,8 @@ void main() {
         networkServiceFactory: (_) async => electrumx,
       );
       await controller.load();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       final timestamp = DateTime.utc(2026, 10, 12, 8, 30);
@@ -1240,7 +1275,10 @@ void main() {
       networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     electrumx.snapshots.add(
       const PeercoinElectrumxUtxoSnapshot(
         address: 'pc1paccount0',
@@ -1304,7 +1342,10 @@ void main() {
       networkServiceFactory: (_) async => null,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     final preview = controller.prepareSend(
       const WalletSendRequest(
@@ -1360,8 +1401,8 @@ void main() {
         networkServiceFactory: (_) async => electrumx,
       );
       await controller.load();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       final preview = controller.prepareSend(
@@ -1394,7 +1435,10 @@ void main() {
       networkServiceFactory: (_) async => _FakeElectrumxService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     final preview = controller.prepareSend(
       const WalletSendRequest(
@@ -1430,25 +1474,6 @@ void main() {
   });
 }
 
-const _mnemonic = MnemonicSession(
-  words: [
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'abandon',
-    'about',
-  ],
-  language: MnemonicLanguage.english,
-  createdInApp: true,
-);
-
 class _ControlledWalletRepository extends MemoryWalletRepository {
   Completer<void>? saveStarted;
   Completer<void>? saveGate;
@@ -1472,31 +1497,13 @@ class _ControlledWalletRepository extends MemoryWalletRepository {
 
 class _FakeWalletKeyService extends WalletKeyService {
   @override
-  MnemonicSession generateMnemonic({
-    required MnemonicLanguage language,
-    required int wordCount,
-  }) => _mnemonic;
-
-  @override
-  MnemonicValidationResult validateMnemonic({
-    required String mnemonic,
-    required MnemonicLanguage language,
-  }) => mnemonic.trim() == _mnemonic.phrase
-      ? MnemonicValidationResult.valid(_mnemonic.words)
-      : const MnemonicValidationResult.invalid(
-          WalletKeyFailure(WalletKeyFailureKind.invalidMnemonic),
-        );
-
-  @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
-    required String mnemonic,
-    required MnemonicLanguage language,
+    required Uint8List rootSeed,
     required int accountIndex,
   }) => deriveAddress(
     network: network,
-    mnemonic: mnemonic,
-    language: language,
+    rootSeed: rootSeed,
     accountIndex: accountIndex,
     addressIndex: 0,
   );
@@ -1504,8 +1511,7 @@ class _FakeWalletKeyService extends WalletKeyService {
   @override
   DerivedWalletMaterial deriveAddress({
     required WalletNetwork network,
-    required String mnemonic,
-    required MnemonicLanguage language,
+    required Uint8List rootSeed,
     required int accountIndex,
     required int addressIndex,
   }) => DerivedWalletMaterial(

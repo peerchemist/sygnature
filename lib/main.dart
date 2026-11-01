@@ -10,7 +10,6 @@ import 'package:path_provider/path_provider.dart';
 
 import 'controllers/wallet_controller.dart';
 import 'controllers/theme_controller.dart';
-import 'models/mnemonic_seed.dart';
 import 'models/roast_setup.dart';
 import 'services/app_diagnostics.dart';
 import 'services/app_logger.dart';
@@ -20,17 +19,15 @@ import 'services/public_feed_poller.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
 import 'services/roast_runtime_manager.dart';
-import 'services/wallet_key_service.dart';
 import 'storage/wallet_repository.dart';
 import 'storage/public_feed_store.dart';
 import 'services/wallet_backup_service.dart';
 import 'storage/roast_storage.dart';
 import 'storage/vault_protection.dart';
 import 'ui/app_theme.dart';
-import 'ui/onboarding_screen.dart';
+import 'ui/wallet_backup_screen.dart';
 import 'ui/wallet_home.dart';
 import 'ui/widgets/brand_mark.dart';
-import 'ui/widgets/selector_builder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -333,6 +330,16 @@ class _SygnatureAppState extends State<SygnatureApp>
     RoastPersistenceFactory roastPersistence, {
     bool restorePrivateState = true,
   }) async {
+    try {
+      await repository.load();
+    } on VaultOpenFailure catch (error) {
+      if (error != VaultOpenFailure.unsupportedSchema) rethrow;
+      await repository.delete();
+      await roastPersistence.clearAll();
+      AppLogger.warn(
+        '[VAULT] Discarded wallet and ROAST data from an unsupported schema.',
+      );
+    }
     if (restorePrivateState) {
       await roastPersistence.recoverBackupImport(repository);
     }
@@ -343,7 +350,7 @@ class _SygnatureAppState extends State<SygnatureApp>
       roastRuntime: RoastRuntimeManager(
         roastPersistence,
         publicFeedStore: _publicFeedStore,
-        getWalletBip39Seed: () => _walletBip39Seed(repository),
+        getWalletSeed: () => _walletRootSeed(repository),
         initializeNative: () => _noosphereInitialization,
       ),
       roastSigningOperations: roastPersistence,
@@ -354,28 +361,65 @@ class _SygnatureAppState extends State<SygnatureApp>
       onCoinsReceived: _notifications.coinsReceived,
       onRoastSigningRequest: _notifications.roastSigningRequest,
       onDkgRequest: _notifications.dkgRequest,
-      onRoastGroupCreated: _notifications.roastGroupCreated,
+      onRoastGroupCreated: _onRoastGroupCreated,
     );
     await controller.load(restoreSigningOperations: restorePrivateState);
     return controller;
   }
 
-  Future<Uint8List> _walletBip39Seed(WalletRepository repository) async {
+  Future<Uint8List> _walletRootSeed(WalletRepository repository) async {
     final vault = await repository.load();
-    final mnemonic = vault?.mnemonic;
-    final languageId = vault?.languageId;
-    if (mnemonic == null || languageId == null) {
-      throw StateError('The wallet mnemonic is required for Iroh identity.');
+    final encoded = vault?.rootSeedHex;
+    if (encoded == null) {
+      throw StateError('The wallet root seed is required for Iroh identity.');
     }
-    final language = MnemonicLanguage.byId(languageId);
-    final validation = CoinlibWalletKeyService().validateMnemonic(
-      mnemonic: mnemonic,
-      language: language,
-    );
-    if (!validation.isValid) {
-      throw StateError('The stored wallet mnemonic is invalid.');
+    final seed = hexToBytes(encoded);
+    if (seed.length != 64) {
+      seed.fillRange(0, seed.length, 0);
+      throw StateError('The stored wallet root seed is invalid.');
     }
-    return CoinlibWalletKeyService.mnemonicToSeed(mnemonic, language: language);
+    return seed;
+  }
+
+  void _onRoastGroupCreated() {
+    _notifications.roastGroupCreated();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      final messenger = _messengerKey.currentState;
+      final context = _navigatorKey.currentContext;
+      if (messenger == null || context == null) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            key: const Key('roast-backup-reminder'),
+            duration: const Duration(seconds: 30),
+            content: const Text(
+              'Shared wallet created. Make a new encrypted backup now.',
+            ),
+            action: SnackBarAction(
+              key: const Key('roast-backup-reminder-action'),
+              label: 'Back up',
+              onPressed: () {
+                final controller = _controller;
+                if (controller == null) return;
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => FutureBuilder<WalletController>(
+                      future: controller,
+                      builder: (context, snapshot) => snapshot.hasData
+                          ? WalletBackupScreen(controller: snapshot.data!)
+                          : const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+    });
   }
 
   @override
@@ -659,19 +703,9 @@ class _SygnatureAppState extends State<SygnatureApp>
           }
           final controller = snapshot.data;
           if (controller == null) return const _StartupLoading();
-          return SelectorBuilder(
-            listenable: controller,
-            select: () => [
-              controller.hasWallet,
-              if (!controller.hasWallet) controller.busy,
-            ],
-            child: WalletHome(
-              controller: controller,
-              notifications: _notifications,
-            ),
-            builder: (context, child) => controller.hasWallet
-                ? child!
-                : OnboardingScreen(controller: controller),
+          return WalletHome(
+            controller: controller,
+            notifications: _notifications,
           );
         },
       );

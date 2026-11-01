@@ -20,9 +20,7 @@ void main() {
   test('reads current vaults without changing personal account data', () {
     final vault = WalletVault.fromJson({
       'schemaVersion': WalletVault.schemaVersion,
-      'mnemonic': 'test phrase',
-      'languageId': 'english',
-      'mnemonicWordCount': 12,
+      'rootSeedHex': List.filled(64, '11').join(),
       'accounts': [
         {
           'id': 'peercoin-mainnet-0',

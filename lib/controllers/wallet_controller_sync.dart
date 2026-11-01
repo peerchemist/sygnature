@@ -165,17 +165,14 @@ extension WalletSyncController on WalletController {
       return List.unmodifiable(result.take(highestIndex + 1));
     }
     if (account.keySource == WalletKeySource.personal) {
-      final mnemonic = _vault?.mnemonic;
-      final languageId = _vault?.languageId;
-      if (mnemonic != null &&
-          languageId != null &&
-          result.length <= highestIndex) {
+      final vault = _vault;
+      if (vault?.rootSeedHex != null && result.length <= highestIndex) {
+        final rootSeed = _rootSeed(vault!);
         try {
           final firstAddressIndex = result.length;
           final derivedAddresses = _keyService.deriveAddresses(
             network: networkForAccount(account),
-            mnemonic: mnemonic,
-            language: MnemonicLanguage.byId(languageId),
+            rootSeed: rootSeed,
             accountIndex: account.accountIndex,
             firstAddressIndex: firstAddressIndex,
             lastAddressIndex: highestIndex,
@@ -191,6 +188,8 @@ extension WalletSyncController on WalletController {
           ]);
         } on Object {
           // Return the addresses derived successfully before this request.
+        } finally {
+          rootSeed.fillRange(0, rootSeed.length, 0);
         }
       }
       return List.unmodifiable(result.take(highestIndex + 1));

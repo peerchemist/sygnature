@@ -33,7 +33,7 @@ class WalletAccount {
   final String? sourceId;
   final String? keyId;
 
-  /// BIP-86 account metadata derived from the wallet mnemonic.
+  /// BIP-86 account metadata derived from the wallet's random root seed.
   final String? derivationPath;
   final String? address;
 

@@ -225,8 +225,8 @@ class AppNotifications({
   }
 
   void roastGroupCreated() => _deliver(
-    title: 'ROAST group ready',
-    body: 'The new ROAST group was created successfully.',
+    title: 'Shared wallet ready',
+    body: 'Create a new encrypted backup now to save its signing share.',
     sound: _uiSounds.roastGroupCreated,
   );
 

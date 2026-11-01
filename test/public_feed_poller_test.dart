@@ -214,7 +214,7 @@ void main() {
     expect((await feed())['initialThrough'], 2);
   });
 
-  test('onboarding feed binding respects an explicit opt-out', () async {
+  test('initial feed binding respects an explicit opt-out', () async {
     const group = 'enrolled-group';
     final id = await publicFeedIdForGroup(group);
     final binding = await store.bindFeedFromSetup(

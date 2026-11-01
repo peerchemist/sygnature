@@ -86,7 +86,7 @@ class _WatchOnlyWalletDialogState extends State<WatchOnlyWalletDialog> {
             children: [
               const Text(
                 'Track a Peercoin Taproot address without importing a '
-                'recovery phrase or private key. This wallet cannot spend.',
+                'spending key. This wallet cannot spend.',
               ),
               const SizedBox(height: 18),
               DropdownButtonFormField<WalletNetwork>(

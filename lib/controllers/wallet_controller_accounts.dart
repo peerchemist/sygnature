@@ -5,9 +5,29 @@ class const WatchOnlyWalletFailure(final String message) implements Exception {
   String toString() => message;
 }
 
+Uint8List _rootSeed(WalletVault vault) {
+  final encoded = vault.rootSeedHex;
+  if (encoded == null) throw StateError('Wallet root seed is missing.');
+  final seed = hexToBytes(encoded);
+  if (seed.length != 64) {
+    seed.fillRange(0, seed.length, 0);
+    throw StateError('Wallet root seed is invalid.');
+  }
+  return seed;
+}
+
 extension WalletAccountsController on WalletController {
   WalletVault? get vault => _vault;
   bool get hasWallet => _vault != null;
+  bool get canImportBackup {
+    final vault = _vault;
+    return vault != null &&
+        vault.accounts.isEmpty &&
+        vault.roastSetups.isEmpty &&
+        vault.groupTransitions.isEmpty &&
+        vault.activities.isEmpty;
+  }
+
   bool get busy => _busy;
   List<WalletAccount> get accounts =>
       _vault?.accounts
@@ -40,6 +60,16 @@ extension WalletAccountsController on WalletController {
 
   Future<void> load({bool restoreSigningOperations = true}) async {
     _vault = await _repository.load();
+    if (_vault?.rootSeedHex == null) {
+      _vault = _vault == null
+          ? WalletVault(
+              rootSeedHex: bytesToHex(generateRandomBytes(64)),
+              accounts: const [],
+              nextAccountIndex: 0,
+            )
+          : _vault!.copyWith(rootSeedHex: bytesToHex(generateRandomBytes(64)));
+      await _repository.save(_vault!);
+    }
     _addressScanUpperIndexByAccount
       ..clear()
       ..addEntries(
@@ -104,82 +134,6 @@ extension WalletAccountsController on WalletController {
     ]);
   }
 
-  MnemonicSession generateMnemonic({
-    required MnemonicLanguage language,
-    required int wordCount,
-  }) => _keyService.generateMnemonic(language: language, wordCount: wordCount);
-
-  MnemonicValidationResult validateMnemonic({
-    required String mnemonic,
-    required MnemonicLanguage language,
-  }) => _keyService.validateMnemonic(mnemonic: mnemonic, language: language);
-
-  Future<void> createVault(MnemonicSession mnemonic) async {
-    await _guard(() async {
-      await _updateVault((current) {
-        final selectedAccountId =
-            _selectedAccountId ??
-            current?.accounts
-                .where((account) => !account.isArchived)
-                .lastOrNull
-                ?.id;
-        return WalletVault(
-          mnemonic: mnemonic.phrase,
-          languageId: mnemonic.language.id,
-          mnemonicWordCount: mnemonic.words.length,
-          accounts: current?.accounts ?? const [],
-          nextAccountIndex: current?.nextAccountIndex ?? 0,
-          roastSetups: current?.roastSetups ?? const [],
-          groupTransitions: current?.groupTransitions ?? const [],
-          activities: current?.activities ?? const [],
-          selectedAccountId: selectedAccountId,
-        );
-      }, updateSelection: true);
-    });
-  }
-
-  /// Derives the first account and persists the complete wallet in one
-  /// encrypted repository write.
-  Future<void> createWallet(
-    MnemonicSession mnemonic, {
-    required WalletNetwork network,
-  }) async {
-    final selectedNetwork = _networkById(
-      network.blockchainId,
-      network.networkId,
-    );
-    await _guard(() async {
-      await _ensureNetworkService(selectedNetwork);
-      final material = _keyService.deriveAccount(
-        network: selectedNetwork,
-        mnemonic: mnemonic.phrase,
-        language: mnemonic.language,
-        accountIndex: 0,
-      );
-      final first = _derivedAccount(
-        0,
-        'Main wallet',
-        selectedNetwork,
-        material,
-      );
-      await _updateVault(
-        (current) => WalletVault(
-          mnemonic: mnemonic.phrase,
-          languageId: mnemonic.language.id,
-          mnemonicWordCount: mnemonic.words.length,
-          accounts: [...?current?.accounts, first],
-          nextAccountIndex: 1,
-          roastSetups: current?.roastSetups ?? const [],
-          groupTransitions: current?.groupTransitions ?? const [],
-          activities: current?.activities ?? const [],
-          selectedAccountId: first.id,
-        ),
-        updateSelection: true,
-      );
-      await _restartElectrumxSync();
-    });
-  }
-
   Future<void> addAccount(String name, {required WalletNetwork network}) async {
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
@@ -194,26 +148,26 @@ extension WalletAccountsController on WalletController {
       await _updateVault((current) {
         if (current == null) throw StateError('Wallet is not initialized.');
         final index = current.nextAccountIndex;
-        final mnemonic = current.mnemonic;
-        if (mnemonic == null) {
-          throw StateError('Wallet mnemonic is missing.');
+        final rootSeed = _rootSeed(current);
+        try {
+          final account = _derivedAccount(
+            index,
+            trimmedName,
+            selectedNetwork,
+            _keyService.deriveAccount(
+              network: selectedNetwork,
+              rootSeed: rootSeed,
+              accountIndex: index,
+            ),
+          );
+          return current.copyWith(
+            accounts: [...current.accounts, account],
+            nextAccountIndex: current.nextAccountIndex + 1,
+            selectedAccountId: account.id,
+          );
+        } finally {
+          rootSeed.fillRange(0, rootSeed.length, 0);
         }
-        final account = _derivedAccount(
-          index,
-          trimmedName,
-          selectedNetwork,
-          _keyService.deriveAccount(
-            network: selectedNetwork,
-            mnemonic: mnemonic,
-            language: MnemonicLanguage.byId(current.languageId!),
-            accountIndex: index,
-          ),
-        );
-        return current.copyWith(
-          accounts: [...current.accounts, account],
-          nextAccountIndex: current.nextAccountIndex + 1,
-          selectedAccountId: account.id,
-        );
       }, updateSelection: true);
       await _restartElectrumxSync();
     });
@@ -261,6 +215,7 @@ extension WalletAccountsController on WalletController {
         );
         return current == null
             ? WalletVault(
+                rootSeedHex: bytesToHex(generateRandomBytes(64)),
                 accounts: [account],
                 nextAccountIndex: 0,
                 selectedAccountId: account.id,

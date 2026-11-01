@@ -16,7 +16,7 @@ void main() {
     final backup = WalletBackupV1(createdAt: 0, wallet: null, groups: []);
     expect(
       cl.bytesToHex(backup.encode()),
-      'a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e03',
+      'a46667726f757073806777616c6c657473806a637265617465645f6174006e736368656d615f76657273696f6e04',
     );
     expect(WalletBackupV1.decode(backup.encode()).wallet, isNull);
   });
@@ -104,7 +104,7 @@ void main() {
     for (final change in [
       <String, Object?>{'schema_version': 1},
       <String, Object?>{'schema_version': 2},
-      <String, Object?>{'schema_version': 4},
+      <String, Object?>{'schema_version': 3},
       {'created_at': '0'},
       {'extra': null},
       {'wallets': true},
@@ -126,7 +126,7 @@ void main() {
       key.acks.map((a) => a.toBytes()),
       f.keys.first.acks.map((a) => a.toBytes()),
     );
-    expect(restored.wallet!.mnemonic!.phrase, f.vault.mnemonic);
+    expect(restored.wallet!.rootSeed, cl.hexToBytes(f.vault.rootSeedHex!));
     expect(
       restored.groups.single.setup.localParticipantPrivateKeyHex,
       f.setup.localParticipantPrivateKeyHex,

@@ -70,7 +70,7 @@ void main() {
     final fixture = WalletBackupFixture();
     repository = MemoryWalletRepository();
     await repository.save(fixture.vault.copyWith(roastSetups: []));
-    // Keep only the mnemonic-derived account, with no ROAST reference.
+    // Keep only the root-seed-derived account, with no ROAST reference.
     repository.value = repository.value!.copyWith(
       accounts: [fixture.vault.accounts.first],
     );
@@ -145,7 +145,7 @@ void main() {
   });
 
   testWidgets(
-    'empty wallet can select a backup without an existing-wallet warning',
+    'pristine wallet can select a backup without an existing-wallet warning',
     (tester) async {
       controller.dispose();
       repository = MemoryWalletRepository();
@@ -163,7 +163,8 @@ void main() {
 
       expect(picker.pickCalls, 1);
       expect(find.byType(AlertDialog), findsNothing);
-      expect(repository.value, isNull);
+      expect(repository.value?.accounts, isEmpty);
+      expect(repository.value?.rootSeedHex, hasLength(128));
     },
   );
 

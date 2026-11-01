@@ -135,11 +135,22 @@ extension WalletBackupController on WalletController {
     if (service == null) {
       throw const FormatException('Backup storage is unavailable.');
     }
-    if (_vault != null || _sending || _roastOperations.isNotEmpty) {
+    final pristineVault = _vault;
+    if (!canImportBackup || _sending || _roastOperations.isNotEmpty) {
       throw const FormatException('Restore requires an empty, offline wallet.');
     }
     await _queueVaultMutation(() async {
-      await service.importEncrypted(bytes, passphrase, ImportOptions(preview));
+      await _repository.delete();
+      try {
+        await service.importEncrypted(
+          bytes,
+          passphrase,
+          ImportOptions(preview),
+        );
+      } on Object {
+        await _repository.save(pristineVault!);
+        rethrow;
+      }
       _vault = await _repository.load();
       _selectedAccountId = accounts.firstOrNull?.id;
       _storedRoastSigningOperations.clear();

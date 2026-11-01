@@ -77,20 +77,6 @@ Future<void> _showAddWallet(
     return;
   }
   if (type != WalletKeySource.personal) return;
-  if (controller.vault?.mnemonic == null) {
-    if (context.mounted) {
-      await Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (routeContext) => OnboardingScreen(
-            controller: controller,
-            onCreated: () => Navigator.pop(routeContext),
-          ),
-        ),
-      );
-    }
-    return;
-  }
   final result = await showDialog<({String name, WalletNetwork network})>(
     context: context,
     builder: (context) => _AddWalletDialog(
@@ -149,7 +135,7 @@ class _AddWalletDialogState extends State<_AddWalletDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'A new account index will be allocated from the same root seed. '
+              'A new account index will be allocated from this encrypted vault. '
               'Choose the blockchain network for this account.',
             ),
             const SizedBox(height: 18),

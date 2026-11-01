@@ -10,7 +10,6 @@ import 'package:sygnature_ng/controllers/theme_controller.dart';
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
 import 'package:sygnature_ng/main.dart';
 import 'package:sygnature_ng/models/electrumx_utxo.dart';
-import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_network.dart';
@@ -22,7 +21,6 @@ import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/public_feed_store.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/about_screen.dart';
-import 'package:sygnature_ng/ui/onboarding_screen.dart';
 import 'package:sygnature_ng/ui/wallet_home.dart';
 import 'package:sygnature_ng/ui/widgets/middle_ellipsis_text.dart';
 
@@ -43,8 +41,8 @@ void main() {
       await tester.binding.setSurfaceSize(Size(width, 850));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final controller = await createController();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       await tester.pumpWidget(
@@ -93,12 +91,12 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(OnboardingScreen), findsOneWidget);
+      expect(find.byType(WalletHome), findsOneWidget);
 
       firstAttempt.completeError(StateError('Synthetic native failure'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(OnboardingScreen), findsOneWidget);
+      expect(find.byType(WalletHome), findsOneWidget);
       expect(
         find.text(
           'Shared wallets could not start. Personal wallets and backups '
@@ -111,7 +109,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(attempts, 2);
-      expect(find.byType(OnboardingScreen), findsOneWidget);
+      expect(find.byType(WalletHome), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -170,7 +168,10 @@ void main() {
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
     final controller = await createController();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
     );
@@ -216,28 +217,6 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(SygnatureApp(controllerFactory: createController));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Mnemonic'), findsOneWidget);
-    expect(find.text('English'), findsOneWidget);
-    expect(find.text('Wordlist: English, 2048 words'), findsOneWidget);
-    expect(find.byKey(const Key('wallet-network-field')), findsNothing);
-
-    await tester.ensureVisible(find.text('Generate recovery phrase'));
-    await tester.tap(find.text('Generate recovery phrase'));
-    await tester.pumpAndSettle();
-    expect(find.text('Back up recovery phrase'), findsOneWidget);
-    expect(find.text('1. abandon'), findsOneWidget);
-    expect(find.text('Network'), findsNothing);
-    expect(find.text('Derivation path'), findsNothing);
-
-    await tester.ensureVisible(
-      find.text('I wrote down these recovery words in order.'),
-    );
-    await tester.tap(find.byType(Checkbox));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Save recovery phrase'));
-    await tester.tap(find.text('Save recovery phrase'));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(FilledButton, 'Add wallet'), findsOneWidget);
@@ -309,7 +288,10 @@ void main() {
       networkServiceFactory: (_) async => delayConnection ? gate.future : null,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
@@ -352,8 +334,8 @@ void main() {
         networkServiceFactory: (_) async => connect ? electrumx : null,
       );
       await controller.load();
-      await controller.createWallet(
-        _mnemonic,
+      await controller.addAccount(
+        'Main wallet',
         network: PeercoinNetworks.mainnet,
       );
       await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
@@ -405,7 +387,10 @@ void main() {
     const address =
         'pc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5ssntx2jm';
     final controller = await createController();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
     );
@@ -458,7 +443,10 @@ void main() {
       networkServiceFactory: (_) async => electrumx,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
@@ -491,7 +479,10 @@ void main() {
       keyService: _FakeWalletKeyService(),
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
@@ -532,7 +523,10 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final controller = await createController();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
     );
@@ -548,7 +542,10 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final controller = await createController();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
     await controller.addAccount('Savings', network: PeercoinNetworks.mainnet);
     final savingsId = controller.selectedAccount!.id;
 
@@ -604,7 +601,7 @@ void main() {
 
       expect(find.text('Encrypted backup and restore'), findsOneWidget);
       expect(
-        find.text('Save mnemonics, ROAST groups and local signing shares.'),
+        find.text('Save wallet keys, ROAST groups and local signing shares.'),
         findsOneWidget,
       );
       expect(
@@ -631,7 +628,10 @@ void main() {
       publicFeedStore: Completer<PublicFeedStore>().future,
     );
     await controller.load();
-    await controller.createWallet(_mnemonic, network: PeercoinNetworks.mainnet);
+    await controller.addAccount(
+      'Main wallet',
+      network: PeercoinNetworks.mainnet,
+    );
 
     await tester.pumpWidget(
       SygnatureApp(controllerFactory: () async => controller),
@@ -892,48 +892,15 @@ void main() {
   });
 }
 
-const _mnemonic = MnemonicSession(
-  words: [
-    'abandon',
-    'ability',
-    'able',
-    'about',
-    'above',
-    'absent',
-    'absorb',
-    'abstract',
-    'absurd',
-    'abuse',
-    'access',
-    'accident',
-  ],
-  language: MnemonicLanguage.english,
-  createdInApp: true,
-);
-
 class _FakeWalletKeyService extends WalletKeyService {
-  @override
-  MnemonicSession generateMnemonic({
-    required MnemonicLanguage language,
-    required int wordCount,
-  }) => _mnemonic;
-
-  @override
-  MnemonicValidationResult validateMnemonic({
-    required String mnemonic,
-    required MnemonicLanguage language,
-  }) => MnemonicValidationResult.valid(_mnemonic.words);
-
   @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
-    required String mnemonic,
-    required MnemonicLanguage language,
+    required Uint8List rootSeed,
     required int accountIndex,
   }) => deriveAddress(
     network: network,
-    mnemonic: mnemonic,
-    language: language,
+    rootSeed: rootSeed,
     accountIndex: accountIndex,
     addressIndex: 0,
   );
@@ -941,8 +908,7 @@ class _FakeWalletKeyService extends WalletKeyService {
   @override
   DerivedWalletMaterial deriveAddress({
     required WalletNetwork network,
-    required String mnemonic,
-    required MnemonicLanguage language,
+    required Uint8List rootSeed,
     required int accountIndex,
     required int addressIndex,
   }) => DerivedWalletMaterial(

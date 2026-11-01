@@ -12,7 +12,6 @@ import 'package:noosphere_server/noosphere_server.dart';
 import 'package:noosphere_server/testing.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
-import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
 
 import '../test/fixtures/wallet_backup_fixture.dart';
@@ -171,8 +170,7 @@ void main() {
       final reopenedFactory = RoastPersistenceFactory(cipherKey: cipherKey);
       final runtime = RoastRuntimeManager(
         reopenedFactory,
-        getWalletBip39Seed: () =>
-            CoinlibWalletKeyService.mnemonicToSeed(fixture.vault.mnemonic!),
+        getWalletSeed: () => cl.hexToBytes(fixture.vault.rootSeedHex!),
       );
       final cosigner = await NoosphereWorker.startNativeForTesting();
       try {

@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'dart:convert';
 
-import 'package:bip39_mnemonic/bip39_mnemonic.dart' as bip39;
 import 'package:coinlib/coinlib.dart' as cl;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 
@@ -9,7 +8,6 @@ import '../services/backup_cbor.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_key_service.dart';
 import '../services/wallet_key_service.dart';
-import 'mnemonic_seed.dart';
 import 'group_transition.dart';
 import 'roast_setup.dart';
 import 'wallet_account.dart';
@@ -22,7 +20,7 @@ final class WalletBackupV1({
   required final List<BackupGroup> groups,
 }) {
   Map<String, Object?> toCbor() => {
-    'schema_version': 3,
+    'schema_version': 4,
     'created_at': createdAt,
     'wallets': [if (wallet != null) wallet!.toCbor()],
     'groups':
@@ -36,8 +34,8 @@ final class WalletBackupV1({
   /// Only owned mutable buffers are cleared. Dart/GC, immutable strings, domain
   /// objects and isolate transfer copies cannot be guaranteed erased.
   void clearSecrets() {
-    final entropy = wallet?.mnemonic?.entropy;
-    entropy?.fillRange(0, entropy.length, 0);
+    final rootSeed = wallet?.rootSeed;
+    rootSeed?.fillRange(0, rootSeed.length, 0);
     for (final g in groups) {
       for (final key in g.keys) {
         key.secretShare.fillRange(0, key.secretShare.length, 0);
@@ -52,12 +50,12 @@ final class WalletBackupV1({
       'wallets',
       'groups',
     });
-    if (r.integer('schema_version', max: 3) != 3) {
+    if (r.integer('schema_version', max: 4) != 4) {
       backupInvalid('Unsupported payload schema.');
     }
     final wallets = r.list('wallets');
     if (wallets.length > 1) {
-      backupInvalid('This application supports one mnemonic vault.');
+      backupInvalid('This application supports one wallet vault.');
     }
     final result = WalletBackupV1(
       createdAt: r.integer('created_at', max: 8640000000000),
@@ -83,12 +81,9 @@ final class WalletBackupV1({
     _unique(groups.map((g) => g.setup.id));
     _unique(groups.map((g) => g.setup.groupId));
     for (final group in groups) {
-      group.validate(hasMnemonic: w?.mnemonic != null);
+      group.validate(hasRootSeed: w?.rootSeed.length == 64);
       if (group.setup.role == RoastSetupRole.host) {
-        final seed = CoinlibWalletKeyService.mnemonicToSeed(
-          w!.mnemonic!.phrase,
-          language: MnemonicLanguage.byId(w.mnemonic!.language),
-        );
+        final seed = Uint8List.fromList(w!.rootSeed);
         try {
           final identity = deriveIrohSecretKeyFromBip39Seed(
             seed,
@@ -101,7 +96,7 @@ final class WalletBackupV1({
                     group.room!.coordinatorEndpointId,
                   ))) {
             backupInvalid(
-              'Coordinator identity does not match the current mnemonic derivation scheme.',
+              'Coordinator identity does not match the wallet root seed.',
             );
           }
         } finally {
@@ -180,68 +175,19 @@ final class WalletBackupV1({
   );
 }
 
-final class BackupMnemonic(final Uint8List entropy, final String language) {
-  factory BackupMnemonic.fromVault(WalletVault vault) {
-    final phrase = vault.mnemonic!;
-    final language = MnemonicLanguage.byId(vault.languageId!);
-    final parsed = bip39.Mnemonic.fromWords(
-      words: phrase.split(RegExp(r'\s+')),
-      language: language.bip39Language,
-    );
-    if (parsed.words.length != vault.mnemonicWordCount) {
-      backupInvalid('Stored mnemonic word count mismatch.');
-    }
-    return BackupMnemonic(Uint8List.fromList(parsed.entropy), language.id);
-  }
-  factory BackupMnemonic.fromCbor(Object? value) {
-    final r = BackupRecord(value, {
-      'type',
-      'entropy',
-      'language',
-      'passphrase',
-    });
-    if (r.string('type') != 'bip39' ||
-        r.string('passphrase', empty: true) != '') {
-      backupInvalid('Unsupported mnemonic type or BIP-39 passphrase.');
-    }
-    final entropy = r.bytes('entropy');
-    if (entropy.length != 16 && entropy.length != 32) {
-      backupInvalid('Unsupported mnemonic entropy length.');
-    }
-    return BackupMnemonic(entropy, r.string('language'));
-  }
-  Map<String, Object?> toCbor() => {
-    'type': 'bip39',
-    'entropy': entropy,
-    'language': language,
-    'passphrase': '',
-  };
-  String get phrase {
-    if (entropy.length != 16 && entropy.length != 32) {
-      backupInvalid('Invalid mnemonic entropy.');
-    }
-    final l = MnemonicLanguage.byId(language);
-    final reconstructed = bip39.Mnemonic(entropy, l.bip39Language);
-    final checked = bip39.Mnemonic.fromWords(
-      words: reconstructed.words,
-      language: l.bip39Language,
-    );
-    if (!cl.bytesEqual(Uint8List.fromList(checked.entropy), entropy)) {
-      backupInvalid('Mnemonic reconstruction failed.');
-    }
-    return reconstructed.words.join(' ');
-  }
-}
-
 final class BackupWallet(
-  final BackupMnemonic? mnemonic,
+  final Uint8List rootSeed,
   final int nextAccountIndex,
   final List<BackupAccount> accounts, {
   final List<BackupTransition> transitions = const [],
 }) {
   factory BackupWallet.fromVault(WalletVault vault) {
+    final encodedRootSeed = vault.rootSeedHex;
+    if (encodedRootSeed == null) {
+      backupInvalid('Wallet root seed is missing.');
+    }
     return BackupWallet(
-      vault.mnemonic == null ? null : BackupMnemonic.fromVault(vault),
+      cl.hexToBytes(encodedRootSeed),
       vault.nextAccountIndex,
       vault.accounts.map(BackupAccount.new).toList(),
       transitions: vault.groupTransitions.map(BackupTransition.new).toList(),
@@ -250,7 +196,7 @@ final class BackupWallet(
   factory BackupWallet.fromCbor(Object? value) {
     final r = BackupRecord(value, {
       'wallet_id',
-      'mnemonic',
+      'root_seed',
       'next_account_index',
       'accounts',
       'transitions',
@@ -259,9 +205,7 @@ final class BackupWallet(
       backupInvalid('Unsupported wallet identifier.');
     }
     return BackupWallet(
-      r.data['mnemonic'] == null
-          ? null
-          : BackupMnemonic.fromCbor(r.data['mnemonic']),
+      r.bytes('root_seed', 64),
       r.integer('next_account_index', max: 0x80000000),
       r.list('accounts').map(BackupAccount.fromCbor).toList(),
       transitions: r
@@ -272,7 +216,7 @@ final class BackupWallet(
   }
   Map<String, Object?> toCbor() => {
     'wallet_id': 'local',
-    'mnemonic': mnemonic?.toCbor(),
+    'root_seed': rootSeed,
     'next_account_index': nextAccountIndex,
     'accounts':
         (accounts.toList()
@@ -290,7 +234,9 @@ final class BackupWallet(
             .toList(),
   };
   void validate() {
-    final phrase = mnemonic?.phrase;
+    if (rootSeed.length != 64) {
+      backupInvalid('Wallet root seed must contain 64 bytes.');
+    }
     _unique(accounts.map((a) => a.account.id));
     _unique(transitions.map((t) => t.transition.transitionId));
     if (nextAccountIndex < 0 || nextAccountIndex > 0x80000000) {
@@ -310,19 +256,20 @@ final class BackupWallet(
         const RoastKeyService().scriptHexForAddress(network, a.address!);
       }
       if (a.keySource == WalletKeySource.personal) {
-        if (phrase == null || a.accountIndex >= nextAccountIndex) {
+        if (a.accountIndex >= nextAccountIndex) {
           backupInvalid('Personal account recovery metadata is incomplete.');
         }
         final derived = CoinlibWalletKeyService().deriveAccount(
           network: network,
-          mnemonic: phrase,
-          language: MnemonicLanguage.byId(mnemonic!.language),
+          rootSeed: rootSeed,
           accountIndex: a.accountIndex,
         );
         if (a.address != derived.address ||
             a.derivationPath != derived.derivationPath ||
             a.privateKeyHex != derived.privateKeyHex) {
-          backupInvalid('Personal account does not match mnemonic derivation.');
+          backupInvalid(
+            'Personal account does not match root-seed derivation.',
+          );
         }
         final expectedPrefix = derived.derivationPath.substring(
           0,
@@ -340,11 +287,7 @@ final class BackupWallet(
 
   WalletVault toVault(List<RoastSetup> groups, {String? restoreId}) =>
       WalletVault(
-        mnemonic: mnemonic?.phrase,
-        languageId: mnemonic?.language,
-        mnemonicWordCount: mnemonic == null
-            ? null
-            : (mnemonic!.entropy.length == 16 ? 12 : 24),
+        rootSeedHex: cl.bytesToHex(rootSeed),
         accounts: accounts.map((a) => a.account).toList(),
         nextAccountIndex: nextAccountIndex,
         roastSetups: groups,
@@ -820,7 +763,7 @@ final class BackupGroup({
         ),
     },
   );
-  void validate({required bool hasMnemonic}) {
+  void validate({required bool hasRootSeed}) {
     final s = setup;
     if (!s.isFinalized ||
         s.threshold < 2 ||
@@ -852,8 +795,8 @@ final class BackupGroup({
         s.groupFingerprintHex != cl.bytesToHex(group.fingerprint)) {
       backupInvalid('Missing or inconsistent ROAST group fingerprint.');
     }
-    if (!hasMnemonic) {
-      backupInvalid('Coordinator identity requires the wallet mnemonic.');
+    if (!hasRootSeed) {
+      backupInvalid('Coordinator identity requires the wallet root seed.');
     }
     if (s.coordinatorId == null) {
       backupInvalid('Missing pinned coordinator identity.');

@@ -191,6 +191,17 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
     persistence._roomStores.remove(setupId);
   }
 
+  Future<void> clearAll() async {
+    await _operationWrites;
+    final persistence = await open();
+    await persistence._box.clear();
+    await persistence._box.flush();
+    persistence._clientStores.clear();
+    persistence._dkgSecretStores.clear();
+    persistence._serverStores.clear();
+    persistence._roomStores.clear();
+  }
+
   /// Call only with ROAST runtimes stopped and wallet mutations serialized.
   Future<List<BackupGroup>> backupGroups(WalletVault vault) async {
     await _operationWrites;

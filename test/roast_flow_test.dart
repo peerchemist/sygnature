@@ -50,9 +50,7 @@ void main() {
     final runtime = _FakeRoastRuntime();
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
-        mnemonic: 'local recovery phrase',
-        languageId: 'english',
-        mnemonicWordCount: 12,
+        rootSeedHex: List.filled(64, '11').join(),
         accounts: [
           WalletAccount(
             id: 'wallet-0',
@@ -219,9 +217,7 @@ void main() {
 
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
-        mnemonic: 'local recovery phrase',
-        languageId: 'english',
-        mnemonicWordCount: 12,
+        rootSeedHex: List.filled(64, '11').join(),
         accounts: [
           WalletAccount(
             id: 'wallet-0',

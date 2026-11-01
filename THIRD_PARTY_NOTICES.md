@@ -15,7 +15,6 @@ distributed builds.
 | --- | --- |
 | Flutter | BSD-3-Clause |
 | app_links | Apache-2.0 |
-| bip39_mnemonic | MIT |
 | coinlib | BSD-3-Clause |
 | flutter_local_notifications | BSD-3-Clause |
 | flutter_secure_storage | BSD-3-Clause |

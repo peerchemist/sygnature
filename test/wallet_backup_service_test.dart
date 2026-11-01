@@ -229,7 +229,7 @@ void main() {
         ImportOptions(preview),
       );
       final restored = (await repository.load())!;
-      expect(restored.mnemonic, fixture.vault.mnemonic);
+      expect(restored.rootSeedHex, fixture.vault.rootSeedHex);
       final roastAccount = restored.accounts.singleWhere(
         (a) => a.sourceId == fixture.setup.id,
       );
@@ -263,7 +263,7 @@ void main() {
       final reopened = await HiveWalletRepository.openWithCipherKey(cipherKey);
       final restarted = RoastPersistenceFactory(cipherKey: cipherKey);
       await restarted.recoverBackupImport(reopened);
-      expect((await reopened.load())!.mnemonic, fixture.vault.mnemonic);
+      expect((await reopened.load())!.rootSeedHex, fixture.vault.rootSeedHex);
       expect(
         (await (await restarted.open())
                 .clientStorage(fixture.setup.id)
@@ -298,7 +298,7 @@ void main() {
       final worker = await NoosphereWorker.startForTesting();
       final runtime = RoastRuntimeManager(
         factory,
-        getWalletBip39Seed: () =>
+        getWalletSeed: () =>
             throw StateError('Offline shutdown needs no seed.'),
         startWorker: () async => worker,
       );
@@ -410,7 +410,7 @@ void main() {
         factory.commitBackupImport(repository, fixture.backup, 'conflict'),
         throwsFormatException,
       );
-      expect((await repository.load())!.mnemonic, fixture.vault.mnemonic);
+      expect((await repository.load())!.rootSeedHex, fixture.vault.rootSeedHex);
       await repository.delete();
       await (await factory.open())
           .clientStorage(fixture.setup.id)

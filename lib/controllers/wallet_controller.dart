@@ -27,7 +27,6 @@ import 'package:noosphere_flutter/noosphere_flutter.dart'
 
 import '../models/electrumx_utxo.dart';
 import '../models/group_transition.dart';
-import '../models/mnemonic_seed.dart';
 import '../models/roast_setup.dart';
 import '../models/roast_signing_operation.dart';
 import '../models/wallet_account.dart';

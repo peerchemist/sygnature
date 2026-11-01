@@ -95,7 +95,7 @@ Future<VaultKeyMaterial> createDeviceVaultKeys({
     ),
   );
   // Verify the newly stored key through the authenticated read path. This is
-  // deliberately called only when onboarding first persists the mnemonic.
+  // Called only when the application first creates its encrypted vault.
   return loadDeviceVaultKeys(keyStore: keyStore);
 }
 

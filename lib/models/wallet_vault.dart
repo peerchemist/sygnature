@@ -7,24 +7,20 @@ class WalletVault {
   const WalletVault({
     required this.accounts,
     required this.nextAccountIndex,
+    this.rootSeedHex,
     this.roastSetups = const [],
     this.groupTransitions = const [],
     this.activities = const [],
     this.announcedRoastActionIds = const [],
     this.changeAllocationOperationIds = const [],
-    this.mnemonic,
-    this.languageId,
-    this.mnemonicWordCount,
     this.selectedAccountId,
     this.backupRestoreId,
   });
 
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
 
   /// Sensitive fields live in the encrypted Hive box.
-  final String? mnemonic;
-  final String? languageId;
-  final int? mnemonicWordCount;
+  final String? rootSeedHex;
   final String? selectedAccountId;
 
   /// Atomic commit marker for cross-box backup recovery. Never exported.
@@ -38,6 +34,7 @@ class WalletVault {
   final List<String> changeAllocationOperationIds;
 
   WalletVault copyWith({
+    String? rootSeedHex,
     List<WalletAccount>? accounts,
     int? nextAccountIndex,
     List<RoastSetup>? roastSetups,
@@ -49,9 +46,7 @@ class WalletVault {
     bool clearSelectedAccountId = false,
   }) => WalletVault(
     backupRestoreId: backupRestoreId,
-    mnemonic: mnemonic,
-    languageId: languageId,
-    mnemonicWordCount: mnemonicWordCount,
+    rootSeedHex: rootSeedHex ?? this.rootSeedHex,
     selectedAccountId: clearSelectedAccountId
         ? null
         : selectedAccountId ?? this.selectedAccountId,
@@ -69,9 +64,7 @@ class WalletVault {
   Map<String, Object?> toJson() => {
     'schemaVersion': schemaVersion,
     'backupRestoreId': backupRestoreId,
-    'mnemonic': mnemonic,
-    'languageId': languageId,
-    'mnemonicWordCount': mnemonicWordCount,
+    'rootSeedHex': rootSeedHex,
     'selectedAccountId': selectedAccountId,
     'accounts': accounts.map((account) => account.toJson()).toList(),
     'nextAccountIndex': nextAccountIndex,
@@ -91,9 +84,7 @@ class WalletVault {
     }
     return WalletVault(
       backupRestoreId: json['backupRestoreId'] as String?,
-      mnemonic: json['mnemonic'] as String?,
-      languageId: json['languageId'] as String?,
-      mnemonicWordCount: json['mnemonicWordCount'] as int?,
+      rootSeedHex: json['rootSeedHex'] as String?,
       selectedAccountId: json['selectedAccountId'] as String?,
       accounts: (json['accounts']! as List)
           .map((account) => WalletAccount.fromJson(account as Map))

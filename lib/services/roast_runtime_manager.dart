@@ -29,17 +29,17 @@ part 'roast_runtime_signing_mapper.dart';
 
 enum _ExistingDkgResolution { none, resumed, cancelled }
 
-typedef WalletBip39SeedProvider = FutureOr<Uint8List> Function();
+typedef WalletSeedProvider = FutureOr<Uint8List> Function();
 
 final class RoastRuntimeManager(
   RoastPersistenceFactory persistenceFactory, {
-  required WalletBip39SeedProvider getWalletBip39Seed,
+  required WalletSeedProvider getWalletSeed,
   final Future<PublicFeedStore>? publicFeedStore,
   Future<void> Function() initializeNative = NoosphereFlutter.initialize,
   Future<NoosphereWorker> Function() startWorker = NoosphereWorker.start,
 }) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
-  final WalletBip39SeedProvider _getWalletBip39Seed = getWalletBip39Seed;
+  final WalletSeedProvider _getWalletSeed = getWalletSeed;
   final Future<void> Function() _initializeNative = initializeNative;
   final Future<NoosphereWorker> Function() _startWorker = startWorker;
   final StreamController<RoastRuntimeEvent> _events =
@@ -1427,7 +1427,7 @@ final class RoastRuntimeManager(
   );
 
   Future<SecretKey> _irohSecretKey(RoastSetup setup) async {
-    final seed = await _getWalletBip39Seed();
+    final seed = await _getWalletSeed();
     try {
       return deriveIrohSecretKeyFromBip39Seed(
         seed,

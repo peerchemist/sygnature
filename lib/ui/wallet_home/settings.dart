@@ -116,7 +116,7 @@ class const _SettingsScreen({
                     leading: const Icon(Icons.backup_outlined),
                     title: const Text('Encrypted backup and restore'),
                     subtitle: const Text(
-                      'Save mnemonics, ROAST groups and local signing shares.',
+                      'Save wallet keys, ROAST groups and local signing shares.',
                     ),
                     onTap: controller.backupAvailable
                         ? () => Navigator.of(context).push(

@@ -110,6 +110,7 @@ extension WalletRoastSetupController on WalletController {
     await _updateVault(
       (current) => current == null
           ? WalletVault(
+              rootSeedHex: bytesToHex(generateRandomBytes(64)),
               accounts: [account],
               nextAccountIndex: 0,
               roastSetups: [setup],

@@ -95,7 +95,7 @@ class _WalletBackupScreenState extends State<WalletBackupScreen> {
   });
 
   Future<void> _import() async {
-    if (widget.controller.hasWallet) {
+    if (!widget.controller.canImportBackup) {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
@@ -151,7 +151,7 @@ class _WalletBackupScreenState extends State<WalletBackupScreen> {
           title: const Text('Restore encrypted backup?'),
           content: SingleChildScrollView(
             child: Text(
-              '${preview.walletCount} mnemonic vault(s), ${preview.accountCount} wallet account(s), ${preview.groupCount} ROAST group(s)\n'
+              '${preview.walletCount} wallet vault(s), ${preview.accountCount} wallet account(s), ${preview.groupCount} ROAST group(s)\n'
               'Networks: ${preview.networks.isEmpty ? 'none' : preview.networks.join(', ')}\n'
               'Created: ${preview.createdAt.toIso8601String()}\n\n${preview.conflictPolicy}\n\n'
               'Signing sessions and nonces are excluded. Fresh signing nonces will be generated. '

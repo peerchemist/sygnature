@@ -39,7 +39,6 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.6
   coinlib: ^6.0.1
-  bip39_mnemonic: 4.1.0
   cryptography: ^2.9.0
   cbor: ^6.5.1
   file_picker: ^13.3.0

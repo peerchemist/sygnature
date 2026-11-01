@@ -421,7 +421,7 @@ void main() {
         );
     final runtime = RoastRuntimeManager(
       RoastPersistenceFactory(),
-      getWalletBip39Seed: () => Uint8List(64),
+      getWalletSeed: () => Uint8List(64),
     );
     addTearDown(runtime.close);
 

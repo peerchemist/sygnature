@@ -39,8 +39,8 @@ real-world identities or the statement's legal validity.
 
 ### Keep personal and shared wallets in one app
 
-Create personal wallets from a recovery phrase and manage multiple locally
-named wallets. Sygnature synchronizes balances and available funds, constructs
+Create personal wallets from an app-generated random root and manage multiple
+locally named wallets. Sygnature synchronizes balances and available funds, constructs
 payments and broadcasts signed transactions through ElectrumX servers.
 
 Both Peercoin mainnet and testnet are supported. Testnet provides a way to try

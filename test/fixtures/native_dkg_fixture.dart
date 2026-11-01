@@ -14,7 +14,7 @@ typedef NativeDkgCoordinator = ({
 RoastRuntimeManager nativeDkgRuntime(RoastPersistenceFactory persistence) =>
     RoastRuntimeManager(
       persistence,
-      getWalletBip39Seed: () => throw StateError('Member has no server seed.'),
+      getWalletSeed: () => throw StateError('Member has no server seed.'),
       initializeNative: () async {},
       startWorker: NoosphereWorker.startNativeForTesting,
     );

@@ -1,9 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:bip39_mnemonic/bip39_mnemonic.dart' as bip39;
 import 'package:coinlib/coinlib.dart' as cl;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
-import 'package:sygnature_ng/models/mnemonic_seed.dart';
 import 'package:sygnature_ng/models/roast_setup.dart';
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_backup.dart';
@@ -25,13 +23,8 @@ final class WalletBackupFixture {
     String setupId = 'setup-1',
     String groupId = 'synthetic-group',
   }) : _groupSecret = groupSecret {
-    final phrase = bip39.Mnemonic(
-      Uint8List(16),
-      bip39.Language.english,
-    ).sentence;
-    final seed = CoinlibWalletKeyService.mnemonicToSeed(phrase);
-    final identity = deriveIrohSecretKeyFromBip39Seed(seed, index: 7);
-    seed.fillRange(0, seed.length, 0);
+    final rootSeed = Uint8List.fromList(List.generate(64, (index) => index));
+    final identity = deriveIrohSecretKeyFromBip39Seed(rootSeed, index: 7);
     final participants = [
       for (var i = 1; i <= 2; i++)
         RoastParticipant(
@@ -69,8 +62,7 @@ final class WalletBackupFixture {
     keys = [for (var i = 1; i <= 2; i++) _key(i)];
     final personal = CoinlibWalletKeyService().deriveAccount(
       network: PeercoinNetworks.testnet,
-      mnemonic: phrase,
-      language: MnemonicLanguage.english,
+      rootSeed: rootSeed,
       accountIndex: 0,
     );
     final address = const RoastKeyService().deriveAddress(
@@ -80,9 +72,7 @@ final class WalletBackupFixture {
       accountIndex: 0,
     );
     vault = WalletVault(
-      mnemonic: phrase,
-      languageId: 'english',
-      mnemonicWordCount: 12,
+      rootSeedHex: cl.bytesToHex(rootSeed),
       nextAccountIndex: 1,
       roastSetups: [setup],
       accounts: [

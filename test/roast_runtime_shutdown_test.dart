@@ -97,7 +97,7 @@ void main() {
     var starts = 0;
     final runtime = RoastRuntimeManager(
       RoastPersistenceFactory(),
-      getWalletBip39Seed: () => throw StateError('No seed should be needed.'),
+      getWalletSeed: () => throw StateError('No seed should be needed.'),
       startWorker: () {
         starts++;
         return ready.future;
@@ -130,7 +130,7 @@ void main() {
     final workers = <NoosphereWorker>[];
     final runtime = RoastRuntimeManager(
       RoastPersistenceFactory(),
-      getWalletBip39Seed: () => throw StateError('No seed should be needed.'),
+      getWalletSeed: () => throw StateError('No seed should be needed.'),
       startWorker: () async {
         final worker = await NoosphereWorker.startForTesting();
         workers.add(worker);
@@ -171,8 +171,7 @@ void main() {
         final persistence = _UnavailablePersistence();
         final runtime = RoastRuntimeManager(
           persistence,
-          getWalletBip39Seed: () =>
-              throw StateError('No seed should be needed.'),
+          getWalletSeed: () => throw StateError('No seed should be needed.'),
         );
         addTearDown(runtime.close);
         final events = <RoastRuntimeEvent>[];
@@ -211,7 +210,7 @@ void main() {
       final worker = await NoosphereWorker.startForTesting();
       final runtime = RoastRuntimeManager(
         RoastPersistenceFactory(),
-        getWalletBip39Seed: () => throw StateError('No seed should be needed.'),
+        getWalletSeed: () => throw StateError('No seed should be needed.'),
         startWorker: () async => worker,
       );
       addTearDown(runtime.close);

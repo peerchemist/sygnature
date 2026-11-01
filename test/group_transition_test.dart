@@ -83,7 +83,7 @@ void main() {
     final fixture = _TransitionFixture();
     final runtime = RoastRuntimeManager(
       RoastPersistenceFactory(),
-      getWalletBip39Seed: () => Uint8List(64),
+      getWalletSeed: () => Uint8List(64),
     );
     addTearDown(runtime.close);
     final setup = RoastSetup(

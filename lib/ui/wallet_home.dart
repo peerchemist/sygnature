@@ -23,7 +23,6 @@ import '../services/wallet_transaction_service.dart';
 import '../storage/public_feed_store.dart';
 import 'about_screen.dart';
 import 'app_theme.dart';
-import 'onboarding_screen.dart';
 import 'public_feed_dialog.dart';
 import 'roast_setup_flow.dart';
 import 'watch_only_wallet_dialog.dart';
