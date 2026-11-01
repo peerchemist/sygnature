@@ -24,6 +24,10 @@ import 'package:sygnature_ng/ui/about_screen.dart';
 import 'package:sygnature_ng/ui/wallet_home.dart';
 import 'package:sygnature_ng/ui/widgets/middle_ellipsis_text.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   Future<WalletController> createController() async {
     final controller = WalletController(
@@ -700,6 +704,7 @@ void main() {
         'pc1pczy4pf46yjt8ukyg1gsyxhquvx7vjhlgqjpux8ahcxv3870example';
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
+        rootSeedHex: _rootSeedHex,
         accounts: [
           WalletAccount(
             id: 'main',
@@ -820,6 +825,7 @@ void main() {
     );
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
+        rootSeedHex: _rootSeedHex,
         accounts: [account, savings],
         nextAccountIndex: 2,
         selectedAccountId: account.id,

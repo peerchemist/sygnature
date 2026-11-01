@@ -166,8 +166,8 @@ extension WalletSyncController on WalletController {
     }
     if (account.keySource == WalletKeySource.personal) {
       final vault = _vault;
-      if (vault?.rootSeedHex != null && result.length <= highestIndex) {
-        final rootSeed = _rootSeed(vault!);
+      if (vault != null && result.length <= highestIndex) {
+        final rootSeed = _rootSeed(vault);
         try {
           final firstAddressIndex = result.length;
           final derivedAddresses = _keyService.deriveAddresses(

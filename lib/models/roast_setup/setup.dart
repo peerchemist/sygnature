@@ -209,10 +209,9 @@ class RoastSetup({
     final participants = (json['participants']! as List)
         .map((item) => RoastParticipant.fromJson(item as Map))
         .toList(growable: false);
-    final id = json['id']! as String;
     final groupId = json['groupId']! as String;
     return RoastSetup(
-      id: id,
+      id: json['id']! as String,
       groupId: groupId,
       name: json['name']! as String,
       role: RoastSetupRole.values.byName(json['role']! as String),
@@ -227,26 +226,21 @@ class RoastSetup({
       participants: participants,
       keyName: normalizeRoastKeyName(groupId, json['keyName']! as String),
       createdAt: DateTime.parse(json['createdAt']! as String),
-      irohIdentityIndex:
-          json['irohIdentityIndex'] as int? ?? irohIdentityIndexForSetup(id),
-      usesRoomEnrollment: json['usesRoomEnrollment'] as bool? ?? false,
+      irohIdentityIndex: json['irohIdentityIndex']! as int,
+      usesRoomEnrollment: json['usesRoomEnrollment']! as bool,
       requiresBackupReconciliation:
-          json['requiresBackupReconciliation'] as bool? ?? false,
-      hostParticipantId:
-          json['hostParticipantId'] as String? ??
-          participants.firstOrNull?.identifierHex,
+          json['requiresBackupReconciliation']! as bool,
+      hostParticipantId: json['hostParticipantId'] as String?,
       coordinatorId: json['coordinatorId'] as String?,
-      coordinatorRelayUrls:
-          ((json['coordinatorRelayUrls'] as List?) ?? const []).cast<String>(),
-      coordinatorIpAddrs: ((json['coordinatorIpAddrs'] as List?) ?? const [])
+      coordinatorRelayUrls: (json['coordinatorRelayUrls']! as List)
           .cast<String>(),
+      coordinatorIpAddrs: (json['coordinatorIpAddrs']! as List).cast<String>(),
       groupFingerprintHex: json['groupFingerprintHex'] as String?,
       groupKeyHex: json['groupKeyHex'] as String?,
       pendingDkgProposalHex: json['pendingDkgProposalHex'] as String?,
       pendingDkgStage: json['pendingDkgStage'] as String?,
       pendingDkgCompletedParticipantIds:
-          ((json['pendingDkgCompletedParticipantIds'] as List?) ?? const [])
-              .cast<String>(),
+          (json['pendingDkgCompletedParticipantIds']! as List).cast<String>(),
       pendingDkgName: json['pendingDkgName'] as String?,
       pendingDkgThreshold: json['pendingDkgThreshold'] as int?,
       pendingDkgCreatorId: json['pendingDkgCreatorId'] as String?,
@@ -254,7 +248,7 @@ class RoastSetup({
           ? null
           : DateTime.parse(json['pendingDkgExpiry']! as String),
       errorMessage: json['errorMessage'] as String?,
-      invitations: ((json['invitations'] as List?) ?? const [])
+      invitations: (json['invitations']! as List)
           .map((item) => RoastIssuedInvitation.fromJson(item as Map))
           .toList(growable: false),
     );

@@ -38,6 +38,10 @@ import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/app_theme.dart';
 import 'package:sygnature_ng/ui/roast_setup_flow.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   setUpAll(loadCoinlib);
 
@@ -1957,6 +1961,7 @@ RoastSigningRequest _messageSigningRequest(
 );
 
 WalletVault _finalizedRoastVault() => WalletVault(
+  rootSeedHex: _rootSeedHex,
   accounts: [
     WalletAccount(
       id: 'roast-wallet',

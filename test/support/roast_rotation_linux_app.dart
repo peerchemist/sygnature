@@ -19,9 +19,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadCoinlib();
   await NoosphereFlutter.initialize();
-  await HiveStorageInitializer.initialize(
-    boxName: 'sygnature_roast_rotation_linux_e2e',
-  );
+  await HiveStorageInitializer.initialize();
   final harness = _LinuxRotationHarness();
   await harness.start();
   runApp(_LinuxRotationApp(harness));

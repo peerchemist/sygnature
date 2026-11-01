@@ -28,6 +28,8 @@ void main() {
           'accountIndex': 0,
           'blockchainId': 'peercoin',
           'networkId': 'mainnet',
+          'derivationState': 'ready',
+          'keySource': 'personal',
           'derivationPath': "m/86'/6'/0'/0/0",
           'address': 'pc1ptest',
           'privateKeyHex': 'secret',
@@ -39,7 +41,9 @@ void main() {
       ],
       'nextAccountIndex': 1,
       'roastSetups': const [],
+      'groupTransitions': const [],
       'activities': const [],
+      'announcedRoastActionIds': const [],
       'changeAllocationOperationIds': const [],
     });
 
@@ -290,66 +294,6 @@ void main() {
         publicKeyHex: 'pc1pnot-a-signer-public-key',
       ),
       throwsFormatException,
-    );
-  });
-
-  test('reads schema 1 ROAST setups with the host first in the roster', () {
-    const groupId = 'abcdef0123456789abcdef0123456789';
-    final setup = <String, Object?>{
-      'id': 'setup',
-      'groupId': groupId,
-      'name': 'Family',
-      'role': 'member',
-      'status': 'ready',
-      'threshold': 2,
-      'participantCount': 2,
-      'blockchainId': 'peercoin',
-      'networkId': 'mainnet',
-      'localCardId': 'member-card',
-      'localParticipantPrivateKeyHex': 'private',
-      'participants': [
-        {
-          'cardId': 'host-card',
-          'name': 'Host',
-          'identifierHex': '01',
-          'publicKeyHex': '02${'22' * 32}',
-        },
-        {
-          'cardId': 'member-card',
-          'name': 'Member',
-          'identifierHex': '02',
-          'publicKeyHex': '03${'33' * 32}',
-        },
-      ],
-      'onlineParticipantIds': <String>[],
-      'keyName': '$groupId:generation:1',
-      'createdAt': '2026-01-01T00:00:00.000Z',
-    };
-    final vault = WalletVault.fromJson({
-      'schemaVersion': WalletVault.schemaVersion,
-      'accounts': <Object?>[],
-      'nextAccountIndex': 0,
-      'roastSetups': [setup],
-      'activities': const [],
-      'changeAllocationOperationIds': const [],
-    });
-
-    expect(vault.roastSetups.single.hostParticipantId, '01');
-    expect(vault.roastSetups.single.keyName, '$groupId-g1');
-    expect(
-      vault.roastSetups.single.irohIdentityIndex,
-      irohIdentityIndexForSetup('setup'),
-    );
-    expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
-    final restored = WalletVault.fromJson(vault.toJson()).roastSetups.single;
-    expect(restored.id, 'setup');
-    expect(
-      restored.irohIdentityIndex,
-      vault.roastSetups.single.irohIdentityIndex,
-    );
-    expect(
-      irohIdentityIndexForSetup('another-setup'),
-      isNot(restored.irohIdentityIndex),
     );
   });
 

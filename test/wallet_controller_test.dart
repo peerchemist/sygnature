@@ -16,6 +16,10 @@ import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:sygnature_ng/services/wallet_transaction_service.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   setUpAll(loadCoinlib);
 
@@ -163,7 +167,6 @@ void main() {
     );
     await controller.load();
 
-    expect(controller.hasWallet, isTrue);
     expect(controller.accounts, isEmpty);
     expect(controller.vault?.rootSeedHex, hasLength(128));
     expect(controller.vault?.nextAccountIndex, 0);
@@ -518,7 +521,7 @@ void main() {
       final destination = CoinlibWalletKeyService()
           .deriveAddress(
             network: PeercoinNetworks.mainnet,
-            rootSeed: hexToBytes(controller.vault!.rootSeedHex!),
+            rootSeed: hexToBytes(controller.vault!.rootSeedHex),
             accountIndex: 0,
             addressIndex: 5,
           )
@@ -662,7 +665,7 @@ void main() {
     final destination = CoinlibWalletKeyService()
         .deriveAddress(
           network: PeercoinNetworks.mainnet,
-          rootSeed: hexToBytes(controller.vault!.rootSeedHex!),
+          rootSeed: hexToBytes(controller.vault!.rootSeedHex),
           accountIndex: 0,
           addressIndex: 5,
         )
@@ -958,7 +961,6 @@ void main() {
 
     await controller.deleteAccount(controller.accounts.single.id);
 
-    expect(controller.hasWallet, isTrue);
     expect(controller.accounts, isEmpty);
     expect(repository.value?.rootSeedHex, hasLength(128));
     expect(repository.value?.nextAccountIndex, 1);
@@ -1224,6 +1226,7 @@ void main() {
     ]) {
       final repository = MemoryWalletRepository()
         ..value = WalletVault(
+          rootSeedHex: _rootSeedHex,
           accounts: [
             WalletAccount(
               id: state.name,

@@ -120,13 +120,12 @@ class RoastSigningOperation({
       expiry: DateTime.parse(json['expiry']! as String),
       state: RoastSigningOperationState.values.byName(json['state']! as String),
       updatedAt: DateTime.parse(json['updatedAt']! as String),
-      signaturesHex: ((json['signaturesHex'] as List?) ?? const [])
-          .cast<String>(),
+      signaturesHex: (json['signaturesHex']! as List).cast<String>(),
       rawTransactionHex: json['rawTransactionHex'] as String?,
       transactionId: json['transactionId'] as String?,
       serverTransactionId: json['serverTransactionId'] as String?,
       errorMessage: json['errorMessage'] as String?,
-      reservationsReleased: json['reservationsReleased'] as bool? ?? false,
+      reservationsReleased: json['reservationsReleased']! as bool,
     );
   }
 }

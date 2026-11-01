@@ -31,7 +31,7 @@ class const EncryptedHiveBox({
     SecureKeyStore? keyStore,
     Uint8List? cipherKey,
   }) async {
-    await HiveStorageInitializer.initialize(boxName: name);
+    await HiveStorageInitializer.initialize();
     final key = Uint8List.fromList(
       cipherKey ?? await _loadOrCreateKey(keyStore ?? PlatformSecureKeyStore()),
     );
@@ -44,7 +44,7 @@ class const EncryptedHiveBox({
   }
 
   Future<bool> exists() async {
-    await HiveStorageInitializer.initialize(boxName: name);
+    await HiveStorageInitializer.initialize();
     return Hive.boxExists(name);
   }
 

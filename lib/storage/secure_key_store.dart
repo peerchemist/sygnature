@@ -73,16 +73,8 @@ class KeyringSecureKeyStore(final SecureKeyStore _storage)
   Future<void> _pending = Future.value();
 
   @override
-  Future<String?> read(String key) => _synchronized((values) async {
-    if (values.containsKey(key)) return values[key];
-    final legacyValue = await _storage.read(key);
-    if (legacyValue == null) return null;
-    final updatedValues = {...values, key: legacyValue};
-    await _persist(updatedValues);
-    _values = updatedValues;
-    await _storage.delete(key);
-    return legacyValue;
-  });
+  Future<String?> read(String key) =>
+      _synchronized((values) async => values[key]);
 
   @override
   Future<void> write(String key, String value) => _synchronized((values) async {
@@ -90,7 +82,6 @@ class KeyringSecureKeyStore(final SecureKeyStore _storage)
     final updatedValues = {...values, key: value};
     await _persist(updatedValues);
     _values = updatedValues;
-    await _storage.delete(key);
   });
 
   @override
@@ -100,7 +91,6 @@ class KeyringSecureKeyStore(final SecureKeyStore _storage)
       await _persist(updatedValues);
       _values = updatedValues;
     }
-    await _storage.delete(key);
   });
 
   Future<Map<String, String>> _load() async {

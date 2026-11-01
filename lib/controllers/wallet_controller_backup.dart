@@ -152,6 +152,14 @@ extension WalletBackupController on WalletController {
         rethrow;
       }
       _vault = await _repository.load();
+      if (_vault == null) {
+        _vault = WalletVault(
+          rootSeedHex: bytesToHex(generateRandomBytes(64)),
+          accounts: const [],
+          nextAccountIndex: 0,
+        );
+        await _repository.save(_vault!);
+      }
       _selectedAccountId = accounts.firstOrNull?.id;
       _storedRoastSigningOperations.clear();
       _roastSigningRequests.clear();

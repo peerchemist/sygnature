@@ -14,6 +14,10 @@ import 'package:sygnature_ng/storage/vault_protection.dart';
 import 'package:sygnature_ng/storage/wallet_repository.dart';
 import 'package:sygnature_ng/ui/wallet_home.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
@@ -138,9 +142,20 @@ void main() {
         final key = Uint8List.fromList(List.filled(32, 7));
         final repository = await HiveWalletRepository.openWithCipherKey(key);
         await repository.save(
-          const WalletVault(accounts: [], nextAccountIndex: 0),
+          const WalletVault(
+            rootSeedHex: _rootSeedHex,
+            accounts: [],
+            nextAccountIndex: 0,
+          ),
         );
-        keys['sygnature_hive_key_v1'] = base64UrlEncode(key);
+        final encodedKey = base64UrlEncode(key);
+        if (platform == TargetPlatform.macOS) {
+          keys['sygnature_secure_keyring_v1'] = jsonEncode({
+            'sygnature_hive_key_v1': encodedKey,
+          });
+        } else {
+          keys['sygnature_hive_key_v1'] = encodedKey;
+        }
         await Hive.close();
       });
 

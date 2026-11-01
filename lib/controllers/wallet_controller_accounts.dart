@@ -7,7 +7,6 @@ class const WatchOnlyWalletFailure(final String message) implements Exception {
 
 Uint8List _rootSeed(WalletVault vault) {
   final encoded = vault.rootSeedHex;
-  if (encoded == null) throw StateError('Wallet root seed is missing.');
   final seed = hexToBytes(encoded);
   if (seed.length != 64) {
     seed.fillRange(0, seed.length, 0);
@@ -18,7 +17,6 @@ Uint8List _rootSeed(WalletVault vault) {
 
 extension WalletAccountsController on WalletController {
   WalletVault? get vault => _vault;
-  bool get hasWallet => _vault != null;
   bool get canImportBackup {
     final vault = _vault;
     return vault != null &&
@@ -60,14 +58,12 @@ extension WalletAccountsController on WalletController {
 
   Future<void> load({bool restoreSigningOperations = true}) async {
     _vault = await _repository.load();
-    if (_vault?.rootSeedHex == null) {
-      _vault = _vault == null
-          ? WalletVault(
-              rootSeedHex: bytesToHex(generateRandomBytes(64)),
-              accounts: const [],
-              nextAccountIndex: 0,
-            )
-          : _vault!.copyWith(rootSeedHex: bytesToHex(generateRandomBytes(64)));
+    if (_vault == null) {
+      _vault = WalletVault(
+        rootSeedHex: bytesToHex(generateRandomBytes(64)),
+        accounts: const [],
+        nextAccountIndex: 0,
+      );
       await _repository.save(_vault!);
     }
     _addressScanUpperIndexByAccount
@@ -213,17 +209,11 @@ extension WalletAccountsController on WalletController {
           address: normalizedAddress,
           createdAt: DateTime.now().toUtc(),
         );
-        return current == null
-            ? WalletVault(
-                rootSeedHex: bytesToHex(generateRandomBytes(64)),
-                accounts: [account],
-                nextAccountIndex: 0,
-                selectedAccountId: account.id,
-              )
-            : current.copyWith(
-                accounts: [...current.accounts, account],
-                selectedAccountId: account.id,
-              );
+        if (current == null) throw StateError('Wallet is not initialized.');
+        return current.copyWith(
+          accounts: [...current.accounts, account],
+          selectedAccountId: account.id,
+        );
       }, updateSelection: true);
       await _restartElectrumxSync();
     });

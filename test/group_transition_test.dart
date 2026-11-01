@@ -11,6 +11,10 @@ import 'package:sygnature_ng/models/wallet_vault.dart';
 import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   setUpAll(NoosphereFlutter.initializeNative);
 
@@ -37,6 +41,7 @@ void main() {
       now: fixture.createdAt,
     );
     final vault = WalletVault(
+      rootSeedHex: _rootSeedHex,
       accounts: const [],
       nextAccountIndex: 0,
       groupTransitions: [transition],

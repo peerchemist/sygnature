@@ -215,14 +215,13 @@ final class WalletGroupTransition._({
           json['dkgDetailsHexByKey']! as Map,
         ),
         signedApprovalsHexByParticipant: Map<String, String>.from(
-          (json['signedApprovalsHexByParticipant'] as Map?) ?? const {},
+          json['signedApprovalsHexByParticipant']! as Map,
         ),
         phase: WalletGroupTransitionPhase.values.byName(
           json['phase']! as String,
         ),
-        migrationOperationIds:
-            ((json['migrationOperationIds'] as List?) ?? const []).cast(),
-        transactionIds: ((json['transactionIds'] as List?) ?? const []).cast(),
+        migrationOperationIds: (json['migrationOperationIds']! as List).cast(),
+        transactionIds: (json['transactionIds']! as List).cast(),
         createdAt: DateTime.parse(json['createdAt']! as String),
         updatedAt: DateTime.parse(json['updatedAt']! as String),
         errorMessage: json['errorMessage'] as String?,

@@ -107,22 +107,14 @@ extension WalletRoastSetupController on WalletController {
       usesRoomEnrollment: true,
     );
     final account = _pendingRoastAccount(setup);
-    await _updateVault(
-      (current) => current == null
-          ? WalletVault(
-              rootSeedHex: bytesToHex(generateRandomBytes(64)),
-              accounts: [account],
-              nextAccountIndex: 0,
-              roastSetups: [setup],
-              selectedAccountId: account.id,
-            )
-          : current.copyWith(
-              accounts: [...current.accounts, account],
-              roastSetups: [...current.roastSetups, setup],
-              selectedAccountId: account.id,
-            ),
-      updateSelection: true,
-    );
+    await _updateVault((current) {
+      if (current == null) throw StateError('Wallet is not initialized.');
+      return current.copyWith(
+        accounts: [...current.accounts, account],
+        roastSetups: [...current.roastSetups, setup],
+        selectedAccountId: account.id,
+      );
+    }, updateSelection: true);
     return setupId;
   }
 

@@ -48,7 +48,7 @@ class VaultProtectionStore(final Box<dynamic> _box) {
 
   static Future<VaultProtectionStore> open() async {
     try {
-      await HiveStorageInitializer.initialize(boxName: _boxName);
+      await HiveStorageInitializer.initialize();
       return VaultProtectionStore(await Hive.openBox<dynamic>(_boxName));
     } on HiveError {
       throw VaultOpenFailure.vaultCorrupt;

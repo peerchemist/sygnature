@@ -183,9 +183,6 @@ final class BackupWallet(
 }) {
   factory BackupWallet.fromVault(WalletVault vault) {
     final encodedRootSeed = vault.rootSeedHex;
-    if (encodedRootSeed == null) {
-      backupInvalid('Wallet root seed is missing.');
-    }
     return BackupWallet(
       cl.hexToBytes(encodedRootSeed),
       vault.nextAccountIndex,

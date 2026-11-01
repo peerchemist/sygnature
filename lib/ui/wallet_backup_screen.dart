@@ -236,9 +236,7 @@ class _WalletBackupScreenState extends State<WalletBackupScreen> {
                   children: [
                     FilledButton.icon(
                       key: const Key('export-backup'),
-                      onPressed: _busy || !widget.controller.hasWallet
-                          ? null
-                          : _export,
+                      onPressed: _busy ? null : _export,
                       icon: const Icon(Icons.save_outlined),
                       label: const Text('Export .sygnaturebkp'),
                     ),

@@ -74,7 +74,7 @@ void main() {
           .readAsBytes();
       final roastBytes = await File('${directory.path}/$_roastBox.hive')
           .readAsBytes();
-      expect(latin1.decode(walletBytes), isNot(contains(_vault.rootSeedHex!)));
+      expect(latin1.decode(walletBytes), isNot(contains(_vault.rootSeedHex)));
       expect(
         latin1.decode(roastBytes),
         isNot(contains(base64UrlEncode(roomState))),
@@ -196,7 +196,7 @@ void main() {
     () async {
       final walletKey = Uint8List.fromList(List.filled(32, 1));
       final roastKey = Uint8List.fromList(List.filled(32, 2));
-      await HiveStorageInitializer.initialize(boxName: _walletBox);
+      await HiveStorageInitializer.initialize();
       final walletBox = await Hive.openBox<dynamic>(
         _walletBox,
         encryptionCipher: HiveAesCipher(walletKey),

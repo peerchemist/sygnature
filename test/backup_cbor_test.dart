@@ -126,7 +126,7 @@ void main() {
       key.acks.map((a) => a.toBytes()),
       f.keys.first.acks.map((a) => a.toBytes()),
     );
-    expect(restored.wallet!.rootSeed, cl.hexToBytes(f.vault.rootSeedHex!));
+    expect(restored.wallet!.rootSeed, cl.hexToBytes(f.vault.rootSeedHex));
     expect(
       restored.groups.single.setup.localParticipantPrivateKeyHex,
       f.setup.localParticipantPrivateKeyHex,

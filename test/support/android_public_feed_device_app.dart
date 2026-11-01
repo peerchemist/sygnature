@@ -24,9 +24,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadCoinlib();
   await NoosphereFlutter.initialize();
-  await HiveStorageInitializer.initialize(
-    boxName: 'sygnature_roast_private_v1',
-  );
+  await HiveStorageInitializer.initialize();
   await initializePublicFeedNative();
   final directory = await getApplicationSupportDirectory();
   final store = await PublicFeedStore.open(directory.path);

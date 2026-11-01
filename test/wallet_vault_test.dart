@@ -3,9 +3,14 @@ import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/models/wallet_activity.dart';
 import 'package:sygnature_ng/models/wallet_vault.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   test('preserves the network selected for each account', () {
     final vault = WalletVault(
+      rootSeedHex: _rootSeedHex,
       accounts: [
         WalletAccount(
           id: 'peercoin-testnet-0',
@@ -107,54 +112,14 @@ void main() {
   });
 
   test('round trips a vault with an empty activity feed', () {
-    final json = WalletVault(accounts: const [], nextAccountIndex: 0).toJson();
+    final json = WalletVault(
+      rootSeedHex: _rootSeedHex,
+      accounts: const [],
+      nextAccountIndex: 0,
+    ).toJson();
 
     expect(WalletVault.fromJson(json).activities, isEmpty);
     expect(WalletVault.fromJson(json).announcedRoastActionIds, isEmpty);
-  });
-
-  test('migrates legacy nullable derivation data to explicit states', () {
-    Map<String, Object?> account({
-      required String id,
-      String? address,
-      String? privateKeyHex,
-      String? keySource,
-    }) => {
-      'id': id,
-      'name': id,
-      'accountIndex': 0,
-      'blockchainId': 'peercoin',
-      'networkId': 'mainnet',
-      'keySource': ?keySource,
-      'address': address,
-      'privateKeyHex': privateKeyHex,
-      'addressSchemeVersion': 1,
-      'addressPathPrefix': null,
-      'highestAllocatedAddressIndex': 0,
-      'createdAt': '2026-01-01T00:00:00.000Z',
-    };
-
-    final restored = WalletVault.fromJson({
-      'schemaVersion': WalletVault.schemaVersion,
-      'accounts': [
-        account(id: 'ready', address: 'pc1pready', privateKeyHex: 'secret'),
-        account(id: 'watch', address: 'pc1pwatch'),
-        account(id: 'pending'),
-        account(id: 'roast', address: 'pc1proast', keySource: 'roast'),
-      ],
-      'nextAccountIndex': 1,
-      'roastSetups': const [],
-      'activities': const [],
-      'changeAllocationOperationIds': const [],
-    });
-
-    expect(restored.accounts.map((account) => account.derivationState), [
-      WalletDerivationState.ready,
-      WalletDerivationState.watchOnly,
-      WalletDerivationState.pending,
-      WalletDerivationState.ready,
-    ]);
-    expect(restored.accounts[1].keySource, WalletKeySource.watchOnly);
   });
 
   test('round trips every explicit derivation state', () {
@@ -198,7 +163,7 @@ void main() {
   });
 
   test('rejects unsupported schemas', () {
-    for (final version in [0, 1, 3, 4, 5, 6]) {
+    for (final version in [0, 1, 2, 4, 5, 6]) {
       expect(
         () => WalletVault.fromJson({'schemaVersion': version}),
         throwsStateError,

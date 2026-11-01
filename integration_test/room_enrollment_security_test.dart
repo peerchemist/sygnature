@@ -170,7 +170,7 @@ void main() {
       final reopenedFactory = RoastPersistenceFactory(cipherKey: cipherKey);
       final runtime = RoastRuntimeManager(
         reopenedFactory,
-        getWalletSeed: () => cl.hexToBytes(fixture.vault.rootSeedHex!),
+        getWalletSeed: () => cl.hexToBytes(fixture.vault.rootSeedHex),
       );
       final cosigner = await NoosphereWorker.startNativeForTesting();
       try {

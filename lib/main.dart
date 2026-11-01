@@ -369,11 +369,10 @@ class _SygnatureAppState extends State<SygnatureApp>
 
   Future<Uint8List> _walletRootSeed(WalletRepository repository) async {
     final vault = await repository.load();
-    final encoded = vault?.rootSeedHex;
-    if (encoded == null) {
+    if (vault == null) {
       throw StateError('The wallet root seed is required for Iroh identity.');
     }
-    final seed = hexToBytes(encoded);
+    final seed = hexToBytes(vault.rootSeedHex);
     if (seed.length != 64) {
       seed.fillRange(0, seed.length, 0);
       throw StateError('The stored wallet root seed is invalid.');
@@ -741,8 +740,7 @@ class _StartupError extends StatelessWidget {
   String get title => switch (error) {
     VaultOpenFailure.keyMissing ||
     VaultOpenFailure.keyInvalid ||
-    VaultOpenFailure.vaultCorrupt ||
-    VaultOpenFailure.unsupportedSchema => 'Vault recovery required',
+    VaultOpenFailure.vaultCorrupt => 'Vault recovery required',
     VaultOpenFailure.authenticationCancelled => 'Unlock cancelled',
     VaultOpenFailure _ => 'Vault unavailable',
     _ => 'Unable to open vault',
@@ -758,8 +756,6 @@ class _StartupError extends StatelessWidget {
     VaultOpenFailure.vaultCorrupt =>
       'The encrypted vault cannot be opened. Keep the application data intact '
           'until you can restore it from backup.',
-    VaultOpenFailure.unsupportedSchema =>
-      'This vault was created with an unsupported storage version.',
     _ =>
       'Check secure storage support on this device and restart the '
           'application.',

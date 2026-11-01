@@ -166,20 +166,18 @@ class WalletActivity({
     },
     blockHeight: json['blockHeight'] as int?,
     transactionConfirmations: json['transactionConfirmations'] as int?,
-    transactionRecipients:
-        ((json['transactionRecipients'] as List?) ?? const [])
-            .map(
-              (recipient) => WalletActivityRecipient.fromJson(
-                recipient as Map<Object?, Object?>,
-              ),
-            )
-            .toList(growable: false),
+    transactionRecipients: (json['transactionRecipients']! as List)
+        .map(
+          (recipient) => WalletActivityRecipient.fromJson(
+            recipient as Map<Object?, Object?>,
+          ),
+        )
+        .toList(growable: false),
     transactionFeeSats: json['transactionFeeSats'] as int?,
     transactionNetSats: json['transactionNetSats'] as int?,
-    transactionInputOutpoints:
-        ((json['transactionInputOutpoints'] as List?) ?? const [])
-            .cast<String>()
-            .toList(growable: false),
+    transactionInputOutpoints: (json['transactionInputOutpoints']! as List)
+        .cast<String>()
+        .toList(growable: false),
     rawTransactionHex: json['rawTransactionHex'] as String?,
   );
 }

@@ -85,8 +85,7 @@ class RoastIssuedInvitation({
         sentAt: _dateTime(json['sentAt']),
         joinedAt: _dateTime(json['joinedAt']),
         serverStatus: RoastInvitationServerStatus.values.byName(
-          json['serverStatus'] as String? ??
-              RoastInvitationServerStatus.pending.name,
+          json['serverStatus']! as String,
         ),
       );
 

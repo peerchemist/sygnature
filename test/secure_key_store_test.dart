@@ -76,17 +76,13 @@ void main() {
     },
   );
 
-  test('consolidates legacy secrets into one secure keyring record', () async {
-    final backingStore = _MemorySecureKeyStore({
-      'wallet-key': 'wallet-secret',
-      'roast-key': 'roast-secret',
-      'iroh-key': 'iroh-secret',
-    });
+  test('stores secrets in one secure keyring record', () async {
+    final backingStore = _MemorySecureKeyStore({});
     final keyring = KeyringSecureKeyStore(backingStore);
 
-    expect(await keyring.read('wallet-key'), 'wallet-secret');
-    expect(await keyring.read('roast-key'), 'roast-secret');
-    expect(await keyring.read('iroh-key'), 'iroh-secret');
+    await keyring.write('wallet-key', 'wallet-secret');
+    await keyring.write('roast-key', 'roast-secret');
+    await keyring.write('iroh-key', 'iroh-secret');
     expect(backingStore.values.keys, ['sygnature_secure_keyring_v1']);
     expect(
       jsonDecode(backingStore.values.values.single),

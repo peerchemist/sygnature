@@ -17,9 +17,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadCoinlib();
   await NoosphereFlutter.initialize();
-  await HiveStorageInitializer.initialize(
-    boxName: 'sygnature_change_signers_device_e2e',
-  );
+  await HiveStorageInitializer.initialize();
   final directory = await getApplicationSupportDirectory();
   final config = Map<String, dynamic>.from(
     jsonDecode(

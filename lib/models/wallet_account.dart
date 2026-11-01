@@ -108,31 +108,16 @@ class WalletAccount {
   };
 
   factory WalletAccount.fromJson(Map<Object?, Object?> json) {
-    if (!json.containsKey('addressSchemeVersion') ||
-        !json.containsKey('addressPathPrefix') ||
-        !json.containsKey('highestAllocatedAddressIndex')) {
-      throw StateError('Wallet account address sequence metadata is missing.');
-    }
     final keySource = WalletKeySource.values.byName(
-      json['keySource'] as String? ?? WalletKeySource.personal.name,
+      json['keySource']! as String,
     );
-    final address = json['address'] as String?;
-    final privateKeyHex = json['privateKeyHex'] as String?;
-    final storedState = json['derivationState'] as String?;
-    final derivationState = keySource == WalletKeySource.watchOnly
-        ? WalletDerivationState.watchOnly
-        : storedState == null
-        ? _legacyDerivationState(
-            keySource: keySource,
-            address: address,
-            privateKeyHex: privateKeyHex,
-          )
-        : WalletDerivationState.values.byName(storedState);
-    final normalizedKeySource =
-        derivationState == WalletDerivationState.watchOnly &&
-            keySource == WalletKeySource.personal
-        ? WalletKeySource.watchOnly
-        : keySource;
+    final derivationState = WalletDerivationState.values.byName(
+      json['derivationState']! as String,
+    );
+    if ((keySource == WalletKeySource.watchOnly) !=
+        (derivationState == WalletDerivationState.watchOnly)) {
+      throw StateError('Watch-only account metadata is inconsistent.');
+    }
     return WalletAccount(
       id: json['id']! as String,
       name: json['name']! as String,
@@ -140,12 +125,12 @@ class WalletAccount {
       blockchainId: json['blockchainId']! as String,
       networkId: json['networkId']! as String,
       derivationState: derivationState,
-      keySource: normalizedKeySource,
+      keySource: keySource,
       sourceId: json['sourceId'] as String?,
       keyId: json['keyId'] as String?,
       derivationPath: json['derivationPath'] as String?,
-      address: address,
-      privateKeyHex: privateKeyHex,
+      address: json['address'] as String?,
+      privateKeyHex: json['privateKeyHex'] as String?,
       addressSchemeVersion: json['addressSchemeVersion']! as int,
       addressPathPrefix: json['addressPathPrefix'] as String?,
       highestAllocatedAddressIndex:
@@ -156,20 +141,5 @@ class WalletAccount {
         _ => null,
       },
     );
-  }
-
-  static WalletDerivationState _legacyDerivationState({
-    required WalletKeySource keySource,
-    required String? address,
-    required String? privateKeyHex,
-  }) {
-    if (keySource == WalletKeySource.watchOnly) {
-      return WalletDerivationState.watchOnly;
-    }
-    if (address == null) return WalletDerivationState.pending;
-    if (keySource == WalletKeySource.personal && privateKeyHex == null) {
-      return WalletDerivationState.watchOnly;
-    }
-    return WalletDerivationState.ready;
   }
 }

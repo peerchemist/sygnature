@@ -35,6 +35,10 @@ import 'package:sygnature_ng/storage/roast_storage.dart';
 
 import 'fixtures/peercoin_taproot_transaction_fixture.dart';
 
+const _rootSeedHex =
+    '0000000000000000000000000000000000000000000000000000000000000000'
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   setUpAll(() async {
     await loadCoinlib();
@@ -560,6 +564,7 @@ void main() {
       ..createRoomError = StateError('temporary invitation failure');
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
+        rootSeedHex: _rootSeedHex,
         accounts: [
           WalletAccount(
             id: 'shared',
@@ -745,6 +750,7 @@ void main() {
       );
       final repository = MemoryWalletRepository()
         ..value = WalletVault(
+          rootSeedHex: _rootSeedHex,
           accounts: [
             WalletAccount(
               id: 'shared',
@@ -2500,6 +2506,7 @@ void main() {
     final electrumx = _FakeElectrumxService();
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
+        rootSeedHex: _rootSeedHex,
         accounts: [
           WalletAccount(
             id: 'shared',
@@ -2957,6 +2964,7 @@ WalletController _coordinatorController(
   _CoordinatorRoastRuntime runtime,
 ) {
   repository.value ??= WalletVault(
+    rootSeedHex: _rootSeedHex,
     accounts: [
       WalletAccount(
         id: 'shared',
@@ -2993,6 +3001,7 @@ WalletController _activeController({
 }) {
   final repository = MemoryWalletRepository()
     ..value = WalletVault(
+      rootSeedHex: _rootSeedHex,
       accounts: [
         WalletAccount(
           id: 'shared',
@@ -3037,6 +3046,7 @@ WalletController _controller({
 }) {
   final walletRepository = repository ?? MemoryWalletRepository();
   walletRepository.value ??= WalletVault(
+    rootSeedHex: _rootSeedHex,
     accounts: [
       WalletAccount(
         id: 'shared',
