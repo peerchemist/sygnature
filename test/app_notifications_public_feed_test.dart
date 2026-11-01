@@ -34,6 +34,24 @@ class _RecordingUiSounds extends UiSounds {
   Future<void> dispose() async {}
 }
 
+class _TestLinuxNotificationsPlugin
+    extends LinuxFlutterLocalNotificationsPlugin {
+  bool launchDetailsRequested = false;
+
+  @override
+  Future<bool?> initialize({
+    required LinuxInitializationSettings settings,
+    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
+  }) async => true;
+
+  @override
+  Future<NotificationAppLaunchDetails?>
+  getNotificationAppLaunchDetails() async {
+    launchDetailsRequested = true;
+    throw UnimplementedError();
+  }
+}
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   const storage = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
@@ -122,6 +140,22 @@ void main() {
           'Open Sygnature and unlock your wallet to review current requests.',
       'payload': 'public-feed:dkg',
     });
+    delivery.dispose();
+  });
+
+  test('regular Linux skips unsupported launch details', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final plugin = _TestLinuxNotificationsPlugin();
+    FlutterLocalNotificationsPlatform.instance = plugin;
+    final delivery = AppNotifications(
+      useLinuxPortal: false,
+      onPublicFeedOpened: (_) {},
+    );
+
+    await delivery.initialize();
+
+    expect(delivery.systemEnabled, isTrue);
+    expect(plugin.launchDetailsRequested, isFalse);
     delivery.dispose();
   });
 

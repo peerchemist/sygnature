@@ -409,7 +409,10 @@ class AppNotifications({
               : AppDiagnosticEvent.notificationInitializationFailed,
         );
       }
-      if (_pluginInitialized && !_launchChecked && onPublicFeedOpened != null) {
+      if (_pluginInitialized &&
+          !_launchChecked &&
+          onPublicFeedOpened != null &&
+          defaultTargetPlatform != TargetPlatform.linux) {
         _launchChecked = true;
         final launch = await _plugin.getNotificationAppLaunchDetails();
         final response = launch?.notificationResponse;
