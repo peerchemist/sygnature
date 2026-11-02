@@ -28,56 +28,66 @@ Uint8List generateUiSoundWav(UiSoundCue cue) {
   const sampleRate = 24000;
   final notes = switch (cue) {
     UiSoundCue.coinsReceived => const [
-      _SynthNote(midi: 76, startMs: 0, durationMs: 150, gain: 0.8),
-      _SynthNote(midi: 83, startMs: 90, durationMs: 230),
+      _SynthNote(midi: 76, startMs: 0, durationMs: 130, gain: 0.8),
+      _SynthNote(midi: 81, startMs: 85, durationMs: 180),
     ],
-    UiSoundCue.signingRequest => const [
-      _SynthNote(midi: 69, startMs: 0, durationMs: 105),
-      _SynthNote(midi: 69, startMs: 145, durationMs: 105),
-      _SynthNote(midi: 72, startMs: 290, durationMs: 180, gain: 0.9),
+    // The settings preview uses a real approval cue at its actual level.
+    UiSoundCue.signingRequest || UiSoundCue.notificationTest => const [
+      _SynthNote(midi: 69, startMs: 0, durationMs: 160, gain: 0.9),
+      _SynthNote(midi: 69, startMs: 165, durationMs: 190),
     ],
     UiSoundCue.dkgRequest => const [
-      _SynthNote(midi: 62, startMs: 0, durationMs: 150, gain: 0.8),
-      _SynthNote(midi: 66, startMs: 105, durationMs: 150, gain: 0.9),
-      _SynthNote(midi: 69, startMs: 210, durationMs: 220),
+      _SynthNote(midi: 62, startMs: 0, durationMs: 160, gain: 0.8),
+      _SynthNote(midi: 66, startMs: 110, durationMs: 160, gain: 0.9),
+      _SynthNote(midi: 69, startMs: 220, durationMs: 180),
     ],
     UiSoundCue.roastGroupCreated => const [
-      _SynthNote(midi: 60, startMs: 0, durationMs: 180, gain: 0.72),
-      _SynthNote(midi: 64, startMs: 95, durationMs: 190, gain: 0.8),
-      _SynthNote(midi: 67, startMs: 190, durationMs: 210, gain: 0.88),
-      _SynthNote(midi: 72, startMs: 285, durationMs: 300),
-    ],
-    UiSoundCue.notificationTest => const [
-      _SynthNote(midi: 67, startMs: 0, durationMs: 130, gain: 0.8),
-      _SynthNote(midi: 74, startMs: 85, durationMs: 210),
+      _SynthNote(midi: 62, startMs: 0, durationMs: 180, gain: 0.72),
+      _SynthNote(midi: 66, startMs: 70, durationMs: 180, gain: 0.8),
+      _SynthNote(midi: 69, startMs: 140, durationMs: 190, gain: 0.88),
+      _SynthNote(midi: 74, startMs: 210, durationMs: 220),
     ],
   };
   final durationMs = notes
       .map((note) => note.startMs + note.durationMs)
       .reduce(math.max);
-  final sampleCount = ((durationMs + 35) * sampleRate / 1000).ceil();
-  final pcm = Int16List(sampleCount);
+  final sampleCount = ((durationMs + 25) * sampleRate / 1000).ceil();
+  final mixed = Float64List(sampleCount);
 
-  for (var sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++) {
-    var mixed = 0.0;
-    for (final note in notes) {
-      final start = note.startMs * sampleRate ~/ 1000;
-      final length = note.durationMs * sampleRate ~/ 1000;
-      final position = sampleIndex - start;
-      if (position < 0 || position >= length) continue;
+  for (final note in notes) {
+    final start = note.startMs * sampleRate ~/ 1000;
+    final length = note.durationMs * sampleRate ~/ 1000;
+    final frequency = 440 * math.pow(2, (note.midi - 69) / 12);
+    final phaseStep = 2 * math.pi * frequency / sampleRate;
+    final releaseLength = math.min(sampleRate * 0.04, length / 2);
+    final decayStep = math.exp(-3 / length);
+    final harmonicDecayStep = math.exp(-7 / length);
+    var decay = 1.0;
+    var harmonic = 0.22;
 
-      final attack = math.min(1.0, position / (sampleRate * 0.008));
-      final release = math.min(
-        1.0,
-        (length - position) / math.min(sampleRate * 0.045, length / 2),
-      );
-      final envelope = _smoothStep(attack) * _smoothStep(release);
-      final frequency = 440 * math.pow(2, (note.midi - 69) / 12);
-      final phase = 2 * math.pi * frequency * position / sampleRate;
-      final oscillator = math.sin(phase) + 0.16 * math.sin(phase * 2);
-      mixed += note.gain * envelope * oscillator;
+    for (var position = 0; position < length; position++) {
+      final attack = math.min(1.0, position / (sampleRate * 0.006));
+      final release = math.min(1.0, (length - 1 - position) / releaseLength);
+      final envelope = _smoothStep(attack) * _smoothStep(release) * decay;
+      final phase = phaseStep * position;
+      final oscillator = math.sin(phase) + harmonic * math.sin(phase * 2);
+      mixed[start + position] += note.gain * envelope * oscillator;
+      decay *= decayStep;
+      harmonic *= harmonicDecayStep;
     }
-    pcm[sampleIndex] = (mixed * 0.38 * 32767).round().clamp(-32768, 32767);
+  }
+
+  // Match energy across cues while preserving headroom for their transients.
+  var peak = 0.0;
+  var energy = 0.0;
+  for (final sample in mixed) {
+    peak = math.max(peak, sample.abs());
+    energy += sample * sample;
+  }
+  final gain = math.min(0.16 / math.sqrt(energy / sampleCount), 0.7 / peak);
+  final pcm = Int16List(sampleCount);
+  for (var i = 0; i < sampleCount; i++) {
+    pcm[i] = (mixed[i] * gain * 32767).round().clamp(-32768, 32767);
   }
 
   return _encodePcmWav(pcm, sampleRate);
@@ -117,14 +127,26 @@ class UiSounds({SoLoud? audio}) {
   final SoLoud _audio = audio ?? SoLoud.instance;
 
   final Map<UiSoundCue, AudioSource> _sources = {};
+  final Map<UiSoundCue, Timer> _recentCues = {};
   Future<void>? _initialization;
+  Future<void>? _playTask;
+  Future<void>? _recovery;
+  StreamSubscription<AudioDeviceStartFailure>? _deviceFailures;
+  Timer? _retryTimer;
+  ({UiSoundCue cue, double volume})? _pending;
+  ({UiSoundCue cue, SoundHandle handle})? _active;
+  bool _deviceNeedsStart = false;
   bool _ownsEngine = false;
   bool _ready = false;
   bool _disposed = false;
 
   Future<void> init() {
-    if (_disposed || _ready) return Future<void>.value();
-    return _initialization ??= _initialize();
+    if (_disposed || _ready || _retryTimer != null) {
+      return Future<void>.value();
+    }
+    return _initialization ??= _initialize().whenComplete(() {
+      _initialization = null;
+    });
   }
 
   Future<void> _initialize() async {
@@ -148,12 +170,18 @@ class UiSounds({SoLoud? audio}) {
         if (_disposed) return;
       }
       _ready = true;
+      _deviceFailures = _audio.audioDeviceStartFailures.listen((failure) {
+        if (_disposed) return;
+        _deviceNeedsStart = true;
+        unawaited(_recoverDevice());
+      });
     } catch (error, stackTrace) {
       AppLogger.warn(
         'UI sounds unavailable',
         error: error,
         stackTrace: stackTrace,
       );
+      _cooldown();
       await _releaseAudio();
     }
   }
@@ -173,16 +201,64 @@ class UiSounds({SoLoud? audio}) {
   void notificationTest({double volume = 0.5}) =>
       _play(UiSoundCue.notificationTest, volume);
 
-  void _play(UiSoundCue cue, double volume) =>
-      unawaited(_playWhenReady(cue, volume));
+  static int _priority(UiSoundCue cue) => switch (cue) {
+    UiSoundCue.signingRequest || UiSoundCue.dkgRequest => 1,
+    _ => 0,
+  };
 
-  Future<void> _playWhenReady(UiSoundCue cue, double volume) async {
-    await init();
-    if (!_ready || _disposed) return;
+  void _play(UiSoundCue cue, double volume) {
+    if (_disposed ||
+        !volume.isFinite ||
+        volume <= 0 ||
+        _recentCues.containsKey(cue)) {
+      return;
+    }
+    _recentCues[cue] = Timer(const Duration(milliseconds: 600), () {
+      _recentCues.remove(cue);
+    });
+    final pending = _pending;
+    if (pending == null || _priority(cue) >= _priority(pending.cue)) {
+      _pending = (cue: cue, volume: volume.clamp(0.0, 1.0));
+    }
+    _startPlayback();
+  }
 
+  void _startPlayback() {
+    _playTask ??= _playWhenReady().whenComplete(() {
+      _playTask = null;
+      if (_pending != null && !_disposed) _startPlayback();
+    });
+  }
+
+  Future<void> _playWhenReady() async {
     try {
-      _audio.play(_sources[cue]!, volume: volume.clamp(0.0, 1.0));
+      await init();
+      if (_deviceNeedsStart) await _recoverDevice();
+      if (!_ready || _disposed || _deviceNeedsStart) {
+        _pending = null;
+        return;
+      }
+      while (_pending != null && !_disposed) {
+        final request = _pending!;
+        _pending = null;
+        final active = _active;
+        if (active != null && _audio.getIsValidVoiceHandle(active.handle)) {
+          // Do not build up a queue of stale notifications. Approval requests
+          // may gently interrupt an informational cue; other overlaps drop.
+          if (_priority(request.cue) <= _priority(active.cue)) continue;
+          _audio.fadeVolume(active.handle, 0, const Duration(milliseconds: 20));
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _audio.stop(active.handle);
+          if (_disposed) return;
+        }
+        final handle = _audio.play(
+          _sources[request.cue]!,
+          volume: request.volume,
+        );
+        _active = (cue: request.cue, handle: handle);
+      }
     } catch (error, stackTrace) {
+      _pending = null;
       AppLogger.warn(
         'Unable to play UI sound',
         error: error,
@@ -191,15 +267,63 @@ class UiSounds({SoLoud? audio}) {
     }
   }
 
+  void _cooldown() {
+    if (_disposed || _retryTimer != null) return;
+    _retryTimer = Timer(const Duration(seconds: 3), () => _retryTimer = null);
+  }
+
+  Future<void> _recoverDevice() =>
+      _recovery ??= _restartDevice().whenComplete(() {
+        _recovery = null;
+      });
+
+  Future<void> _restartDevice() async {
+    if (_disposed || !_ready || _retryTimer != null) return;
+    _cooldown();
+    try {
+      await _audio.startAudioDevice();
+      _deviceNeedsStart = false;
+    } catch (error, stackTrace) {
+      AppLogger.warn(
+        'UI audio device unavailable',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      // A failed output device can retain a valid voice. Do not replay that
+      // stale notification when a later event successfully restarts the device.
+      final active = _active;
+      _active = null;
+      if (active != null) {
+        try {
+          await _audio.stop(active.handle);
+        } catch (_) {
+          // The engine may have already invalidated the voice.
+        }
+      }
+    }
+  }
+
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _pending = null;
+    _retryTimer?.cancel();
+    for (final timer in _recentCues.values) {
+      timer.cancel();
+    }
+    _recentCues.clear();
     await _initialization;
+    await _playTask;
+    await _recovery;
     await _releaseAudio();
   }
 
   Future<void> _releaseAudio() async {
     _ready = false;
+    await _deviceFailures?.cancel();
+    _deviceFailures = null;
+    _active = null;
+    _deviceNeedsStart = false;
     if (_audio.isInitialized) {
       for (final source in _sources.values) {
         try {
@@ -208,8 +332,19 @@ class UiSounds({SoLoud? audio}) {
           // The engine may already have released sources during shutdown.
         }
       }
-      if (_ownsEngine) await _audio.deinitAsync();
+      if (_ownsEngine) {
+        try {
+          await _audio.deinitAsync();
+        } catch (error, stackTrace) {
+          AppLogger.warn(
+            'Unable to release UI audio',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
     }
     _sources.clear();
+    _ownsEngine = false;
   }
 }
