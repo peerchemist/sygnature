@@ -49,7 +49,7 @@ void main() {
 
     expect(vault.roastSetups, isEmpty);
     expect(vault.accounts.single.name, 'Main wallet');
-    expect(vault.accounts.single.privateKeyHex, 'secret');
+    expect(vault.accounts.single.toJson(), isNot(contains('privateKeyHex')));
     expect(vault.accounts.single.derivationState, WalletDerivationState.ready);
     expect(vault.toJson()['schemaVersion'], WalletVault.schemaVersion);
   });

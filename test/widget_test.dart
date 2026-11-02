@@ -424,7 +424,7 @@ void main() {
     expect(account.address, address);
     expect(account.keySource, WalletKeySource.watchOnly);
     expect(account.derivationState, WalletDerivationState.watchOnly);
-    expect(account.privateKeyHex, isNull);
+    expect(account.toJson(), isNot(contains('privateKeyHex')));
     expect(find.text('Observer'), findsWidgets);
     expect(find.text('WATCH ONLY'), findsOneWidget);
     expect(find.text('Watch-only · 0.00 PPC'), findsOneWidget);
@@ -714,7 +714,6 @@ void main() {
             networkId: 'mainnet',
             derivationState: WalletDerivationState.ready,
             address: address,
-            privateKeyHex: 'private-key-0',
             createdAt: DateTime.utc(2026),
           ),
         ],
@@ -809,7 +808,6 @@ void main() {
       networkId: 'mainnet',
       derivationState: WalletDerivationState.ready,
       address: 'pc1paccount0',
-      privateKeyHex: 'private-key-0',
       createdAt: DateTime.utc(2026),
     );
     final savings = WalletAccount(
@@ -820,7 +818,6 @@ void main() {
       networkId: 'mainnet',
       derivationState: WalletDerivationState.ready,
       address: 'pc1paccount1',
-      privateKeyHex: 'private-key-1',
       createdAt: DateTime.utc(2026),
     );
     final repository = MemoryWalletRepository()
@@ -900,22 +897,11 @@ void main() {
 
 class _FakeWalletKeyService implements WalletKeyService {
   @override
-  DerivedWalletMaterial deriveAccount({
+  DerivedWalletAddress deriveAccount({
     required WalletNetwork network,
     required Uint8List rootSeed,
     required int accountIndex,
-  }) {
-    final address = _address(
-      network: network,
-      accountIndex: accountIndex,
-      addressIndex: 0,
-    );
-    return DerivedWalletMaterial(
-      derivationPath: address.derivationPath,
-      address: address.address,
-      privateKeyHex: 'private-key-$accountIndex',
-    );
-  }
+  }) => _address(network: network, accountIndex: accountIndex, addressIndex: 0);
 
   DerivedWalletAddress _address({
     required WalletNetwork network,

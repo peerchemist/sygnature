@@ -35,11 +35,18 @@ void main() {
       rootSeed: rootSeed,
       accountIndex: 0,
     );
-    final spendKey = ECPrivateKey.fromHex(material.privateKeyHex);
+    final keyBytes = CoinlibWalletKeyService().deriveSpendKey(
+      network: PeercoinNetworks.mainnet,
+      rootSeed: rootSeed,
+      accountIndex: 0,
+      addressIndex: 0,
+    );
+    addTearDown(() => keyBytes.fillRange(0, keyBytes.length, 0));
+    final spendKey = ECPrivateKey(keyBytes);
 
     expect(material.derivationPath, "m/86'/6'/0'/0/0");
     expect(material.address, startsWith('pc1p'));
-    expect(material.privateKeyHex, hasLength(64));
+    expect(keyBytes, hasLength(32));
     expect(
       P2TRAddress.fromTweakedKey(
         spendKey.pubkey,
@@ -66,7 +73,7 @@ void main() {
     expect(testnet.address, startsWith('tpc1p'));
     expect(mainnet.derivationPath, "m/86'/6'/0'/0/0");
     expect(testnet.derivationPath, "m/86'/1'/0'/0/0");
-    expect(testnet.privateKeyHex, isNot(mainnet.privateKeyHex));
+    expect(testnet.address, isNot(mainnet.address));
   });
 
   for (final network in PeercoinNetworks.values) {

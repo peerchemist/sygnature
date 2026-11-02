@@ -36,16 +36,8 @@ class const DerivedWalletAddress({
   required final String address,
 });
 
-/// Account provisioning material retained by the current vault/backup schema.
-/// Address discovery and transaction signing do not use the stored spend key.
-class const DerivedWalletMaterial({
-  required final String derivationPath,
-  required final String address,
-  required final String privateKeyHex,
-});
-
 abstract interface class WalletKeyService {
-  DerivedWalletMaterial deriveAccount({
+  DerivedWalletAddress deriveAccount({
     required WalletNetwork network,
     required Uint8List rootSeed,
     required int accountIndex,
@@ -77,27 +69,24 @@ abstract interface class WalletKeyService {
 
 class CoinlibWalletKeyService implements WalletKeyService {
   @override
-  DerivedWalletMaterial deriveAccount({
+  DerivedWalletAddress deriveAccount({
     required WalletNetwork network,
     required Uint8List rootSeed,
     required int accountIndex,
   }) {
     try {
-      final child = _addressParent(network, rootSeed, accountIndex).derive(0);
-      final taproot = Taproot(internalKey: child.publicKey);
-      final key = taproot.tweakPrivateKey(child.privateKey).data;
-      try {
-        return DerivedWalletMaterial(
-          derivationPath: network.derivationPathForAccount(accountIndex),
-          address: P2TRAddress.fromTaproot(
-            taproot,
-            hrp: PeercoinNetworks.fromWalletNetwork(network).network.bech32Hrp,
-          ).toString(),
-          privateKeyHex: bytesToHex(key),
-        );
-      } finally {
-        key.fillRange(0, key.length, 0);
-      }
+      final child = _addressParent(
+        network,
+        rootSeed,
+        accountIndex,
+      ).hdPublicKey.derive(0);
+      return DerivedWalletAddress(
+        derivationPath: network.derivationPathForAccount(accountIndex),
+        address: P2TRAddress.fromTaproot(
+          Taproot(internalKey: child.publicKey),
+          hrp: PeercoinNetworks.fromWalletNetwork(network).network.bech32Hrp,
+        ).toString(),
+      );
     } on WalletKeyFailure {
       rethrow;
     } on Object {

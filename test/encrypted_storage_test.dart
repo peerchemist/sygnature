@@ -2,6 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:coinlib/coinlib.dart' as cl;
+import 'package:sygnature_ng/models/wallet_account.dart';
+import 'package:sygnature_ng/services/peercoin_network_service.dart';
+import 'package:sygnature_ng/services/wallet_key_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -99,6 +103,87 @@ void main() {
       );
       expect(keys.values, savedKeys);
       expect(keys.writes, 2);
+    },
+  );
+
+  test(
+    'opens existing account-key records without migration or key reset',
+    () async {
+      await cl.loadCoinlib();
+      final keys = _MemorySecureKeyStore();
+      final service = CoinlibWalletKeyService();
+      final seed = cl.hexToBytes(_vault.rootSeedHex);
+      final material = service.deriveAccount(
+        network: PeercoinNetworks.mainnet,
+        rootSeed: seed,
+        accountIndex: 0,
+      );
+      final oldKey = service.deriveSpendKey(
+        network: PeercoinNetworks.mainnet,
+        rootSeed: seed,
+        accountIndex: 0,
+        addressIndex: 0,
+      );
+      addTearDown(() {
+        seed.fillRange(0, seed.length, 0);
+        oldKey.fillRange(0, oldKey.length, 0);
+      });
+      final account = WalletAccount(
+        id: 'personal',
+        name: 'Existing wallet',
+        accountIndex: 0,
+        blockchainId: 'peercoin',
+        networkId: 'mainnet',
+        derivationState: WalletDerivationState.ready,
+        createdAt: DateTime.utc(2026),
+        address: material.address,
+        derivationPath: material.derivationPath,
+        addressPathPrefix: "m/86'/6'/0'/0/",
+        highestAllocatedAddressIndex: 4,
+      );
+      final vault = _vault.copyWith(accounts: [account], nextAccountIndex: 1);
+      final oldRecord = {
+        ...vault.toJson(),
+        'schemaVersion': 3,
+        'accounts': [
+          {...account.toJson(), 'privateKeyHex': cl.bytesToHex(oldKey)},
+        ],
+      };
+      await HiveWalletRepository.open(secureKeyStore: keys);
+      await Hive.box<dynamic>(_walletBox).put('wallet_vault', oldRecord);
+      await Hive.close();
+      final savedKeys = Map.of(keys.values);
+
+      final repository = (await HiveWalletRepository.openExisting(
+        secureKeyStore: keys,
+      ))!;
+      final restored = (await repository.load())!;
+      expect(restored.toJson(), vault.toJson());
+      final raw = Hive.box<dynamic>(_walletBox).get('wallet_vault') as Map;
+      expect((raw['accounts'] as List).single, contains('privateKeyHex'));
+      final signingKey = service.deriveSpendKey(
+        network: PeercoinNetworks.mainnet,
+        rootSeed: seed,
+        accountIndex: restored.accounts.single.accountIndex,
+        addressIndex: 0,
+      );
+      expect(signingKey, oldKey);
+      signingKey.fillRange(0, signingKey.length, 0);
+
+      await repository.save(restored);
+      final updated = Hive.box<dynamic>(_walletBox).get('wallet_vault') as Map;
+      expect(updated['schemaVersion'], 3);
+      expect(
+        (updated['accounts'] as List).single,
+        isNot(contains('privateKeyHex')),
+      );
+      await Hive.close();
+      final reopened = (await HiveWalletRepository.openExisting(
+        secureKeyStore: keys,
+      ))!;
+      expect((await reopened.load())!.toJson(), vault.toJson());
+      expect(keys.values, savedKeys);
+      expect(keys.writes, 1);
     },
   );
 

@@ -527,7 +527,7 @@ extension WalletAccountsController on WalletController {
     int index,
     String name,
     WalletNetwork network,
-    DerivedWalletMaterial material,
+    DerivedWalletAddress material,
   ) => WalletAccount(
     id: '${network.blockchainId}-${network.networkId}-$index',
     name: name,
@@ -541,7 +541,6 @@ extension WalletAccountsController on WalletController {
       material.derivationPath.lastIndexOf('/') + 1,
     ),
     address: material.address,
-    privateKeyHex: material.privateKeyHex,
     createdAt: DateTime.now().toUtc(),
   );
 

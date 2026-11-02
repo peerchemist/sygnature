@@ -54,12 +54,13 @@ final class WalletBackupService(
     final backup = WalletBackupV1(
       createdAt: DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000,
       wallet: vault == null ? null : BackupWallet.fromVault(vault),
-      groups: vault == null || roastPersistence == null
-          ? []
-          : await roastPersistence!.backupGroups(vault),
+      groups: [],
     );
     Uint8List? plaintext;
     try {
+      if (vault != null && roastPersistence != null) {
+        backup.groups.addAll(await roastPersistence!.backupGroups(vault));
+      }
       backup.validate();
       plaintext = backup.encode();
       // Round-trip the independent schema before encrypting; the envelope also

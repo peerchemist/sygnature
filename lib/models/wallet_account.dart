@@ -16,7 +16,6 @@ class WalletAccount {
     this.keyId,
     this.derivationPath,
     this.address,
-    this.privateKeyHex,
     this.addressSchemeVersion = 1,
     this.addressPathPrefix,
     this.highestAllocatedAddressIndex = 0,
@@ -36,10 +35,6 @@ class WalletAccount {
   /// BIP-86 account metadata derived from the wallet's random root seed.
   final String? derivationPath;
   final String? address;
-
-  /// Taproot-tweaked spend key. Kept only inside the encrypted Hive box and
-  /// never shown in the UI.
-  final String? privateKeyHex;
 
   /// Recovery metadata for the account's single receive/change sequence.
   /// Index zero is [address]; later indexes are retained change addresses.
@@ -74,7 +69,6 @@ class WalletAccount {
     keyId: keyId ?? this.keyId,
     derivationPath: derivationPath ?? this.derivationPath,
     address: address ?? this.address,
-    privateKeyHex: privateKeyHex,
     addressSchemeVersion: addressSchemeVersion ?? this.addressSchemeVersion,
     addressPathPrefix: addressPathPrefix ?? this.addressPathPrefix,
     highestAllocatedAddressIndex:
@@ -99,7 +93,6 @@ class WalletAccount {
     'keyId': keyId,
     'derivationPath': derivationPath,
     'address': address,
-    'privateKeyHex': privateKeyHex,
     'addressSchemeVersion': addressSchemeVersion,
     'addressPathPrefix': addressPathPrefix,
     'highestAllocatedAddressIndex': highestAllocatedAddressIndex,
@@ -108,6 +101,8 @@ class WalletAccount {
   };
 
   factory WalletAccount.fromJson(Map<Object?, Object?> json) {
+    // Existing schema-3 records may contain privateKeyHex. Spend keys are now
+    // derived on demand; ignore that redundant field without migrating the box.
     final keySource = WalletKeySource.values.byName(
       json['keySource']! as String,
     );
@@ -130,7 +125,6 @@ class WalletAccount {
       keyId: json['keyId'] as String?,
       derivationPath: json['derivationPath'] as String?,
       address: json['address'] as String?,
-      privateKeyHex: json['privateKeyHex'] as String?,
       addressSchemeVersion: json['addressSchemeVersion']! as int,
       addressPathPrefix: json['addressPathPrefix'] as String?,
       highestAllocatedAddressIndex:

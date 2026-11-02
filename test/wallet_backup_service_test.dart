@@ -236,8 +236,12 @@ void main() {
       expect(roastAccount.keyId, fixture.setup.keyName);
       expect(roastAccount.address, fixture.vault.accounts.last.address);
       expect(
-        restored.accounts.first.privateKeyHex,
-        fixture.vault.accounts.first.privateKeyHex,
+        restored.accounts.first.address,
+        fixture.vault.accounts.first.address,
+      );
+      expect(
+        restored.accounts.first.toJson(),
+        isNot(contains('privateKeyHex')),
       );
       expect(restored.roastSetups.single.requiresBackupReconciliation, isTrue);
       final p = await factory.open();

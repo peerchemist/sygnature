@@ -205,7 +205,7 @@ void main() {
     expect(account.derivationState, WalletDerivationState.watchOnly);
     expect(account.address, address);
     expect(account.derivationPath, isNull);
-    expect(account.privateKeyHex, isNull);
+    expect(account.toJson(), isNot(contains('privateKeyHex')));
     expect(controller.vault?.rootSeedHex, hasLength(128));
     expect(controller.vault?.nextAccountIndex, 0);
     expect(electrumx.watchedAddresses.single, {address});
@@ -261,7 +261,7 @@ void main() {
     expect(restored.accounts, hasLength(2));
     expect(restored.accounts[1].name, 'Savings');
     expect(restored.accounts[1].address, 'tpc1paccount1');
-    expect(restored.accounts[1].privateKeyHex, 'private-key-1');
+    expect(restored.accounts[1].toJson(), isNot(contains('privateKeyHex')));
     expect(restored.accounts[1].derivationPath, "m/86'/1'/1'/0/0");
     expect(restored.vault?.rootSeedHex, repository.value?.rootSeedHex);
     expect(restored.accounts[0].networkId, 'mainnet');
@@ -1000,8 +1000,6 @@ void main() {
                 derivationPath: "m/86'/6'/0'/0/0",
                 addressPathPrefix: "m/86'/6'/0'/0/",
                 highestAllocatedAddressIndex: 4,
-                // Signing must not fall back to the persisted account key.
-                privateKeyHex: 'unused-persisted-key',
               ),
             ],
             nextAccountIndex: 1,
@@ -1636,22 +1634,11 @@ class _FakeWalletKeyService implements WalletKeyService {
   int? failingSpendIndex;
 
   @override
-  DerivedWalletMaterial deriveAccount({
+  DerivedWalletAddress deriveAccount({
     required WalletNetwork network,
     required Uint8List rootSeed,
     required int accountIndex,
-  }) {
-    final address = _address(
-      network: network,
-      accountIndex: accountIndex,
-      addressIndex: 0,
-    );
-    return DerivedWalletMaterial(
-      derivationPath: address.derivationPath,
-      address: address.address,
-      privateKeyHex: 'private-key-$accountIndex',
-    );
-  }
+  }) => _address(network: network, accountIndex: accountIndex, addressIndex: 0);
 
   DerivedWalletAddress _address({
     required WalletNetwork network,

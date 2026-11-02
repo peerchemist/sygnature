@@ -36,6 +36,10 @@ final class WalletBackupV1({
   void clearSecrets() {
     final rootSeed = wallet?.rootSeed;
     rootSeed?.fillRange(0, rootSeed.length, 0);
+    for (final account in wallet?.accounts ?? <BackupAccount>[]) {
+      final key = account.privateKey;
+      key?.fillRange(0, key.length, 0);
+    }
     for (final g in groups) {
       for (final key in g.keys) {
         key.secretShare.fillRange(0, key.secretShare.length, 0);
@@ -62,11 +66,16 @@ final class WalletBackupV1({
       wallet: wallets.isEmpty ? null : BackupWallet.fromCbor(wallets.single),
       groups: r.list('groups').map(BackupGroup.fromCbor).toList(),
     );
-    result.validate();
-    if (!cl.bytesEqual(bytes, result.encode())) {
-      backupInvalid('Noncanonical backup collection ordering.');
+    try {
+      result.validate();
+      if (!cl.bytesEqual(bytes, result.encode())) {
+        backupInvalid('Noncanonical backup collection ordering.');
+      }
+      return result;
+    } catch (_) {
+      result.clearSecrets();
+      rethrow;
     }
-    return result;
   }
 
   void validate() {
@@ -182,13 +191,40 @@ final class BackupWallet(
   final List<BackupTransition> transitions = const [],
 }) {
   factory BackupWallet.fromVault(WalletVault vault) {
-    final encodedRootSeed = vault.rootSeedHex;
-    return BackupWallet(
-      cl.hexToBytes(encodedRootSeed),
-      vault.nextAccountIndex,
-      vault.accounts.map(BackupAccount.new).toList(),
-      transitions: vault.groupTransitions.map(BackupTransition.new).toList(),
-    );
+    final seed = cl.hexToBytes(vault.rootSeedHex);
+    final accounts = <BackupAccount>[];
+    try {
+      for (final account in vault.accounts) {
+        accounts.add(
+          BackupAccount(
+            account,
+            // Preserve the existing backup format without persisting this
+            // redundant key in WalletAccount or the Hive record.
+            privateKey: account.keySource == WalletKeySource.personal
+                ? CoinlibWalletKeyService().deriveSpendKey(
+                    network: PeercoinNetworks.byId(account.networkId),
+                    rootSeed: seed,
+                    accountIndex: account.accountIndex,
+                    addressIndex: 0,
+                  )
+                : null,
+          ),
+        );
+      }
+      return BackupWallet(
+        seed,
+        vault.nextAccountIndex,
+        accounts,
+        transitions: vault.groupTransitions.map(BackupTransition.new).toList(),
+      );
+    } catch (_) {
+      seed.fillRange(0, seed.length, 0);
+      for (final account in accounts) {
+        final key = account.privateKey;
+        key?.fillRange(0, key.length, 0);
+      }
+      rethrow;
+    }
   }
   factory BackupWallet.fromCbor(Object? value) {
     final r = BackupRecord(value, {
@@ -248,7 +284,6 @@ final class BackupWallet(
       if (a.blockchainId != network.blockchainId) {
         backupInvalid('Unsupported blockchain.');
       }
-      if (a.privateKeyHex != null) cl.ECPrivateKey.fromHex(a.privateKeyHex!);
       if (a.address != null) {
         const RoastKeyService().scriptHexForAddress(network, a.address!);
       }
@@ -262,11 +297,26 @@ final class BackupWallet(
           accountIndex: a.accountIndex,
         );
         if (a.address != derived.address ||
-            a.derivationPath != derived.derivationPath ||
-            a.privateKeyHex != derived.privateKeyHex) {
+            a.derivationPath != derived.derivationPath) {
           backupInvalid(
             'Personal account does not match root-seed derivation.',
           );
+        }
+        final expectedKey = CoinlibWalletKeyService().deriveSpendKey(
+          network: network,
+          rootSeed: rootSeed,
+          accountIndex: a.accountIndex,
+          addressIndex: 0,
+        );
+        try {
+          if (dto.privateKey == null ||
+              !cl.bytesEqual(dto.privateKey!, expectedKey)) {
+            backupInvalid(
+              'Personal account does not match root-seed derivation.',
+            );
+          }
+        } finally {
+          expectedKey.fillRange(0, expectedKey.length, 0);
         }
         final expectedPrefix = derived.derivationPath.substring(
           0,
@@ -276,7 +326,7 @@ final class BackupWallet(
             a.addressPathPrefix != expectedPrefix) {
           backupInvalid('Personal address sequence metadata mismatch.');
         }
-      } else if (a.privateKeyHex != null) {
+      } else if (dto.privateKey != null) {
         backupInvalid('Unexpected private key in nonpersonal account.');
       }
     }
@@ -379,7 +429,13 @@ final class BackupTransition(final WalletGroupTransition transition) {
   };
 }
 
-final class BackupAccount(final WalletAccount account) {
+final class BackupAccount(
+  final WalletAccount account, {
+  // Backup-only compatibility field, owned and wiped by WalletBackupV1.
+  // TODO: Remove this redundant personal spend key from a future backup schema
+  // version, including export derivation, while retaining import of schema 4.
+  final Uint8List? privateKey,
+}) {
   Map<String, Object?> toCbor() => {
     'id': account.id,
     'name': account.name,
@@ -391,9 +447,7 @@ final class BackupAccount(final WalletAccount account) {
     'key_id': account.keyId,
     'derivation_path': account.derivationPath,
     'address': account.address,
-    'private_key': account.privateKeyHex == null
-        ? null
-        : cl.hexToBytes(account.privateKeyHex!),
+    'private_key': privateKey,
     'address_scheme_version': account.addressSchemeVersion,
     'address_path_prefix': account.addressPathPrefix,
     'highest_allocated_address_index': account.highestAllocatedAddressIndex,
@@ -438,7 +492,6 @@ final class BackupAccount(final WalletAccount account) {
         keyId: r.optionalString('key_id'),
         derivationPath: derivationPath,
         address: address,
-        privateKeyHex: r.optionalHex('private_key', 32),
         addressSchemeVersion: r.integer('address_scheme_version', max: 1),
         addressPathPrefix: addressPathPrefix,
         highestAllocatedAddressIndex: r.integer(
@@ -455,6 +508,9 @@ final class BackupAccount(final WalletAccount account) {
             ? null
             : r.time('archived_at_ms'),
       ),
+      privateKey: r.data['private_key'] == null
+          ? null
+          : r.bytes('private_key', 32),
     );
   }
 }

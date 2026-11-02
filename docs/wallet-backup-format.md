@@ -132,7 +132,7 @@ Account = {
   "key_id": t?,                       # application key name for roast, not key bytes
   "derivation_path": t?,
   "address": t?,
-  "private_key": b32?,                # personal Taproot-tweaked spend key only
+  "private_key": b32?,                # personal spend key, derived only for backup
   "address_scheme_version": 1,
   "address_path_prefix": t?,          # path through the final slash
   "highest_allocated_address_index": u, # 0..2^31-1
@@ -341,10 +341,14 @@ No migration or signing operation is automatically resumed from consent.
 ## Persistence audit and recovery policy
 
 The original wallet data is one encrypted Hive CE box `sygnature_private_v1`,
-key `wallet_vault`. It contains the random wallet root, account derivation and
-spend keys, ROAST setup identity keys/rosters, transitions, activity and UI
-selection. There are no wallet-specific Hive adapters. ROAST has a second
-encrypted box `sygnature_roast_private_v1`:
+key `wallet_vault`. It contains the random wallet root, public account derivation
+metadata, ROAST setup identity keys/rosters, transitions, activity and UI selection.
+Existing schema-3 account records may include `privateKeyHex`; readers ignore it
+and subsequent saves omit it. Personal spend keys are derived on demand. Backup
+schema 4 retains its `private_key` field for compatibility: export derives it,
+import validates it, and neither restores it to wallet state. There are no
+wallet-specific Hive adapters. ROAST has a second encrypted box
+`sygnature_roast_private_v1`:
 
 | Record | Recovery treatment |
 | --- | --- |

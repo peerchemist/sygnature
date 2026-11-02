@@ -136,6 +136,64 @@ void main() {
     expect(restored.groups.single.setup.pendingDkgProposalHex, isNull);
     expect(restored.toVault()!.activities, isEmpty);
   });
+  test('keeps personal spend keys in the existing backup format only', () {
+    final fixture = WalletBackupFixture();
+    final backup = fixture.backup;
+    final account = backup.wallet!.accounts.first;
+    final child = cl.HDPrivateKey.fromSeed(backup.wallet!.rootSeed)
+        .derivePath("m/86'/1'/0'/0/0");
+    final expectedKey = cl.Taproot(internalKey: child.publicKey)
+        .tweakPrivateKey(child.privateKey)
+        .data;
+    expect(account.toCbor()['private_key'], expectedKey);
+    expect(account.account.toJson(), isNot(contains('privateKeyHex')));
+    expect(backup.toCbor()['schema_version'], 4);
+
+    final encoded = backup.encode();
+    final restored = WalletBackupV1.decode(encoded);
+    expect(restored.encode(), encoded);
+    expect(restored.wallet!.accounts.first.privateKey, expectedKey);
+    final vault = restored.toVault()!;
+    expect(vault.accounts.first.address, fixture.vault.accounts.first.address);
+    expect(vault.accounts.first.toJson(), isNot(contains('privateKeyHex')));
+    expect(vault.rootSeedHex, fixture.vault.rootSeedHex);
+    final exportedKey = account.privateKey!;
+    final importedKey = restored.wallet!.accounts.first.privateKey!;
+    backup.clearSecrets();
+    restored.clearSecrets();
+    expect(exportedKey, everyElement(0));
+    expect(importedKey, everyElement(0));
+    expect(vault.rootSeedHex, fixture.vault.rootSeedHex);
+    expectedKey.fillRange(0, expectedKey.length, 0);
+    encoded.fillRange(0, encoded.length, 0);
+  });
+
+  test(
+    'still rejects missing, mismatched and nonpersonal backup spend keys',
+    () {
+      final backup = WalletBackupFixture().backup;
+      addTearDown(backup.clearSecrets);
+      for (final replacement in [null, Uint8List(32)..last = 1]) {
+        final map = backup.toCbor();
+        final wallet = (map['wallets'] as List).single as Map;
+        final personal = (wallet['accounts'] as List).first as Map;
+        personal['private_key'] = replacement;
+        expect(
+          () => WalletBackupV1.decode(BackupCbor.encode(map)),
+          throwsFormatException,
+        );
+      }
+      final map = backup.toCbor();
+      final wallet = (map['wallets'] as List).single as Map;
+      final roast = (wallet['accounts'] as List).last as Map;
+      roast['private_key'] = backup.wallet!.accounts.first.privateKey;
+      expect(
+        () => WalletBackupV1.decode(BackupCbor.encode(map)),
+        throwsFormatException,
+      );
+    },
+  );
+
   test('address allocation metadata survives recovery', () {
     final fixture = WalletBackupFixture();
     final vault = fixture.vault.copyWith(

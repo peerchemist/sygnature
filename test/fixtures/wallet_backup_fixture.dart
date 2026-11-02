@@ -90,7 +90,6 @@ final class WalletBackupFixture {
             personal.derivationPath.lastIndexOf('/') + 1,
           ),
           address: personal.address,
-          privateKeyHex: personal.privateKeyHex,
         ),
         WalletAccount(
           id: 'roast',
