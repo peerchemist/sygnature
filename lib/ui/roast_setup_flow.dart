@@ -12,6 +12,7 @@ import '../models/roast_signing_operation.dart';
 import '../models/wallet_account.dart';
 import '../models/wallet_network.dart';
 import '../services/roast_runtime_manager.dart';
+import '../services/sensitive_clipboard.dart';
 import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
 import 'widgets/selector_builder.dart';

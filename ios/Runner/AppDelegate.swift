@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UniformTypeIdentifiers
 import UserNotifications
 import workmanager_apple
 
@@ -8,6 +9,7 @@ import workmanager_apple
   private static let publicFeedRefreshTask =
     "network.noosphere.sygnature.public-feed.refresh"
   private var apnsChannel: FlutterMethodChannel?
+  private var clipboardChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -26,6 +28,37 @@ import workmanager_apple
       GeneratedPluginRegistrant.register(with: registry)
     }
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "SygnatureClipboard"
+    ) {
+      let channel = FlutterMethodChannel(
+        name: "network.noosphere.sygnature/clipboard",
+        binaryMessenger: registrar.messenger()
+      )
+      channel.setMethodCallHandler { call, result in
+        guard call.method == "setSensitiveText",
+          let arguments = call.arguments as? [String: Any],
+          let text = arguments["text"] as? String,
+          let milliseconds = arguments["expirationMilliseconds"] as? NSNumber
+        else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        DispatchQueue.main.async {
+          UIPasteboard.general.setItems(
+            [[UTType.plainText.identifier: text]],
+            options: [
+              .expirationDate: Date().addingTimeInterval(
+                milliseconds.doubleValue / 1_000
+              )
+            ]
+          )
+          result(nil)
+        }
+      }
+      clipboardChannel = channel
+    }
 
     guard let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "SygnatureAPNs"

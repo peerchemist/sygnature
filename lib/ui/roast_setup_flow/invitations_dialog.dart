@@ -110,9 +110,7 @@ class const _RoastInvitationsDialog({
     BuildContext context,
     RoastIssuedInvitation invitation,
   ) async {
-    await Clipboard.setData(
-      ClipboardData(text: sygnatureRoomInviteLink(invitation.encoded)),
-    );
+    await sensitiveClipboard.copy(sygnatureRoomInviteLink(invitation.encoded));
     await controller.markRoastInvitationCopied(
       setupId,
       invitation.participantPublicKeyHex,
@@ -120,7 +118,10 @@ class const _RoastInvitationsDialog({
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Invitation copied for ${invitation.participantName}.'),
+          content: Text(
+            'Invitation copied for ${invitation.participantName}. '
+            'It expires from the clipboard in 5 minutes.',
+          ),
         ),
       );
     }
