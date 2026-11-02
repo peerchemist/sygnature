@@ -101,9 +101,6 @@ flutter test
 flutter run -d linux
 ```
 
-See [Secure-storage device tests](docs/secure-storage-device-tests.md) for the
-isolated Android and Apple device test instructions.
-
 ## License
 
 Copyright 2026 peerchemist.

@@ -9,7 +9,9 @@ import 'package:sygnature_ng/storage/secure_key_store.dart';
 const _systemKey = 'sygnature_integration_test_system_storage_v1';
 const _firstValue = 'integration-test-value-1';
 const _secondValue = 'integration-test-value-2';
-const _runRestartTests = bool.fromEnvironment('RUN_IOS_KEYCHAIN_RESTART_TESTS');
+const _runRestartTests =
+    bool.fromEnvironment('RUN_KEYCHAIN_RESTART_TESTS') ||
+    bool.fromEnvironment('RUN_IOS_KEYCHAIN_RESTART_TESTS');
 const _restartKey = 'sygnature_integration_test_restart_storage_v1';
 const _runDeviceAuthenticationTests = bool.fromEnvironment(
   'RUN_DEVICE_AUTH_STORAGE_TESTS',
@@ -19,8 +21,11 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   if (_runRestartTests) {
-    test('iOS Keychain survives process restarts', () async {
-      expect(defaultTargetPlatform, TargetPlatform.iOS);
+    test('Keychain survives process restarts', () async {
+      expect(
+        defaultTargetPlatform,
+        anyOf(TargetPlatform.iOS, TargetPlatform.macOS),
+      );
       final directory = await getApplicationSupportDirectory();
       final marker = File('${directory.path}/secure_storage_restart_test.pid');
       final previousState = await marker.exists()
@@ -68,8 +73,8 @@ void main() {
   ) async {
     expect(
       defaultTargetPlatform,
-      anyOf(TargetPlatform.android, TargetPlatform.iOS),
-      reason: 'Run this integration test on an Android or iOS device.',
+      anyOf(TargetPlatform.android, TargetPlatform.iOS, TargetPlatform.macOS),
+      reason: 'Run this integration test on Android, iOS or macOS.',
     );
 
     final store = PlatformSecureKeyStore();
