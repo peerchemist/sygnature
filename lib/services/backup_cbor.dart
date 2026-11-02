@@ -6,9 +6,14 @@ import 'package:cbor/cbor.dart';
 /// The restricted RFC 8949 core deterministic profile used by ROASTBAK.
 abstract final class BackupCbor {
   static const maxBytes = 16 * 1024 * 1024 - 76;
+  static const _maxDepth = 24;
+  static const _maxItems = 100000;
+  static const _maxEntries = 10000;
 
-  static Uint8List encode(Object? value) =>
-      Uint8List.fromList(cbor.encode(_value(value)));
+  static Uint8List encode(Object? value) {
+    _EncodingValidator().validate(value);
+    return Uint8List.fromList(cbor.encode(_value(value)));
+  }
 
   static Object? decode(Uint8List bytes) {
     if (bytes.isEmpty || bytes.length > maxBytes) {
@@ -52,15 +57,27 @@ abstract final class BackupCbor {
     CborNull() => null,
     CborBool() => value.toObject(),
     CborInt() => value.toInt(),
-    CborString() => value.toString(),
+    CborString() => _text(value),
     CborBytes() => Uint8List.fromList(value.bytes),
     CborList() => value.map(_object).toList(),
     CborMap() => <String, Object?>{
       for (final e in value.entries)
-        (e.key as CborString).toString(): _object(e.value),
+        _text(e.key as CborString): _object(e.value),
     },
     _ => throw const FormatException('Unsupported backup CBOR type.'),
   };
+
+  static String _text(CborString value) {
+    final bytes = value.utf8Bytes;
+    final text = utf8.decode(bytes);
+    // Dart strips one leading BOM; in CBOR it is part of the string.
+    return bytes.length >= 3 &&
+            bytes[0] == 0xef &&
+            bytes[1] == 0xbb &&
+            bytes[2] == 0xbf
+        ? '\ufeff$text'
+        : text;
+  }
 
   static int compareBytes(List<int> a, List<int> b) {
     for (var i = 0; i < a.length && i < b.length; i++) {
@@ -68,6 +85,74 @@ abstract final class BackupCbor {
       if (result != 0) return result;
     }
     return a.length.compareTo(b.length);
+  }
+}
+
+/// Check the source before constructing CBOR collections or replacing invalid
+/// UTF-16. Count the exact encoded size, including all headers and map keys.
+final class _EncodingValidator {
+  int items = 0;
+  int bytes = 0;
+
+  Never _invalid() =>
+      throw const FormatException('Invalid or oversized backup CBOR value.');
+
+  void _argument(int value) {
+    bytes += value < 24
+        ? 1
+        : value <= 0xff
+        ? 2
+        : value <= 0xffff
+        ? 3
+        : value <= 0xffffffff
+        ? 5
+        : 9;
+  }
+
+  void validate(Object? value, [int depth = 0]) {
+    if (depth > BackupCbor._maxDepth || ++items > BackupCbor._maxItems) {
+      _invalid();
+    }
+    switch (value) {
+      case null || bool():
+        bytes++;
+      case int v when v >= 0 && v <= 0x1fffffffffffff:
+        _argument(v);
+      case String v:
+        if (v.length > BackupCbor.maxBytes - bytes) _invalid();
+        var length = 0;
+        for (final rune in v.runes) {
+          if (rune >= 0xd800 && rune <= 0xdfff) _invalid();
+          length += rune <= 0x7f
+              ? 1
+              : rune <= 0x7ff
+              ? 2
+              : rune <= 0xffff
+              ? 3
+              : 4;
+        }
+        _argument(length);
+        bytes += length;
+      case Uint8List v:
+        _argument(v.length);
+        bytes += v.length;
+      case List v:
+        if (v.length > BackupCbor._maxEntries) _invalid();
+        _argument(v.length);
+        for (final item in v) {
+          validate(item, depth + 1);
+        }
+      case Map<String, Object?> v:
+        if (v.length > BackupCbor._maxEntries) _invalid();
+        _argument(v.length);
+        for (final entry in v.entries) {
+          validate(entry.key, depth + 1);
+          validate(entry.value, depth + 1);
+        }
+      default:
+        _invalid();
+    }
+    if (bytes > BackupCbor.maxBytes) _invalid();
   }
 }
 
@@ -89,7 +174,9 @@ final class _CanonicalReader(final Uint8List bytes) {
   }
 
   void _item(int depth, {bool key = false}) {
-    if (depth > 24 || ++items > 100000) _invalid();
+    if (depth > BackupCbor._maxDepth || ++items > BackupCbor._maxItems) {
+      _invalid();
+    }
     final first = _byte();
     final major = first >> 5;
     final info = first & 31;
@@ -127,7 +214,9 @@ final class _CanonicalReader(final Uint8List bytes) {
         offset += length;
       case 4:
       case 5:
-        if (length > 10000 || length > bytes.length - offset) _invalid();
+        if (length > BackupCbor._maxEntries || length > bytes.length - offset) {
+          _invalid();
+        }
         List<int>? previous;
         for (var i = 0; i < length; i++) {
           if (major == 5) {

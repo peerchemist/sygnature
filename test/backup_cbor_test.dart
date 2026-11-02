@@ -56,6 +56,89 @@ void main() {
       '4200ff',
     );
   });
+  test('preserves leading U+FEFF in text and distinct map keys', () {
+    for (final value in [
+      '',
+      '\ufeff',
+      '\ufeffabc',
+      '\ufeff\ufeffabc',
+      'a\ufeffb',
+      '\ufffd',
+      '\u{1f600}',
+    ]) {
+      expect(BackupCbor.decode(BackupCbor.encode(value)), value);
+    }
+    final bytes = cl.hexToBytes('a261610164efbbbf6102');
+    final decoded = BackupCbor.decode(bytes);
+    expect(decoded, {'a': 1, '\ufeffa': 2});
+    expect(BackupCbor.encode(decoded), bytes);
+  });
+  test('rejects unpaired surrogates in values and keys before encoding', () {
+    for (final value in [
+      '\ud800',
+      '\udfff',
+      'a\ud800b',
+      '\ud800\ud800',
+      '\udc00\ud800',
+    ]) {
+      expect(() => BackupCbor.encode(value), throwsFormatException);
+      expect(
+        () => BackupCbor.encode({
+          'nested': [value],
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => BackupCbor.encode({value: 1, '\ufffd': 2}),
+        throwsFormatException,
+      );
+    }
+  });
+  test('encoding enforces collection, depth and total item limits', () {
+    final list = List<Object?>.filled(10000, 0, growable: true);
+    expect(BackupCbor.decode(BackupCbor.encode(list)), list);
+    list.add(0);
+    expect(() => BackupCbor.encode(list), throwsFormatException);
+
+    final map = <String, Object?>{for (var i = 0; i < 10000; i++) '$i': 0};
+    expect(BackupCbor.decode(BackupCbor.encode(map)), map);
+    map['extra'] = 0;
+    expect(() => BackupCbor.encode(map), throwsFormatException);
+
+    Object? nested = 0;
+    for (var i = 0; i < 24; i++) {
+      nested = [nested];
+    }
+    expect(BackupCbor.decode(BackupCbor.encode(nested)), nested);
+    expect(() => BackupCbor.encode([nested]), throwsFormatException);
+    final cycle = <Object?>[];
+    cycle.add(cycle);
+    expect(() => BackupCbor.encode(cycle), throwsFormatException);
+
+    final items = [
+      for (var i = 0; i < 9; i++) List<Object?>.filled(10000, null),
+      List<Object?>.filled(9989, null, growable: true),
+    ]; // Root + 10 arrays + 99,989 values = 100,000 items.
+    expect(BackupCbor.decode(BackupCbor.encode(items)), items);
+    items.last.add(null);
+    expect(() => BackupCbor.encode(items), throwsFormatException);
+  });
+  test('encoding counts payload bytes including headers and UTF-8', () {
+    final value = Uint8List(BackupCbor.maxBytes - 5);
+    final encoded = BackupCbor.encode(value);
+    expect(encoded.length, BackupCbor.maxBytes);
+    expect((BackupCbor.decode(encoded) as Uint8List).length, value.length);
+    expect(
+      () => BackupCbor.encode(Uint8List(value.length + 1)),
+      throwsFormatException,
+    );
+    expect(() => BackupCbor.encode([value]), throwsFormatException);
+
+    final text = '\u{1f600}' * (value.length ~/ 4) + 'a' * (value.length % 4);
+    expect(BackupCbor.decode(BackupCbor.encode(text)), text);
+    expect(() => BackupCbor.encode('${text}a'), throwsFormatException);
+    expect(() => BackupCbor.encode({'': text}), throwsFormatException);
+  });
   for (final vector in [
     'a2616101616102',
     'a2616201616102',
