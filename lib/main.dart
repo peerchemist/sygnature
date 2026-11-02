@@ -330,16 +330,7 @@ class _SygnatureAppState extends State<SygnatureApp>
     RoastPersistenceFactory roastPersistence, {
     bool restorePrivateState = true,
   }) async {
-    try {
-      await repository.load();
-    } on VaultOpenFailure catch (error) {
-      if (error != VaultOpenFailure.unsupportedSchema) rethrow;
-      await repository.delete();
-      await roastPersistence.clearAll();
-      AppLogger.warn(
-        '[VAULT] Discarded wallet and ROAST data from an unsupported schema.',
-      );
-    }
+    await repository.load();
     if (restorePrivateState) {
       await roastPersistence.recoverBackupImport(repository);
     }
@@ -742,6 +733,7 @@ class _StartupError extends StatelessWidget {
     VaultOpenFailure.keyInvalid ||
     VaultOpenFailure.vaultCorrupt => 'Vault recovery required',
     VaultOpenFailure.authenticationCancelled => 'Unlock cancelled',
+    VaultOpenFailure.unsupportedSchema => 'Unsupported vault version',
     VaultOpenFailure _ => 'Vault unavailable',
     _ => 'Unable to open vault',
   };
@@ -756,6 +748,9 @@ class _StartupError extends StatelessWidget {
     VaultOpenFailure.vaultCorrupt =>
       'The encrypted vault cannot be opened. Keep the application data intact '
           'until you can restore it from backup.',
+    VaultOpenFailure.unsupportedSchema =>
+      'This version of Sygnature cannot read the stored vault. Your data has '
+          'been preserved. Use a compatible application version.',
     _ =>
       'Check secure storage support on this device and restart the '
           'application.',

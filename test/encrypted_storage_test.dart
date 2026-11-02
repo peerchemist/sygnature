@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:noosphere_flutter/noosphere_flutter.dart' hide SecretKey;
 import 'package:coinlib/coinlib.dart' as cl;
 import 'package:sygnature_ng/models/wallet_account.dart';
 import 'package:sygnature_ng/services/peercoin_network_service.dart';
@@ -377,6 +378,156 @@ void main() {
       throwsA(VaultOpenFailure.vaultCorrupt),
     );
   });
+
+  test('prepared operations survive restart and a failed mutation does not block later writes', () async {
+    final key = Uint8List(32);
+    var p = await RoastPersistenceFactory(cipherKey: key).open();
+    var client = p.clientStorage('setup');
+    final store = Hive.box<dynamic>(_roastBox);
+    await client.pruneCancelledSignaturesRequests();
+    expect(store.keys, isEmpty);
+    final id = SignaturesRequestId.fromBytes(Uint8List(16));
+    final expiry = Expiry.fromTime(
+      DateTime.now().add(const Duration(hours: 1)),
+    );
+    final nonces = SignaturesNonces({}, expiry);
+    await expectLater(
+      client.addSignaturesNonces(id, nonces, -1),
+      throwsStateError,
+    );
+    final operation = PreparedSignaturesOperation(
+      id: id,
+      kind: PreparedSignaturesOperationKind.replies,
+      payloads: [],
+      transcripts: [],
+      nextNonces: nonces,
+    );
+    await client.prepareSignaturesOperation(operation, 0);
+    await Hive.close();
+    p = await RoastPersistenceFactory(cipherKey: key).open();
+    client = p.clientStorage('setup');
+    expect((await client.loadState()).preparedOperations.keys, [id]);
+    await client.completeSignaturesOperation(id);
+    final snapshot = await client.loadState();
+    expect(snapshot.preparedOperations, isEmpty);
+    expect(snapshot.sigNonces.keys, [id]);
+  });
+
+  test('ROAST open retries after secure storage becomes available', () async {
+    final keys = _MemorySecureKeyStore()..failReads = true;
+    final factory = RoastPersistenceFactory(secureKeyStore: keys);
+    await expectLater(
+      factory.open(),
+      throwsA(VaultOpenFailure.secureStorageUnavailable),
+    );
+    keys.failReads = false;
+    await factory.open();
+    expect(keys.reads, 2);
+  });
+
+  test('concurrent first opens generate only one encryption key', () async {
+    final keys = _MemorySecureKeyStore();
+    await Future.wait(
+      List.generate(4, (_) => HiveWalletRepository.open(secureKeyStore: keys)),
+    );
+    expect(keys.writes, 1);
+    await Hive.close();
+    await HiveWalletRepository.open(secureKeyStore: keys);
+  });
+
+  test(
+    'corruption never truncates private storage or returns an older wallet',
+    () async {
+      final key = Uint8List(32);
+      final wallet = await HiveWalletRepository.openWithCipherKey(key);
+      await wallet.save(_vault);
+      await wallet.save(_vault.copyWith(nextAccountIndex: 1));
+      await Hive.close();
+      final file = File('${directory.path}/$_walletBox.hive');
+      final bytes = await file.readAsBytes();
+      bytes[bytes.length - 1] ^= 1;
+      await file.writeAsBytes(bytes, flush: true);
+      await expectLater(
+        HiveWalletRepository.openWithCipherKey(key),
+        throwsA(VaultOpenFailure.vaultCorrupt),
+      );
+      expect(await file.readAsBytes(), bytes);
+    },
+  );
+
+  test('setup deletion does not decrypt corrupted secrets', () async {
+    final factory = RoastPersistenceFactory(cipherKey: Uint8List(32));
+    final p = await factory.open();
+    await p
+        .dkgSecretStorage('setup')
+        .write('secret', Uint8List.fromList([1, 2, 3]));
+    final rawBox = Hive.box<dynamic>(_roastBox);
+    final records = Map<String, dynamic>.from(
+      rawBox.get('dkg-secrets:setup') as Map,
+    );
+    final record = Map<String, dynamic>.from(records['secret'] as Map);
+    final bytes = Uint8List.fromList(record['mac'] as Uint8List);
+    bytes[0] ^= 1;
+    record['mac'] = bytes;
+    await rawBox.put('dkg-secrets:setup', {'secret': record});
+    await factory.deleteSetupData('setup');
+    expect(rawBox.containsKey('dkg-secrets:setup'), isFalse);
+  });
+
+  test(
+    'pruning removes expired signing state but preserves every live record',
+    () async {
+      final p = await RoastPersistenceFactory(cipherKey: Uint8List(32)).open();
+      final store = Hive.box<dynamic>(_roastBox);
+      final now = DateTime.now();
+      final ids = [
+        SignaturesRequestId.fromBytes(Uint8List(16)),
+        SignaturesRequestId.fromBytes(Uint8List.fromList(List.filled(16, 1))),
+      ];
+      final expiries = [
+        now.subtract(const Duration(hours: 1)),
+        now.add(const Duration(hours: 1)),
+      ];
+      final data = <String, dynamic>{
+        'keys': <String>[],
+        'nonces': <String, dynamic>{},
+        'prepared': <String, dynamic>{},
+        'rejected': <String, dynamic>{},
+        'cancelled': <String, dynamic>{},
+      };
+      for (var i = 0; i < 2; i++) {
+        final id = base64UrlEncode(ids[i].toBytes());
+        final expiry = Expiry.fromTime(expiries[i]);
+        data['nonces'][id] = {
+          'expiry': expiries[i].toUtc().toIso8601String(),
+          'values': <String, dynamic>{},
+        };
+        data['prepared'][id] = base64UrlEncode(
+          PreparedSignaturesOperation(
+            id: ids[i],
+            kind: PreparedSignaturesOperationKind.replies,
+            payloads: [],
+            transcripts: [],
+            nextNonces: SignaturesNonces({}, expiry),
+          ).toBytes(),
+        );
+        data['rejected'][id] = expiries[i].toUtc().toIso8601String();
+        data['cancelled'][id] = expiries[i].toUtc().toIso8601String();
+      }
+      await store.put('client:setup', data);
+      await p.clientStorage('setup').pruneCancelledSignaturesRequests();
+      final pruned = store.get('client:setup') as Map;
+      for (final field in ['nonces', 'prepared', 'rejected', 'cancelled']) {
+        expect((pruned[field] as Map).keys, [
+          base64UrlEncode(ids[1].toBytes()),
+        ]);
+        expect(
+          pruned[field][base64UrlEncode(ids[1].toBytes())],
+          data[field][base64UrlEncode(ids[1].toBytes())],
+        );
+      }
+    },
+  );
 
   for (final roast in [false, true]) {
     final name = roast ? 'ROAST' : 'wallet';

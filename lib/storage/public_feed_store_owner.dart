@@ -67,12 +67,11 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
   final clients = <String, Set<String>>{};
   var pending = Future<void>.value();
   var closing = false;
-  Map<String, dynamic> read() => jsonDecode(
-    box.get(
-      'state',
-      defaultValue: '{"hosts":{},"feeds":{},"bindings":{},"nextNotificationId":1073741824}',
-    ) as String,
-  ) as Map<String, dynamic>;
+  String read() => box.get(
+    'state',
+    defaultValue:
+        '{"hosts":{},"feeds":{},"bindings":{},"nextNotificationId":1073741824}',
+  ) as String;
 
   requests.listen((message) {
     final exit = message is List && message.first == 'exit';
@@ -84,10 +83,14 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
         return;
       }
       try {
-        final data = read();
+        final kind = operation[0];
+        final lifecycle = ['attach', 'detach', 'exit'].contains(kind);
+        final before = lifecycle ? null : read();
+        final data = before == null
+            ? <String, dynamic>{}
+            : jsonDecode(before) as Map<String, dynamic>;
         final state = _FeedState(data);
         Object? result;
-        final kind = operation[0];
         switch (kind) {
           case 'attach':
             clients
@@ -185,8 +188,11 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
             throw const FeedStoreUnavailable();
         }
         if (!['attach', 'detach', 'exit', 'read', 'check'].contains(kind)) {
-          await box.put('state', jsonEncode(data));
-          await box.flush();
+          final encoded = jsonEncode(data);
+          if (encoded != before) {
+            await box.put('state', encoded);
+            await box.flush();
+          }
         }
         if (clients.isEmpty && (kind == 'detach' || kind == 'exit')) {
           closing = true;

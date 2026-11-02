@@ -1,5 +1,6 @@
-import 'dart:async';
 import 'dart:convert';
+
+import 'storage_write_queue.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -70,7 +71,7 @@ class KeyringSecureKeyStore(final SecureKeyStore _storage)
   static const _keyringKey = 'sygnature_secure_keyring_v1';
 
   Map<String, String>? _values;
-  Future<void> _pending = Future.value();
+  final _writes = StorageWriteQueue();
 
   @override
   Future<String?> read(String key) =>
@@ -117,14 +118,6 @@ class KeyringSecureKeyStore(final SecureKeyStore _storage)
   Future<T> _synchronized<T>(
     Future<T> Function(Map<String, String> values) operation,
   ) {
-    final completer = Completer<T>();
-    _pending = _pending.then((_) async {
-      try {
-        completer.complete(await operation(await _load()));
-      } catch (error, stackTrace) {
-        completer.completeError(error, stackTrace);
-      }
-    });
-    return completer.future;
+    return _writes.run(() async => operation(await _load()));
   }
 }

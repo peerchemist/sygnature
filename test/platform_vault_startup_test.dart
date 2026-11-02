@@ -166,7 +166,7 @@ void main() {
     });
   }
 
-  testWidgets('unsupported local schema is replaced with a fresh vault', (
+  testWidgets('unsupported local schema preserves wallet and ROAST data', (
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
@@ -188,10 +188,19 @@ void main() {
       await Hive.close();
     });
 
-    final controller = await startApp(tester, find.byType(WalletHome));
-    expect(controller.vault?.rootSeedHex, hasLength(128));
-    expect(controller.accounts, isEmpty);
-    expect(Hive.box<dynamic>('sygnature_roast_private_v1').isEmpty, isTrue);
+    await pumpUntil(tester, find.text('Unsupported vault version'));
+    await tester.runAsync(() async {
+      final wallet = Hive.box<dynamic>('sygnature_private_v1');
+      expect(
+        (wallet.get('wallet_vault') as Map)['mnemonic'],
+        'obsolete secret words',
+      );
+      final roast = await Hive.openBox<dynamic>(
+        'sygnature_roast_private_v1',
+        encryptionCipher: HiveAesCipher(Uint8List.fromList(List.filled(32, 8))),
+      );
+      expect(roast.get('rooms:obsolete-setup'), isNotNull);
+    });
     await tester.pumpWidget(const SizedBox.shrink());
     debugDefaultTargetPlatformOverride = null;
   });

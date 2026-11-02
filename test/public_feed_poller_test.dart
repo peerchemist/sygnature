@@ -152,6 +152,23 @@ void main() {
     },
   );
 
+  test('no-op mutations do not append or flush another state record', () async {
+    await store.configureHost('unchanged-host', true);
+    await store.setNotificationWindow(const Duration(hours: 1));
+    final owner = await store.acquirePollingLease();
+    expect(owner, isNotNull);
+    final before = await store.snapshot();
+    final file = File('${directory.path}/${PublicFeedStore.boxName}.hive');
+    final bytes = await file.readAsBytes();
+    await store.configureHost('unchanged-host', true);
+    await store.enabledHostId('unchanged-host');
+    await store.setNotificationWindow(const Duration(hours: 1));
+    expect(await store.acquirePollingLease(), isNull);
+    await store.releasePollingLease('not-the-owner');
+    expect(await store.snapshot(), before);
+    expect(await file.readAsBytes(), bytes);
+  });
+
   test('locked-wallet service needs only public storage and never initializes signer native libraries', () async {
     final connection = FakeConnection(
       (_) async => page(0, 1, entries: [entry(1)]),

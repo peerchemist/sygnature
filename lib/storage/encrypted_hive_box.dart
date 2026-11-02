@@ -6,12 +6,15 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'hive_storage_initializer.dart';
 import 'secure_key_store.dart';
 import 'vault_protection.dart';
+import 'storage_write_queue.dart';
 
 /// Opens encrypted storage using either an explicit key or system secure storage.
 class const EncryptedHiveBox({
   required final String name,
   required final String cipherKeyName,
 }) {
+  static final _openings = <String, StorageWriteQueue>{};
+
   Future<Box<dynamic>> open({
     SecureKeyStore? keyStore,
     Uint8List? cipherKey,
@@ -30,18 +33,18 @@ class const EncryptedHiveBox({
   Future<({Box<dynamic> box, Uint8List cipherKey})> openWithKeyMaterial({
     SecureKeyStore? keyStore,
     Uint8List? cipherKey,
-  }) async {
+  }) => _openings.putIfAbsent(name, StorageWriteQueue.new).run(() async {
     await HiveStorageInitializer.initialize();
-    final key = Uint8List.fromList(
-      cipherKey ?? await _loadOrCreateKey(keyStore ?? PlatformSecureKeyStore()),
-    );
+    final key = cipherKey == null
+        ? await _loadOrCreateKey(keyStore ?? PlatformSecureKeyStore())
+        : Uint8List.fromList(cipherKey);
     try {
       return (box: await _open(key), cipherKey: key);
     } catch (_) {
       key.fillRange(0, key.length, 0);
       rethrow;
     }
-  }
+  });
 
   Future<bool> exists() async {
     await HiveStorageInitializer.initialize();
@@ -104,6 +107,7 @@ class const EncryptedHiveBox({
       return await Hive.openBox<dynamic>(
         name,
         encryptionCipher: HiveAesCipher(key),
+        crashRecovery: false,
       );
     } on HiveError {
       throw VaultOpenFailure.vaultCorrupt;
