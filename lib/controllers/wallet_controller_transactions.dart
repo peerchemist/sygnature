@@ -225,14 +225,48 @@ extension WalletTransactionController on WalletController {
     WalletAccount account,
     WalletTransactionPreview preview,
   ) async {
-    final signed = _transactionService.sign(
-      network: networkForAccount(account),
-      preview: preview,
-      privateKeysByAddress: {
-        for (final owned in ownedAddressesFor(account))
-          owned.address: ?owned.privateKeyHex,
-      },
-    );
+    final vault = _vault;
+    if (vault == null) throw const WalletSigningUnavailable();
+    final network = networkForAccount(account);
+    final ownedByAddress = {
+      for (final owned in ownedAddressesFor(account)) owned.address: owned,
+    };
+    final selectedAddresses = preview.selectedUtxos
+        .map((utxo) => utxo.address)
+        .toSet();
+    for (final address in selectedAddresses) {
+      final owned = ownedByAddress[address];
+      if (owned == null ||
+          preview.inputDerivationPaths[address] != owned.derivationPath) {
+        throw const WalletTransactionRejected(
+          'A transaction input does not belong to this wallet.',
+        );
+      }
+    }
+    final rootSeed = _rootSeed(vault);
+    final keys = <String, Uint8List>{};
+    late final SignedWalletTransaction signed;
+    try {
+      for (final address in selectedAddresses) {
+        keys[address] = _keyService.deriveSpendKey(
+          network: network,
+          rootSeed: rootSeed,
+          accountIndex: account.accountIndex,
+          addressIndex: ownedByAddress[address]!.index,
+        );
+      }
+      signed = _transactionService.sign(
+        network: network,
+        preview: preview,
+        privateKeysByAddress: keys,
+      );
+    } finally {
+      rootSeed.fillRange(0, rootSeed.length, 0);
+      for (final key in keys.values) {
+        key.fillRange(0, key.length, 0);
+      }
+      keys.clear();
+    }
     await _recordActivity(
       id: 'transaction-signed:${account.id}:${signed.transactionId}',
       accountId: account.id,

@@ -9,6 +9,7 @@ import 'package:sygnature_ng/services/peercoin_network_service.dart';
 import 'package:sygnature_ng/services/roast_key_service.dart';
 import 'package:sygnature_ng/services/roast_runtime.dart';
 import 'package:sygnature_ng/services/wallet_transaction_service.dart';
+import 'package:sygnature_ng/services/wallet_key_service.dart';
 
 import 'fixtures/peercoin_taproot_transaction_fixture.dart';
 
@@ -46,7 +47,8 @@ void main() {
     network: network,
     preview: preview,
     privateKeysByAddress: {
-      for (final utxo in preview.selectedUtxos) utxo.address: privateKeyHex,
+      for (final utxo in preview.selectedUtxos)
+        utxo.address: hexToBytes(privateKeyHex),
     },
   );
 
@@ -439,9 +441,26 @@ void main() {
   test(
     'signs mixed-index inputs and sends change to an explicit successor',
     () {
-      final firstKey = ECPrivateKey.fromHex(sourceKeyHex);
-      final secondKey = ECPrivateKey.fromHex('${List.filled(63, '0').join()}3');
-      final changeKey = ECPrivateKey.fromHex('${List.filled(63, '0').join()}4');
+      final keyService = CoinlibWalletKeyService();
+      final seed = Uint8List.fromList(List.generate(64, (index) => index));
+      final keys = [
+        for (var index = 0; index < 3; index++)
+          keyService.deriveSpendKey(
+            network: PeercoinNetworks.mainnet,
+            rootSeed: seed,
+            accountIndex: 0,
+            addressIndex: index,
+          ),
+      ];
+      addTearDown(() {
+        seed.fillRange(0, seed.length, 0);
+        for (final key in keys) {
+          key.fillRange(0, key.length, 0);
+        }
+      });
+      final firstKey = ECPrivateKey(keys[0]);
+      final secondKey = ECPrivateKey(keys[1]);
+      final changeKey = ECPrivateKey(keys[2]);
       String addressFor(ECPrivateKey key) => P2TRAddress.fromTweakedKey(
         key.pubkey,
         hrp: Network.mainnet.bech32Hrp,
@@ -490,14 +509,38 @@ void main() {
       final signed = service.sign(
         network: PeercoinNetworks.mainnet,
         preview: preview,
-        privateKeysByAddress: {
-          firstAddress: sourceKeyHex,
-          secondAddress: bytesToHex(secondKey.data),
-        },
+        privateKeysByAddress: {firstAddress: keys[0], secondAddress: keys[1]},
       );
       final transaction = Transaction.fromHex(signed.rawTransactionHex);
 
       expect(transaction.complete, isTrue);
+      final previousOutputs = [
+        for (final utxo in preview.selectedUtxos)
+          Output.fromAddress(
+            BigInt.from(utxo.value),
+            Address.fromString(utxo.address, Network.mainnet),
+          ),
+      ];
+      final publicKeys = {
+        firstAddress: firstKey.pubkey,
+        secondAddress: secondKey.pubkey,
+      };
+      for (var index = 0; index < transaction.inputs.length; index++) {
+        final input = transaction.inputs[index] as TaprootKeyInput;
+        expect(
+          input.insig!.signature.verify(
+            publicKeys[preview.selectedUtxos[index].address]!,
+            TaprootSignatureHasher(
+              TaprootKeySignDetails(
+                tx: transaction,
+                inputN: index,
+                prevOuts: previousOutputs,
+              ),
+            ).hash,
+          ),
+          isTrue,
+        );
+      }
       expect(
         transaction.outputs.any(
           (output) => bytesEqual(

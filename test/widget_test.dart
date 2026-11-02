@@ -898,33 +898,68 @@ void main() {
   });
 }
 
-class _FakeWalletKeyService extends WalletKeyService {
+class _FakeWalletKeyService implements WalletKeyService {
   @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required Uint8List rootSeed,
     required int accountIndex,
-  }) => deriveAddress(
-    network: network,
-    rootSeed: rootSeed,
-    accountIndex: accountIndex,
-    addressIndex: 0,
-  );
+  }) {
+    final address = _address(
+      network: network,
+      accountIndex: accountIndex,
+      addressIndex: 0,
+    );
+    return DerivedWalletMaterial(
+      derivationPath: address.derivationPath,
+      address: address.address,
+      privateKeyHex: 'private-key-$accountIndex',
+    );
+  }
 
-  @override
-  DerivedWalletMaterial deriveAddress({
+  DerivedWalletAddress _address({
     required WalletNetwork network,
-    required Uint8List rootSeed,
     required int accountIndex,
     required int addressIndex,
-  }) => DerivedWalletMaterial(
+  }) => DerivedWalletAddress(
     derivationPath:
         '${network.derivationPathForAccount(accountIndex).substring(0, network.derivationPathForAccount(accountIndex).lastIndexOf('/') + 1)}$addressIndex',
     address:
         '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex${addressIndex == 0 ? '' : '-$addressIndex'}',
-    privateKeyHex: addressIndex == 0
-        ? 'private-key-$accountIndex'
-        : 'private-key-$accountIndex-$addressIndex',
+  );
+
+  @override
+  String deriveAddressParentKey({
+    required WalletNetwork network,
+    required Uint8List rootSeed,
+    required int accountIndex,
+  }) => 'public-parent-$accountIndex';
+
+  @override
+  List<DerivedWalletAddress> derivePublicAddresses({
+    required WalletNetwork network,
+    required String addressParentKey,
+    required int accountIndex,
+    required int firstAddressIndex,
+    required int lastAddressIndex,
+  }) => [
+    for (var index = firstAddressIndex; index <= lastAddressIndex; index++)
+      _address(
+        network: network,
+        accountIndex: accountIndex,
+        addressIndex: index,
+      ),
+  ];
+
+  @override
+  Uint8List deriveSpendKey({
+    required WalletNetwork network,
+    required Uint8List rootSeed,
+    required int accountIndex,
+    required int addressIndex,
+  }) => Uint8List.fromList(
+    'private-key-$accountIndex${addressIndex == 0 ? '' : '-$addressIndex'}'
+        .codeUnits,
   );
 }
 

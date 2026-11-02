@@ -69,28 +69,126 @@ void main() {
     expect(testnet.privateKeyHex, isNot(mainnet.privateKeyHex));
   });
 
-  test('derives a stable address sequence from the same root', () {
+  for (final network in PeercoinNetworks.values) {
+    test(
+      'public discovery matches private derivation on ${network.networkId}',
+      () {
+        final service = CoinlibWalletKeyService();
+        final seed = Uint8List.fromList(rootSeed);
+        final parent = service.deriveAddressParentKey(
+          network: network,
+          rootSeed: seed,
+          accountIndex: 3,
+        );
+        expect(HDKey.decode(parent), isA<HDPublicKey>());
+        seed.fillRange(0, seed.length, 0);
+        final addresses = service.derivePublicAddresses(
+          network: network,
+          addressParentKey: parent,
+          accountIndex: 3,
+          firstAddressIndex: 0,
+          lastAddressIndex: 20,
+        );
+        // Compare with the previous private-path derivation independently of
+        // the service's public-parent implementation.
+        final master = HDPrivateKey.fromSeed(rootSeed);
+        for (final index in [0, 1, 7, 20]) {
+          final path = "m/86'/${network.coinType}'/3'/0/$index";
+          final child = master.derivePath(path);
+          final expected = Taproot(internalKey: child.publicKey);
+          expect(addresses[index].derivationPath, path);
+          expect(
+            addresses[index].address,
+            P2TRAddress.fromTaproot(
+              expected,
+              hrp: network.network.bech32Hrp,
+            ).toString(),
+          );
+          final spendKey = service.deriveSpendKey(
+            network: network,
+            rootSeed: rootSeed,
+            accountIndex: 3,
+            addressIndex: index,
+          );
+          try {
+            expect(spendKey, expected.tweakPrivateKey(child.privateKey).data);
+            expect(
+              P2TRAddress.fromTweakedKey(
+                ECPrivateKey(spendKey).pubkey,
+                hrp: network.network.bech32Hrp,
+              ).toString(),
+              addresses[index].address,
+            );
+          } finally {
+            spendKey.fillRange(0, spendKey.length, 0);
+          }
+        }
+      },
+    );
+  }
+
+  test('public discovery rejects an extended private key', () {
+    expect(
+      () => CoinlibWalletKeyService().derivePublicAddresses(
+        network: PeercoinNetworks.mainnet,
+        addressParentKey: HDPrivateKey.fromSeed(rootSeed)
+            .encode(Network.mainnet.privHDPrefix),
+        accountIndex: 0,
+        firstAddressIndex: 0,
+        lastAddressIndex: 1,
+      ),
+      throwsA(isA<WalletKeyFailure>()),
+    );
+  });
+
+  test('public discovery rejects hardened address indexes', () {
     final service = CoinlibWalletKeyService();
-    final addresses = service.deriveAddresses(
+    final parent = service.deriveAddressParentKey(
       network: PeercoinNetworks.mainnet,
       rootSeed: rootSeed,
+      accountIndex: 0,
+    );
+    expect(
+      () => service.derivePublicAddresses(
+        network: PeercoinNetworks.mainnet,
+        addressParentKey: parent,
+        accountIndex: 0,
+        firstAddressIndex: HDKey.hardenBit,
+        lastAddressIndex: HDKey.hardenBit,
+      ),
+      throwsA(isA<WalletKeyFailure>()),
+    );
+  });
+
+  test('derives a stable address sequence from the same root', () {
+    final service = CoinlibWalletKeyService();
+    final parent = service.deriveAddressParentKey(
+      network: PeercoinNetworks.mainnet,
+      rootSeed: rootSeed,
+      accountIndex: 3,
+    );
+    final addresses = service.derivePublicAddresses(
+      network: PeercoinNetworks.mainnet,
+      addressParentKey: parent,
       accountIndex: 3,
       firstAddressIndex: 0,
       lastAddressIndex: 1,
     );
-    final change = service.deriveAddress(
-      network: PeercoinNetworks.mainnet,
-      rootSeed: rootSeed,
-      accountIndex: 3,
-      addressIndex: 1,
-    );
+    final change = service
+        .derivePublicAddresses(
+          network: PeercoinNetworks.mainnet,
+          addressParentKey: parent,
+          accountIndex: 3,
+          firstAddressIndex: 1,
+          lastAddressIndex: 1,
+        )
+        .single;
 
     expect(addresses.map((address) => address.derivationPath), [
       "m/86'/6'/3'/0/0",
       "m/86'/6'/3'/0/1",
     ]);
     expect(addresses[1].address, change.address);
-    expect(addresses[1].privateKeyHex, change.privateKeyHex);
     expect(addresses[1].address, isNot(addresses[0].address));
   });
 }

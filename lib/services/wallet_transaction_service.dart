@@ -81,10 +81,12 @@ abstract interface class WalletTransactionService {
     required int changeAddressIndex,
   });
 
+  /// Borrows key buffers synchronously; the caller retains ownership and wipes
+  /// them after this method returns or throws. Implementations must not retain them.
   SignedWalletTransaction sign({
     required WalletNetwork network,
     required WalletTransactionPreview preview,
-    required Map<String, String> privateKeysByAddress,
+    required Map<String, Uint8List> privateKeysByAddress,
   });
 
   ThresholdWalletTransaction prepareThresholdSigning({
@@ -256,7 +258,7 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
   SignedWalletTransaction sign({
     required WalletNetwork network,
     required WalletTransactionPreview preview,
-    required Map<String, String> privateKeysByAddress,
+    required Map<String, Uint8List> privateKeysByAddress,
   }) {
     final built = _buildTransaction(network: network, preview: preview);
     var transaction = built.transaction;
@@ -266,11 +268,11 @@ class CoinlibWalletTransactionService implements WalletTransactionService {
       inputIndex++
     ) {
       final utxo = preview.selectedUtxos[inputIndex];
-      final keyHex = privateKeysByAddress[utxo.address];
-      if (keyHex == null) throw const WalletSigningUnavailable();
+      final key = privateKeysByAddress[utxo.address];
+      if (key == null) throw const WalletSigningUnavailable();
       transaction = transaction.signTaproot(
         inputN: inputIndex,
-        key: ECPrivateKey.fromHex(keyHex),
+        key: ECPrivateKey(key),
         prevOuts: built.previousOutputs,
       );
     }

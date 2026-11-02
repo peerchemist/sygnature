@@ -104,7 +104,6 @@ typedef WalletOwnedAddress = ({
   int index,
   String address,
   String derivationPath,
-  String? privateKeyHex,
 });
 
 final class const WalletBusyFailure() implements Exception {
@@ -189,7 +188,14 @@ class WalletController extends ChangeNotifier {
   final Map<String, Object> _syncErrorsByAddress = {};
   final Set<String> _syncingAddresses = {};
   final Map<String, int> _addressScanUpperIndexByAccount = {};
-  final Map<String, ({String identity, List<WalletOwnedAddress> addresses})>
+  final Map<
+    String,
+    ({
+      String identity,
+      String? addressParentKey,
+      List<WalletOwnedAddress> addresses,
+    })
+  >
   _addressDerivationCache = {};
   final Set<String> _broadcastingTransactionIds = {};
   final Set<String> _broadcastedTransactionIds = {};

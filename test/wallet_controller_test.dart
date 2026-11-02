@@ -518,14 +518,14 @@ void main() {
         network: PeercoinNetworks.mainnet,
       );
       final account = controller.accounts.single;
-      final destination = CoinlibWalletKeyService()
-          .deriveAddress(
-            network: PeercoinNetworks.mainnet,
-            rootSeed: hexToBytes(controller.vault!.rootSeedHex),
-            accountIndex: 0,
-            addressIndex: 5,
-          )
-          .address;
+      final destination = P2TRAddress.fromTaproot(
+        Taproot(
+          internalKey: HDPrivateKey.fromSeed(
+            hexToBytes(controller.vault!.rootSeedHex),
+          ).derivePath("m/86'/6'/0'/0/5").publicKey,
+        ),
+        hrp: Network.mainnet.bech32Hrp,
+      ).toString();
       electrumx.snapshots.add(
         PeercoinElectrumxUtxoSnapshot(
           address: account.address!,
@@ -662,14 +662,14 @@ void main() {
       network: PeercoinNetworks.mainnet,
     );
     final account = controller.accounts.single;
-    final destination = CoinlibWalletKeyService()
-        .deriveAddress(
-          network: PeercoinNetworks.mainnet,
-          rootSeed: hexToBytes(controller.vault!.rootSeedHex),
-          accountIndex: 0,
-          addressIndex: 5,
-        )
-        .address;
+    final destination = P2TRAddress.fromTaproot(
+      Taproot(
+        internalKey: HDPrivateKey.fromSeed(
+          hexToBytes(controller.vault!.rootSeedHex),
+        ).derivePath("m/86'/6'/0'/0/5").publicKey,
+      ),
+      hrp: Network.mainnet.bech32Hrp,
+    ).toString();
     electrumx.snapshots.add(
       PeercoinElectrumxUtxoSnapshot(
         address: account.address!,
@@ -971,6 +971,133 @@ void main() {
     );
     expect(controller.accounts.single.accountIndex, 1);
   });
+
+  for (final outcome in [
+    'success',
+    'derivation failure',
+    'signing failure',
+    'cancelled',
+  ]) {
+    test(
+      'derives only selected spend keys and clears buffers on $outcome',
+      () async {
+        final keys = _FakeWalletKeyService();
+        final transactions = _FakeWalletTransactionService();
+        final electrumx = _FakeElectrumxService();
+        final repository = _ControlledWalletRepository()
+          ..value = WalletVault(
+            rootSeedHex: '01' * 64,
+            accounts: [
+              WalletAccount(
+                id: 'personal',
+                name: 'Main wallet',
+                accountIndex: 0,
+                blockchainId: 'peercoin',
+                networkId: 'mainnet',
+                derivationState: WalletDerivationState.ready,
+                createdAt: DateTime.utc(2026),
+                address: 'pc1paccount0',
+                derivationPath: "m/86'/6'/0'/0/0",
+                addressPathPrefix: "m/86'/6'/0'/0/",
+                highestAllocatedAddressIndex: 4,
+                // Signing must not fall back to the persisted account key.
+                privateKeyHex: 'unused-persisted-key',
+              ),
+            ],
+            nextAccountIndex: 1,
+          );
+        final controller = WalletController(
+          repository,
+          keyService: keys,
+          transactionService: transactions,
+          networkServiceFactory: (_) async => electrumx,
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        expect(keys.parentSeeds, hasLength(1));
+        expect(keys.parentSeeds.single, everyElement(0));
+        await controller.extendAddressScan('personal', 30);
+        await controller.refreshBalances();
+        expect(keys.parentSeeds, hasLength(1));
+        expect(keys.spendIndexes, isEmpty);
+
+        for (final index in [1, 3]) {
+          electrumx.snapshots.add(
+            PeercoinElectrumxUtxoSnapshot(
+              address: 'pc1paccount0-$index',
+              utxos: [
+                for (var n = 0; n < (index == 1 ? 2 : 1); n++)
+                  ElectrumxUtxo(
+                    address: 'pc1paccount0-$index',
+                    txHash: 'funding-$index',
+                    txPos: n,
+                    height: 10,
+                    value: 1000000,
+                  ),
+              ],
+            ),
+          );
+        }
+        await Future<void>.delayed(Duration.zero);
+        final preview = controller.prepareSend(
+          const WalletSendRequest(
+            destinationAddress: 'pc1pdestination',
+            amountSats: 1000000,
+            feeRateSatsPerKb: 10000,
+          ),
+        );
+        expect(preview.selectedUtxos, hasLength(3));
+        expect(keys.spendIndexes, isEmpty);
+        if (outcome == 'derivation failure') keys.failingSpendIndex = 3;
+        if (outcome == 'signing failure') {
+          transactions.signingError = StateError('injected signing failure');
+        }
+        if (outcome == 'cancelled') {
+          transactions.signingError = const WalletSigningFailure(
+            WalletSigningFailureKind.cancelled,
+            'Cancelled',
+          );
+        }
+        var savedAfterCleanup = false;
+        repository.onSave = (_) {
+          expect(keys.spendSeeds, isNotEmpty);
+          expect(keys.spendSeeds, everyElement(everyElement(0)));
+          expect(keys.spendKeys, everyElement(everyElement(0)));
+          savedAfterCleanup = true;
+        };
+        if (outcome == 'success') {
+          await controller.sendTransaction(preview);
+          expect(savedAfterCleanup, isTrue);
+          expect(electrumx.broadcastedTransactions, ['signed-transaction']);
+        } else {
+          await expectLater(
+            controller.sendTransaction(preview),
+            throwsA(isA<WalletTransactionFailure>()),
+          );
+          expect(electrumx.broadcastedTransactions, isEmpty);
+        }
+        expect(keys.spendIndexes, [1, 3]);
+        expect(keys.spendSeedFirstBytes, [1, 1]);
+        expect(keys.spendSeeds, everyElement(everyElement(0)));
+        expect(
+          keys.spendKeys,
+          hasLength(outcome == 'derivation failure' ? 1 : 2),
+        );
+        expect(keys.spendKeys, everyElement(everyElement(0)));
+        if (outcome == 'derivation failure') {
+          expect(transactions.signedKeys, isEmpty);
+        } else {
+          expect(
+            transactions.signedKeys.keys,
+            unorderedEquals(['pc1paccount0-1', 'pc1paccount0-3']),
+          );
+          expect(transactions.signedKeys.values, everyElement(everyElement(0)));
+          expect(transactions.signedPrivateKey, 'private-key-0-1');
+        }
+        expect(repository.value!.rootSeedHex, '01' * 64);
+      },
+    );
+  }
 
   test('previews, signs and broadcasts a send exactly once', () async {
     final electrumx = _FakeElectrumxService();
@@ -1482,9 +1609,11 @@ class _ControlledWalletRepository extends MemoryWalletRepository {
   Completer<void>? saveGate;
   Object? saveError;
   bool commitBeforeError = false;
+  void Function(WalletVault)? onSave;
 
   @override
   Future<void> save(WalletVault vault) async {
+    onSave?.call(vault);
     final started = saveStarted;
     if (started != null && !started.isCompleted) {
       started.complete();
@@ -1498,34 +1627,89 @@ class _ControlledWalletRepository extends MemoryWalletRepository {
   }
 }
 
-class _FakeWalletKeyService extends WalletKeyService {
+class _FakeWalletKeyService implements WalletKeyService {
+  final parentSeeds = <Uint8List>[];
+  final spendSeeds = <Uint8List>[];
+  final spendSeedFirstBytes = <int>[];
+  final spendKeys = <Uint8List>[];
+  final spendIndexes = <int>[];
+  int? failingSpendIndex;
+
   @override
   DerivedWalletMaterial deriveAccount({
     required WalletNetwork network,
     required Uint8List rootSeed,
     required int accountIndex,
-  }) => deriveAddress(
-    network: network,
-    rootSeed: rootSeed,
-    accountIndex: accountIndex,
-    addressIndex: 0,
-  );
+  }) {
+    final address = _address(
+      network: network,
+      accountIndex: accountIndex,
+      addressIndex: 0,
+    );
+    return DerivedWalletMaterial(
+      derivationPath: address.derivationPath,
+      address: address.address,
+      privateKeyHex: 'private-key-$accountIndex',
+    );
+  }
 
-  @override
-  DerivedWalletMaterial deriveAddress({
+  DerivedWalletAddress _address({
     required WalletNetwork network,
-    required Uint8List rootSeed,
     required int accountIndex,
     required int addressIndex,
-  }) => DerivedWalletMaterial(
+  }) => DerivedWalletAddress(
     derivationPath:
         '${network.derivationPathForAccount(accountIndex).substring(0, network.derivationPathForAccount(accountIndex).lastIndexOf('/') + 1)}$addressIndex',
     address:
         '${network.networkId == 'testnet' ? 'tpc' : 'pc'}1paccount$accountIndex${addressIndex == 0 ? '' : '-$addressIndex'}',
-    privateKeyHex: addressIndex == 0
-        ? 'private-key-$accountIndex'
-        : 'private-key-$accountIndex-$addressIndex',
   );
+
+  @override
+  String deriveAddressParentKey({
+    required WalletNetwork network,
+    required Uint8List rootSeed,
+    required int accountIndex,
+  }) {
+    parentSeeds.add(rootSeed);
+    return 'public-parent-$accountIndex';
+  }
+
+  @override
+  List<DerivedWalletAddress> derivePublicAddresses({
+    required WalletNetwork network,
+    required String addressParentKey,
+    required int accountIndex,
+    required int firstAddressIndex,
+    required int lastAddressIndex,
+  }) => [
+    for (var index = firstAddressIndex; index <= lastAddressIndex; index++)
+      _address(
+        network: network,
+        accountIndex: accountIndex,
+        addressIndex: index,
+      ),
+  ];
+
+  @override
+  Uint8List deriveSpendKey({
+    required WalletNetwork network,
+    required Uint8List rootSeed,
+    required int accountIndex,
+    required int addressIndex,
+  }) {
+    spendSeeds.add(rootSeed);
+    spendSeedFirstBytes.add(rootSeed.first);
+    spendIndexes.add(addressIndex);
+    if (addressIndex == failingSpendIndex) {
+      throw StateError('injected derivation failure');
+    }
+    final key = Uint8List.fromList(
+      'private-key-$accountIndex${addressIndex == 0 ? '' : '-$addressIndex'}'
+          .codeUnits,
+    );
+    spendKeys.add(key);
+    return key;
+  }
 }
 
 class _FakeElectrumxService implements ElectrumxService {
@@ -1604,6 +1788,7 @@ class _DelayedCancellationElectrumxService(
 class _FakeWalletTransactionService implements WalletTransactionService {
   List<ElectrumxUtxo> preparedUtxos = const [];
   String? signedPrivateKey;
+  Map<String, Uint8List> signedKeys = {};
   Object? signingError;
 
   @override
@@ -1640,9 +1825,12 @@ class _FakeWalletTransactionService implements WalletTransactionService {
   SignedWalletTransaction sign({
     required WalletNetwork network,
     required WalletTransactionPreview preview,
-    required Map<String, String> privateKeysByAddress,
+    required Map<String, Uint8List> privateKeysByAddress,
   }) {
-    signedPrivateKey = privateKeysByAddress.values.first;
+    signedKeys = Map.of(privateKeysByAddress);
+    signedPrivateKey = privateKeysByAddress.isEmpty
+        ? null
+        : String.fromCharCodes(privateKeysByAddress.values.first);
     final error = signingError;
     if (error != null) throw error;
     return const SignedWalletTransaction(

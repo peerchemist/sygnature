@@ -121,12 +121,7 @@ extension WalletSyncController on WalletController {
     if (receiveAddress == null) return const [];
     if (account.keySource == WalletKeySource.watchOnly) {
       return [
-        (
-          index: 0,
-          address: receiveAddress,
-          derivationPath: receivePath ?? '',
-          privateKeyHex: null,
-        ),
+        (index: 0, address: receiveAddress, derivationPath: receivePath ?? ''),
       ];
     }
     if (receivePath == null) return const [];
@@ -147,15 +142,9 @@ extension WalletSyncController on WalletController {
     if (cached?.identity != cacheIdentity) {
       cached = (
         identity: cacheIdentity,
+        addressParentKey: null,
         addresses: [
-          (
-            index: 0,
-            address: receiveAddress,
-            derivationPath: receivePath,
-            privateKeyHex: account.keySource == WalletKeySource.personal
-                ? account.privateKeyHex
-                : null,
-          ),
+          (index: 0, address: receiveAddress, derivationPath: receivePath),
         ],
       );
       _addressDerivationCache[account.id] = cached;
@@ -167,12 +156,29 @@ extension WalletSyncController on WalletController {
     if (account.keySource == WalletKeySource.personal) {
       final vault = _vault;
       if (vault != null && result.length <= highestIndex) {
-        final rootSeed = _rootSeed(vault);
         try {
+          var parentKey = cached.addressParentKey;
+          if (parentKey == null) {
+            final rootSeed = _rootSeed(vault);
+            try {
+              parentKey = _keyService.deriveAddressParentKey(
+                network: networkForAccount(account),
+                rootSeed: rootSeed,
+                accountIndex: account.accountIndex,
+              );
+            } finally {
+              rootSeed.fillRange(0, rootSeed.length, 0);
+            }
+            _addressDerivationCache[account.id] = (
+              identity: cacheIdentity,
+              addressParentKey: parentKey,
+              addresses: result,
+            );
+          }
           final firstAddressIndex = result.length;
-          final derivedAddresses = _keyService.deriveAddresses(
+          final derivedAddresses = _keyService.derivePublicAddresses(
             network: networkForAccount(account),
-            rootSeed: rootSeed,
+            addressParentKey: parentKey,
             accountIndex: account.accountIndex,
             firstAddressIndex: firstAddressIndex,
             lastAddressIndex: highestIndex,
@@ -183,13 +189,10 @@ extension WalletSyncController on WalletController {
                 index: firstAddressIndex + offset,
                 address: derived.address,
                 derivationPath: derived.derivationPath,
-                privateKeyHex: derived.privateKeyHex,
               ),
           ]);
         } on Object {
           // Return the addresses derived successfully before this request.
-        } finally {
-          rootSeed.fillRange(0, rootSeed.length, 0);
         }
       }
       return List.unmodifiable(result.take(highestIndex + 1));
@@ -212,7 +215,6 @@ extension WalletSyncController on WalletController {
         index: index,
         address: derived.address,
         derivationPath: derived.pathLabel,
-        privateKeyHex: null,
       ));
     }
     return List.unmodifiable(result.take(highestIndex + 1));
