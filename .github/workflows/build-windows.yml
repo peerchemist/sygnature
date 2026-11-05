@@ -64,7 +64,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 
       - name: Upload Windows application
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sygnature-windows-x64
           path: sygnature_ng/build/windows/x64/runner/Release/
@@ -72,7 +72,7 @@ jobs:
           retention-days: 30
 
       - name: Upload Windows installer
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sygnature-windows-installer
           path: sygnature_ng/build/Sygnature-Windows-x64-Setup.exe

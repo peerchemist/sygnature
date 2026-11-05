@@ -49,7 +49,7 @@ jobs:
         run: scripts/build_flatpak
 
       - name: Upload Flatpak bundle
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sygnature-linux-flatpak
           path: sygnature_ng/build/flatpak/network.noosphere.sygnature.flatpak

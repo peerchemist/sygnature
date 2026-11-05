@@ -5,10 +5,10 @@ packages:
     dependency: transitive
     description:
       name: android_file_picker
-      sha256: "03d3dd3cb578ab26b1e528aeea27bf6b976942f5a24e3da82d270369b8e161a8"
+      sha256: "868183c959e754e915954d8074c20cfa4cfdb4684b35ecc08378437be1a542d8"
       url: "https://pub.dev"
     source: hosted
-    version: "2.1.2"
+    version: "2.1.3"
   app_links:
     dependency: "direct main"
     description:
@@ -77,10 +77,10 @@ packages:
     dependency: "direct main"
     description:
       name: cbor
-      sha256: "2c5c37650f0a2d25149f03e748ab7b2857787bde338f95fe947738b80d713da2"
+      sha256: "9e0745c45bc29e8ed4acb79801ecbc86aab51f952e503517e6c002c7f4ca9118"
       url: "https://pub.dev"
     source: hosted
-    version: "6.5.1"
+    version: "6.5.2"
   characters:
     dependency: transitive
     description:
@@ -157,10 +157,10 @@ packages:
     dependency: transitive
     description:
       name: cupertino_ui
-      sha256: e003b87afde18cb396ec15928c7894063d64af04462c68df9a1404c461316dd2
+      sha256: "369e39a1c5c030a6212589c3da1809920b1c2cfade7b02aade7695bfa4b88c3a"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.5"
+    version: "1.1.6"
   dart_base_x:
     dependency: transitive
     description:
@@ -213,26 +213,26 @@ packages:
     dependency: "direct main"
     description:
       name: file_picker
-      sha256: "02f2945a7f29535c735f6b283c3c5553810566d3052d730429aec78fe9d06592"
+      sha256: c64036857780d7125f011d543f89eedcb5df61da473668bace4eee9ab875284d
       url: "https://pub.dev"
     source: hosted
-    version: "13.3.1"
+    version: "13.3.2"
   file_picker_darwin:
     dependency: transitive
     description:
       name: file_picker_darwin
-      sha256: b845af092ca7a3cff0e768029f835157d371a8341750f4158a7ad358143b0e54
+      sha256: daeb0219f6279c73eb9c63ae9a566beef04ae13d59b8feba0be2a7f3b258d3d4
       url: "https://pub.dev"
     source: hosted
-    version: "2.4.1"
+    version: "2.4.2"
   file_picker_linux:
     dependency: transitive
     description:
       name: file_picker_linux
-      sha256: c6562fc7d426db2fb85ea66fe2627953d2709932df5584ceaacf0aa5e39cf4da
+      sha256: eb00de71b123e91d3c61f389a05b8cc90f9cbe7e4c88da30ebe2f0442b281b61
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.2"
+    version: "2.0.3"
   file_picker_platform_interface:
     dependency: transitive
     description:
@@ -380,10 +380,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_soloud
-      sha256: "4a5ff74c0d3e4e59540bd14ff9a50fa892c49ac7171ebdcd1ce59b12662ef1c1"
+      sha256: "9a439ebd477ee7b1c5cdf0f70765fbfae21b484b5b5bfd1446057f61b4111003"
       url: "https://pub.dev"
     source: hosted
-    version: "5.2.2"
+    version: "5.2.3"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -513,10 +513,10 @@ packages:
     dependency: transitive
     description:
       name: jni
-      sha256: d8df6dab6847855512fe44dd9032b0bbe34dda7bf7597e41d30750879779813f
+      sha256: "2e91e6087291affd10b31b6c872f3e3ac7dc5d93b51b5ba485d930c8f08bde6c"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.1.2"
   jni_flutter:
     dependency: transitive
     description:
@@ -609,10 +609,10 @@ packages:
     dependency: transitive
     description:
       name: material_ui
-      sha256: feb289df1e5f9ed9522f9fe3d909432a7f7bc76943f16abad09f80a16cd25196
+      sha256: a30f5d0625b6b83770f53ca3f7aafd6fd9d147cb3853f54a70668541046fe5d6
       url: "https://pub.dev"
     source: hosted
-    version: "1.9.0"
+    version: "1.10.0"
   meta:
     dependency: transitive
     description:
@@ -633,10 +633,10 @@ packages:
     dependency: "direct main"
     description:
       name: mobile_scanner
-      sha256: "5ef343479ba26829aa72c13094a690518c81e1f7b3d6133b64971dabbf650050"
+      sha256: "175c62fc813c2bd762757359a2088f8cbdb72020cf85d4cd27fc4d3fe59be058"
       url: "https://pub.dev"
     source: hosted
-    version: "7.4.3"
+    version: "7.5.0"
   native_toolchain_c:
     dependency: transitive
     description:
@@ -657,38 +657,38 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_client"
-      ref: "0.6.1"
-      resolved-ref: "3055833701c81e79f417f10317e6597371b6ac8e"
+      ref: "0.6.2"
+      resolved-ref: "883924b5d0c2612300c58865e2a47ba500642f29"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.6.1"
+    version: "0.6.2"
   noosphere_flutter:
     dependency: "direct main"
     description:
       path: "packages/noosphere_flutter"
-      ref: "0.6.1"
-      resolved-ref: "3055833701c81e79f417f10317e6597371b6ac8e"
+      ref: "0.6.2"
+      resolved-ref: "883924b5d0c2612300c58865e2a47ba500642f29"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.6.1"
+    version: "0.6.2"
   noosphere_protocol:
     dependency: "direct main"
     description:
       path: "packages/noosphere_protocol"
-      ref: "0.6.1"
-      resolved-ref: "3055833701c81e79f417f10317e6597371b6ac8e"
+      ref: "0.6.2"
+      resolved-ref: "883924b5d0c2612300c58865e2a47ba500642f29"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.6.1"
+    version: "0.6.2"
   noosphere_server:
     dependency: "direct main"
     description:
       path: "packages/noosphere_server"
-      ref: "0.6.1"
-      resolved-ref: "3055833701c81e79f417f10317e6597371b6ac8e"
+      ref: "0.6.2"
+      resolved-ref: "883924b5d0c2612300c58865e2a47ba500642f29"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.6.1"
+    version: "0.6.2"
   objective_c:
     dependency: transitive
     description:
@@ -898,10 +898,10 @@ packages:
     dependency: transitive
     description:
       name: synchronized
-      sha256: b3d516dbd3757ff2a458735e4f6cbac9ff261f576f6e87bcb17feabb39e657c5
+      sha256: "0ce4712bd3be1fccfab14458059baebb400ba6c6239b65398e3464945fabbae7"
       url: "https://pub.dev"
     source: hosted
-    version: "3.5.0"
+    version: "3.6.1"
   term_glyph:
     dependency: transitive
     description:

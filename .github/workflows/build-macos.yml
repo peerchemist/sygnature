@@ -115,7 +115,7 @@ jobs:
         run: scripts/build_macos --no-pub --arch "$MACOS_ARCH" --output "build/$DMG_NAME"
 
       - name: Upload DMG
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sygnature-macos-${{ matrix.arch }}-dmg
           path: sygnature_ng/build/${{ matrix.dmg }}
