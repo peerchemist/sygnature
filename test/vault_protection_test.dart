@@ -21,19 +21,21 @@ void main() {
     }
   });
 
-  test('trusts the system keyring on every desktop platform', () {
+  test('uses system secure storage on iOS and desktop platforms', () {
     for (final platform in [
+      TargetPlatform.iOS,
       TargetPlatform.linux,
       TargetPlatform.windows,
       TargetPlatform.macOS,
     ]) {
-      expect(desktopVaultAvailable(web: false, platform: platform), isTrue);
-    }
-    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-      expect(desktopVaultAvailable(web: false, platform: platform), isFalse);
+      expect(systemVaultAvailable(web: false, platform: platform), isTrue);
     }
     expect(
-      desktopVaultAvailable(web: true, platform: TargetPlatform.linux),
+      systemVaultAvailable(web: false, platform: TargetPlatform.android),
+      isFalse,
+    );
+    expect(
+      systemVaultAvailable(web: true, platform: TargetPlatform.iOS),
       isFalse,
     );
   });

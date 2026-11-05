@@ -143,9 +143,10 @@ Future<T> _deviceKeyStoreOperation<T>(Future<T> Function() operation) async {
   }
 }
 
-bool desktopVaultAvailable({bool? web, TargetPlatform? platform}) =>
+bool systemVaultAvailable({bool? web, TargetPlatform? platform}) =>
     !(web ?? kIsWeb) &&
     switch (platform ?? defaultTargetPlatform) {
+      TargetPlatform.iOS ||
       TargetPlatform.linux ||
       TargetPlatform.windows ||
       TargetPlatform.macOS => true,

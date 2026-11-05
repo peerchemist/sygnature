@@ -229,11 +229,11 @@ class _SygnatureAppState extends State<SygnatureApp>
 
   Future<VaultProtectionStore> _initializeVault() async {
     final store = await VaultProtectionStore.open();
-    if (desktopVaultAvailable()) {
+    if (systemVaultAvailable()) {
       final mode = store.config?.mode;
       if (mode != null && mode != VaultProtectionMode.system) {
         throw StateError(
-          'This vault requires migration to the desktop system keyring. '
+          'This vault requires migration to the system keyring. '
           'Its existing encryption keys and data have been preserved.',
         );
       }
