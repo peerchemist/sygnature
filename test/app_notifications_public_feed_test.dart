@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -157,7 +158,7 @@ void main() {
     expect(delivery.systemEnabled, isTrue);
     expect(plugin.launchDetailsRequested, isFalse);
     delivery.dispose();
-  });
+  }, skip: !Platform.isLinux); // The plugin constructor loads Linux libc.
 
   test(
     'portal clicks reach the running app and suppress duplicate tones',

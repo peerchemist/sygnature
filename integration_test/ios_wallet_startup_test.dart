@@ -4,6 +4,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:sygnature_ng/main.dart' as app;
 
@@ -15,6 +16,14 @@ void main() {
   testWidgets(
     'iOS opens the system vault and creates a testnet wallet',
     (tester) async {
+      // This opt-in test runs on a dedicated Simulator. Keep native permission
+      // sheets out of the startup/Keychain checks, which use Flutter controls.
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'notifications.desktop_enabled', value: 'false');
+      await storage.write(
+        key: 'notifications.system_preference_set',
+        value: 'true',
+      );
       await app.main();
       final addWallet = find.widgetWithText(FilledButton, 'Add wallet');
       await _waitFor(tester, addWallet);

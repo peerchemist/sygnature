@@ -101,6 +101,10 @@ flutter test
 flutter run -d linux
 ```
 
+On macOS, prefix `flutter test` with
+`FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/build/native_assets/macos"`
+so the tests can load Frosty's native library.
+
 ## License
 
 Copyright 2026 peerchemist.

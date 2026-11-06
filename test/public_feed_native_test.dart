@@ -175,6 +175,8 @@ void main() {
       expect(result.exitCode, 0, reason: result.stderr as String);
       expect((result.stdout as String).trim(), 'ok');
     },
+    // A cold native-assets build can outlast the default 30-second test limit.
+    timeout: const Timeout(Duration(seconds: 90)),
   );
 
   test('fresh locked process polls real Iroh feed with no signer session or presence change', () async {
