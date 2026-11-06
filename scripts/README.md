@@ -188,3 +188,43 @@ hooks so unit tests can load Frosty's native library:
 FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR="$PWD/build/native_assets/macos" \
   flutter test
 ```
+
+## Apple cross-device ROAST smoke test
+
+Run on macOS with Xcode, Flutter and a dedicated iOS Simulator without real
+wallet data:
+
+```sh
+xcrun simctl list devices available
+python3 scripts/test_apple_roast.py SIMULATOR_UUID
+```
+
+The runner starts separate macOS and iOS app processes. macOS hosts the
+coordinator and one signer; iOS is the second signer of a disposable 2-of-2
+Peercoin testnet wallet. The test uses the real Noosphere/Iroh runtime and
+checks enrollment, matching DKG fingerprints, group keys and receive addresses,
+iOS approval controls, message signing and signature verification on both apps.
+It also checks completed-request removal, receive QR display and theme settings.
+No funded transaction is broadcast.
+
+Wallet roots stay in memory. Encrypted ROAST state uses a temporary directory
+and fresh key. The test closes the runtime and storage, removes its temporary
+files, and restores the iOS theme/notification preferences even on failure.
+Use only a dedicated Simulator: Flutter installs the integration-test app under
+the normal application bundle identifier.
+
+Screenshots are disabled by default. To capture native iOS PNGs as well:
+
+```sh
+python3 scripts/test_apple_roast.py SIMULATOR_UUID --screenshots \
+  --output build/apple-roast-captures
+```
+
+Logs and public test results go to `build/apple-roast-e2e/` by default; use
+`--output PATH` to keep separate runs. The local bridge uses an automatically
+selected loopback port; `--port PORT` selects a fixed port. Its enrollment
+invitation and signing results are test artifacts, not release files.
+The runner stops its child processes and restores a Simulator it booted to its
+shutdown state. With screenshots enabled, it also normalizes and then clears
+the status-bar override. Run this manual smoke test before Apple releases or
+native dependency upgrades; it is skipped unless explicitly enabled by the runner.
