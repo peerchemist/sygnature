@@ -60,12 +60,15 @@ final class PublicFeedPoller(
   required final Future<bool> Function(int id, String category) notify,
   final Future<FeedConnection> Function(Map feed) connect = connectPublicFeed,
   final int maxPages = 5,
+  final int? maxPagesPerFeed,
+  final Duration? connectionTimeout,
+  final Duration closeTimeout = const Duration(seconds: 3),
+  final Future<bool> Function()? isCancelled,
   final Duration maxDuration = const Duration(seconds: 45),
   final PublicFeedPollSource source = PublicFeedPollSource.foreground,
 }) {
   Future<void>? _running;
   Timer? _timer;
-  int _nextFeed = 0;
 
   // Same in-process timer mechanism as the existing wallet background work.
   void start() {
@@ -122,12 +125,21 @@ final class PublicFeedPoller(
         .toSet()
         .cast<String>()
         .toList();
-    final start = active.isEmpty ? 0 : _nextFeed % active.length;
+    final savedStart = active.indexOf(
+      state['nextPollingFeed'] as String? ?? '',
+    );
+    final start = savedStart < 0 ? 0 : savedStart;
     for (var index = 0; index < active.length; index++) {
       final position = (start + index) % active.length;
       final key = active[position];
       if (remaining <= 0 || budget.elapsed >= maxDuration) break;
-      _nextFeed = position + 1;
+      if (await isCancelled?.call() ?? false) break;
+      // Persist before connecting: a killed engine still gives the next feed
+      // first chance on its next invocation.
+      await store.advancePollingFeed(
+        owner,
+        active[(position + 1) % active.length],
+      );
       var feed = ((await store.snapshot())['feeds'] as Map)[key] as Map;
       if (feed['blocked'] == true) continue;
       final retryAt = feed['retryAt'] as String?;
@@ -147,14 +159,21 @@ final class PublicFeedPoller(
           return connection;
         });
         client = await connecting.timeout(
-          timeLeft(),
+          connectionTimeout == null || timeLeft() < connectionTimeout!
+              ? timeLeft()
+              : connectionTimeout!,
           onTimeout: () {
             abandoned = true;
             throw TimeoutException('Public feed connection budget');
           },
         );
-        while (remaining > 0 && budget.elapsed < maxDuration) {
+        var feedPages = 0;
+        while (remaining > 0 &&
+            budget.elapsed < maxDuration &&
+            (maxPagesPerFeed == null || feedPages < maxPagesPerFeed!)) {
+          if (await isCancelled?.call() ?? false) break;
           remaining--;
+          feedPages++;
           final page = await client
               .fetch(
                 PublicFeedId(feed['feedId'] as String),
@@ -162,6 +181,10 @@ final class PublicFeedPoller(
                 limit: 100,
               )
               .timeout(timeLeft());
+          if (budget.elapsed >= maxDuration ||
+              (await isCancelled?.call() ?? false)) {
+            break;
+          }
           await store.commitPage(
             key,
             page,
@@ -172,6 +195,8 @@ final class PublicFeedPoller(
           await _deliver(key, feed, timeLeft, owner);
           if (!page.hasMore) break;
         }
+      } on _FeedPollCancelled {
+        return;
       } on FeedLeaseLost {
         rethrow;
       } on FeedRollback {
@@ -227,7 +252,10 @@ final class PublicFeedPoller(
         );
       } finally {
         try {
-          await client?.close().timeout(const Duration(seconds: 3));
+          final left = maxDuration - budget.elapsed;
+          await client?.close().timeout(
+            left > Duration.zero && left < closeTimeout ? left : closeTimeout,
+          );
         } on Object {
           /* No cursor change. */
         }
@@ -243,6 +271,7 @@ final class PublicFeedPoller(
   ) async {
     final notificationWindow = await store.notificationWindow();
     for (final entry in (feed['outbox'] as Map).entries) {
+      if (await isCancelled?.call() ?? false) throw const _FeedPollCancelled();
       await store.checkPollingLease(owner, key);
       final item = entry.value as Map;
       final now = DateTime.now().toUtc();
@@ -262,3 +291,5 @@ final class PublicFeedPoller(
     }
   }
 }
+
+final class const _FeedPollCancelled() implements Exception;

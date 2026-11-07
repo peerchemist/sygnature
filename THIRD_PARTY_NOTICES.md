@@ -26,6 +26,7 @@ distributed builds.
 | pointycastle | MIT |
 | unique_names_generator | BSD-3-Clause |
 | web_socket_channel | BSD-3-Clause |
+| workmanager | MIT |
 
 ## Bundled native components
 

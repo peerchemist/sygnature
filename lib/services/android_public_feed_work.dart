@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -11,12 +12,11 @@ import 'package:workmanager/workmanager.dart';
 import '../storage/public_feed_store.dart';
 import 'app_diagnostics.dart';
 import 'public_feed_notifications.dart';
+import 'ios_public_feed_work.dart';
 import 'public_feed_poller.dart';
 
 const publicFeedWorkUniqueName = 'network.noosphere.sygnature.public-feed';
 const publicFeedWorkTaskName = 'publicFeedPoll';
-const iosPublicFeedRefreshTaskName =
-    'network.noosphere.sygnature.public-feed.refresh';
 const androidPublicFeedWorkFrequencyStorageKey =
     'notifications.android_public_feed_frequency_minutes';
 const androidPublicFeedDefaultWorkFrequency = Duration(hours: 1);
@@ -95,24 +95,57 @@ final class PublicFeedBackgroundTask({
   final PublicFeedNotifications Function() notifications =
       PublicFeedNotifications.new,
   final PublicFeedBackgroundPoll poll = _pollOnce,
+  final bool registerDartPlugins = true,
+  final Duration? initializationBudget,
 }) {
   Future<bool> execute(String task) async {
-    if (task != publicFeedWorkTaskName &&
-        task != iosPublicFeedRefreshTaskName) {
+    if (task != publicFeedWorkTaskName) {
       return true;
     }
+    final elapsed = Stopwatch()..start();
+    Future<T> initializeWithinBudget<T>(Future<T> Function() action) {
+      final budget = initializationBudget;
+      if (budget == null) return action();
+      final remaining = budget - elapsed.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('Public feed initialization budget');
+      }
+      return action().timeout(remaining);
+    }
+
     PublicFeedStore? store;
     try {
       try {
-        await initializePlugins();
-        final directory = await supportDirectory();
-        await AppDiagnostics.initialize(directory.path);
+        if (registerDartPlugins) {
+          await initializeWithinBudget(initializePlugins);
+        } else {
+          // This is the root isolate of a selectively registered iOS engine.
+          WidgetsFlutterBinding.ensureInitialized();
+        }
+        final directory = await initializeWithinBudget(supportDirectory);
+        await initializeWithinBudget(
+          () => AppDiagnostics.initialize(directory.path),
+        );
         await AppDiagnostics.record(AppDiagnosticEvent.backgroundWorkStarted);
-        await initializeNative();
-        store = await openStore(directory.path);
+        await initializeWithinBudget(initializeNative);
+        var abandoned = false;
+        try {
+          store = await initializeWithinBudget(
+            () => openStore(directory.path).then((opened) async {
+              if (abandoned) {
+                await opened.close();
+                throw TimeoutException('Public feed store open abandoned');
+              }
+              return opened;
+            }),
+          );
+        } on TimeoutException {
+          abandoned = true;
+          rethrow;
+        }
         final delivery = notifications();
-        await delivery.initialize();
-        await poll(store, delivery.publicFeedRequested);
+        await initializeWithinBudget(delivery.initialize);
+        await poll(store!, delivery.publicFeedRequested);
       } finally {
         await store?.close();
       }
@@ -175,43 +208,15 @@ Future<void> setAndroidPublicFeedWorkFrequency(
   );
 }
 
-/// Registers the iOS 13+ BGAppRefreshTask used as a best-effort catch-up path.
-///
-/// iOS treats [initialDelay] only as an earliest-start hint. The operating
-/// system chooses the actual cadence and does not launch refresh tasks after a
-/// user force-quits the application.
-Future<void> initializeIosPublicFeedWork({
-  TargetPlatform? platform,
-  bool? isWeb,
-  Workmanager? workmanager,
-}) async {
-  if ((isWeb ?? kIsWeb) ||
-      (platform ?? defaultTargetPlatform) != TargetPlatform.iOS) {
-    return;
-  }
-  final manager = workmanager ?? Workmanager();
-  await manager.initialize(publicFeedWorkDispatcher);
-  await manager.registerPeriodicTask(
-    iosPublicFeedRefreshTaskName,
-    publicFeedWorkTaskName,
-    initialDelay: const Duration(minutes: 15),
-  );
-}
-
 Future<void> initializePublicFeedBackgroundWork({
   TargetPlatform? platform,
   bool? isWeb,
   Workmanager? workmanager,
 }) async {
-  final target = platform ?? defaultTargetPlatform;
   await initializeAndroidPublicFeedWork(
-    platform: target,
+    platform: platform,
     isWeb: isWeb,
     workmanager: workmanager,
   );
-  await initializeIosPublicFeedWork(
-    platform: target,
-    isWeb: isWeb,
-    workmanager: workmanager,
-  );
+  await initializeIosPublicFeedWork(platform: platform, isWeb: isWeb);
 }

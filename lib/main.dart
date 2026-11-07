@@ -15,6 +15,7 @@ import 'services/app_diagnostics.dart';
 import 'services/app_logger.dart';
 import 'services/app_notifications.dart';
 import 'services/android_public_feed_work.dart';
+import 'services/ios_public_feed_work.dart';
 import 'services/public_feed_poller.dart';
 import 'services/electrumx_service.dart';
 import 'services/peercoin_network_service.dart';
@@ -110,7 +111,10 @@ class _SygnatureAppState extends State<SygnatureApp>
     final controllerFactory = widget.controllerFactory;
     if (controllerFactory == null) {
       _publicFeedStore = getApplicationSupportDirectory().then(
-        (directory) => PublicFeedStore.open(directory.path),
+        (directory) => PublicFeedStore.open(
+          directory.path,
+          onBindingsChanged: syncIosPublicFeedWork,
+        ),
       );
       unawaited(_startPublicFeedPolling());
       _protectionStore = _initializeVault();

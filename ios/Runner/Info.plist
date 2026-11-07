@@ -39,7 +39,7 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>network.noosphere.sygnature.public-feed.refresh</string>
+		<string>network.noosphere.sygnature.public-feed</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>

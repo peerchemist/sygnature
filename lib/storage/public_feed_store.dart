@@ -12,6 +12,10 @@ import 'public_feed_store_registry.dart'
     if (dart.library.ui) 'public_feed_store_registry_flutter.dart'
     as registry;
 
+import 'public_feed_directory.dart'
+    if (dart.library.ui) 'public_feed_directory_flutter.dart'
+    as protection;
+
 part 'public_feed_store_owner.dart';
 part 'public_feed_store_state.dart';
 
@@ -41,6 +45,7 @@ final class PublicFeedStore._(
   final SendPort _owner,
   final String _registryName,
   final String _clientId,
+  final Future<void> Function(PublicFeedStore)? _onBindingsChanged,
 ) {
   static const boxName = 'sygnature_public_feed_v1';
   static final _isolateId = _randomId();
@@ -54,7 +59,9 @@ final class PublicFeedStore._(
   static Future<PublicFeedStore> open(
     String directory, {
     void Function(Isolate)? onOwnerSpawned,
+    Future<void> Function(PublicFeedStore)? onBindingsChanged,
   }) async {
+    directory = await protection.preparePublicFeedDirectory(directory);
     await Directory(directory).create(recursive: true);
     final canonical = await Directory(directory).resolveSymbolicLinks();
     final name = 'sygnature-public-feed:$canonical';
@@ -77,7 +84,12 @@ final class PublicFeedStore._(
         }
         if (owner == null) continue;
       }
-      final store = PublicFeedStore._(owner, name, _randomId());
+      final store = PublicFeedStore._(
+        owner,
+        name,
+        _randomId(),
+        onBindingsChanged,
+      );
       try {
         // Only primitive messages cross Flutter engine isolate groups.
         Isolate.current.addOnExitListener(
@@ -181,15 +193,40 @@ final class PublicFeedStore._(
     required String address,
     required String pin,
     required String feedId,
-  }) => _request(['subscribe', groupId, address, pin, feedId]);
+  }) async {
+    final key = await _request<String>([
+      'subscribe',
+      groupId,
+      address,
+      pin,
+      feedId,
+    ]);
+    await _onBindingsChanged?.call(this);
+    return key;
+  }
+
   Future<String?> bindFeedFromSetup({
     required String groupId,
     required String address,
     required String pin,
     required String feedId,
-  }) => _request(['bindSetupFeed', groupId, address, pin, feedId]);
-  Future<void> unsubscribe(String groupId) =>
-      _request(['unsubscribe', groupId]);
+  }) async {
+    final key = await _request<String?>([
+      'bindSetupFeed',
+      groupId,
+      address,
+      pin,
+      feedId,
+    ]);
+    await _onBindingsChanged?.call(this);
+    return key;
+  }
+
+  Future<void> unsubscribe(String groupId) async {
+    await _request<void>(['unsubscribe', groupId]);
+    await _onBindingsChanged?.call(this);
+  }
+
   Future<String?> suppressNextLocalRequest({
     required String groupId,
     required PublicFeedCategory category,
@@ -231,6 +268,9 @@ final class PublicFeedStore._(
     leaseOwner,
   ]);
   Future<void> retry(String key) => _request(['retry', key]);
+  Future<void> advancePollingFeed(String owner, String nextKey) =>
+      _request(['advanceFeed', owner, nextKey]);
+
   Future<void> recordPoll(PublicFeedPollSource source, DateTime now) =>
       _request(['poll', source.name, now.toUtc().toIso8601String()]);
 }

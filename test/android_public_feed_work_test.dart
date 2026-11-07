@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -54,7 +55,9 @@ void main() {
     Future<PublicFeedStore> Function(String)? open,
     PublicFeedNotifications Function()? notificationFactory,
     PublicFeedBackgroundPoll? poll,
+    Duration? initializationBudget,
   }) => PublicFeedBackgroundTask(
+    initializationBudget: initializationBudget,
     initializePlugins:
         plugins ??
         () async {
@@ -125,6 +128,47 @@ void main() {
     expect(source, contains('initializePublicFeedNative()'));
   });
 
+  test('initialization deadline stops a stalled native loader before storage opens', () async {
+    var opened = false;
+    final nativeReady = Completer<void>();
+    expect(
+      await task(
+        initializationBudget: const Duration(milliseconds: 50),
+        native: () => nativeReady.future,
+        open: (path) async {
+          opened = true;
+          return PublicFeedStore.open(path);
+        },
+      ).execute(publicFeedWorkTaskName),
+      isFalse,
+    );
+    nativeReady.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(opened, isFalse);
+    expect(notifications.initializations, 0);
+  });
+
+  test(
+    'store completing after initialization timeout detaches its client',
+    () async {
+      final ready = Completer<PublicFeedStore>();
+      expect(
+        await task(
+          initializationBudget: const Duration(milliseconds: 50),
+          open: (_) => ready.future,
+        ).execute(publicFeedWorkTaskName),
+        isFalse,
+      );
+      final opened = await PublicFeedStore.open(directory.path);
+      ready.complete(opened);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await expectLater(opened.snapshot(), throwsStateError);
+      final reopened = await PublicFeedStore.open(directory.path);
+      expect((await reopened.snapshot())['pollingLease'], isNull);
+      await reopened.close();
+    },
+  );
+
   test('unknown names are successful no-ops without plugin or store initialization', () async {
     expect(
       await task(open: (_) => throw StateError('must not open'))
@@ -133,18 +177,6 @@ void main() {
     );
     expect(calls, isEmpty);
     expect(notifications.initializations, 0);
-  });
-
-  test('iOS refresh identifier runs the same public-only worker', () async {
-    var runs = 0;
-    expect(
-      await task(poll: (_, _) async => runs++)
-          .execute(iosPublicFeedRefreshTaskName),
-      isTrue,
-    );
-    expect(runs, 1);
-    expect(calls, ['plugins', 'native']);
-    expect(notifications.initializations, 1);
   });
 
   test('no subscriptions succeeds without recording a poll', () async {
@@ -436,44 +468,6 @@ void main() {
     }
     await initializeAndroidPublicFeedWork(
       platform: TargetPlatform.android,
-      isWeb: true,
-      workmanager: manager,
-    );
-    expect(manager.calls, isEmpty);
-  });
-
-  test('iOS startup schedules one BGAppRefresh catch-up task', () async {
-    final manager = RecordingWorkmanager();
-    await initializeIosPublicFeedWork(
-      platform: TargetPlatform.iOS,
-      isWeb: false,
-      workmanager: manager,
-    );
-    expect(manager.calls.map((call) => call.memberName), [
-      #initialize,
-      #registerPeriodicTask,
-    ]);
-    final registration = manager.calls.last;
-    expect(registration.positionalArguments, [
-      iosPublicFeedRefreshTaskName,
-      publicFeedWorkTaskName,
-    ]);
-    expect(
-      registration.namedArguments[#initialDelay],
-      const Duration(minutes: 15),
-    );
-    expect(registration.namedArguments[#inputData], isNull);
-  });
-
-  test('iOS work registration is ignored elsewhere and on web', () async {
-    final manager = RecordingWorkmanager();
-    await initializeIosPublicFeedWork(
-      platform: TargetPlatform.android,
-      isWeb: false,
-      workmanager: manager,
-    );
-    await initializeIosPublicFeedWork(
-      platform: TargetPlatform.iOS,
       isWeb: true,
       workmanager: manager,
     );

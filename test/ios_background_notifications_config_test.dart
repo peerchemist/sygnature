@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  const identifier = 'network.noosphere.sygnature.public-feed.refresh';
+  const identifier = 'network.noosphere.sygnature.public-feed';
 
   test('iOS declares the public-feed BGAppRefresh task and fetch mode', () {
     final plist = File('ios/Runner/Info.plist').readAsStringSync();
@@ -14,9 +14,23 @@ void main() {
     expect(plist, contains('<key>UIBackgroundModes</key>'));
     expect(plist, contains('<string>fetch</string>'));
     expect(plist, isNot(contains('<string>remote-notification</string>')));
-    expect(delegate, contains('WorkmanagerPlugin.registerPeriodicTask'));
-    expect(delegate, contains(identifier));
-    expect(delegate, contains('15 * 60'));
+    expect(plist, isNot(contains('<string>processing</string>')));
+    expect(delegate, contains('WorkmanagerPlugin.registerPeriodicTask('));
+    expect(delegate, contains('WorkmanagerPlugin.setPluginRegistrantCallback'));
+    expect(
+      delegate,
+      contains('earliestBeginInSeconds: NSNumber(value: 60 * 60)'),
+    );
+    expect(delegate, contains('FlutterLocalNotificationsPlugin.register'));
+    expect(delegate, contains('path_provider_foundation 2.6 uses Dart FFI'));
+    expect(
+      delegate,
+      contains('FileProtectionType.completeUntilFirstUserAuthentication'),
+    );
+    expect(
+      delegate,
+      contains('try files.setAttributes(attributes, ofItemAtPath: file.path)'),
+    );
   });
 
   test('iOS push capability uses environment-specific signing values', () {

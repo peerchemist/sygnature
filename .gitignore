@@ -53,6 +53,7 @@ app.*.map.json
 
 # Local project files
 roadmap.md
+/TODO.md
 .agents/
 evm-site
 

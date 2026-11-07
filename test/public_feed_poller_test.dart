@@ -688,4 +688,125 @@ void main() {
       expect((await feed())['outbox'], isEmpty);
     },
   );
+
+  test(
+    'page-limited background runs rotate feeds across cold starts',
+    () async {
+      await store.subscribe(
+        groupId: 'g2',
+        address: 'address-b',
+        pin: 'pin-b',
+        feedId: feedId.hex,
+      );
+      await store.subscribe(
+        groupId: 'g3',
+        address: 'address-c',
+        pin: 'pin-c',
+        feedId: feedId.hex,
+      );
+      final visited = <String>[];
+      for (var run = 0; run < 3; run++) {
+        await PublicFeedPoller(
+          store,
+          source: PublicFeedPollSource.background,
+          maxPages: 1,
+          maxPagesPerFeed: 1,
+          notify: (_, _) async => true,
+          connect: (feed) async {
+            visited.add(feed['pin'] as String);
+            // Busy feed always has more pages; others must still get a turn.
+            return FakeConnection(
+              (cursor) async =>
+                  page(cursor, cursor + 2, entries: [entry(cursor + 1)]),
+            );
+          },
+        ).run();
+        await store.close();
+        store = await PublicFeedStore.open(directory.path);
+      }
+      expect(visited, ['pin-a', 'pin-b', 'pin-c']);
+      expect((await store.snapshot())['pollingLease'], isNull);
+    },
+  );
+
+  test(
+    'short connection deadline lets another subscription make progress',
+    () async {
+      final other = await store.subscribe(
+        groupId: 'g2',
+        address: 'address-b',
+        pin: 'pin-b',
+        feedId: feedId.hex,
+      );
+      final stalled = Completer<FeedConnection>();
+      await PublicFeedPoller(
+        store,
+        maxDuration: const Duration(seconds: 2),
+        connectionTimeout: const Duration(milliseconds: 20),
+        maxPagesPerFeed: 1,
+        notify: (_, _) async => true,
+        connect: (feed) async => feed['pin'] == 'pin-a'
+            ? stalled.future
+            : FakeConnection((cursor) async => page(cursor, 7)),
+      ).run();
+      expect((await feed())['cursor'], 0);
+      expect((await feed())['retryAt'], isNotNull);
+      expect((await feed(other))['cursor'], 7);
+      final late = FakeConnection((_) async => page(0, 0));
+      stalled.complete(late);
+      await Future<void>.delayed(Duration.zero);
+      expect(late.closed, isTrue);
+    },
+  );
+
+  test(
+    'OS cancellation after fetch retains cursor and releases the lease',
+    () async {
+      var cancelled = false;
+      await PublicFeedPoller(
+        store,
+        notify: (_, _) async => true,
+        isCancelled: () async => cancelled,
+        connect: (_) async => FakeConnection((cursor) async {
+          cancelled = true;
+          return page(cursor, 1, entries: [entry(1)]);
+        }),
+      ).run();
+      expect((await feed())['cursor'], 0);
+      expect((await feed())['outbox'], isEmpty);
+      expect((await feed())['failures'], 0);
+      expect((await store.snapshot())['pollingLease'], isNull);
+      cancelled = false;
+      await poller(FakeConnection((cursor) async => page(cursor, 1))).run();
+      expect((await feed())['cursor'], 1);
+    },
+  );
+
+  test(
+    'cancellation after page commit preserves durable notification intent',
+    () async {
+      await baseline();
+      var checks = 0;
+      final ids = <int>[];
+      await PublicFeedPoller(
+        store,
+        isCancelled: () async => ++checks >= 4,
+        notify: (id, _) async {
+          ids.add(id);
+          return true;
+        },
+        connect: (_) async => FakeConnection(
+          (cursor) async => page(cursor, 1, entries: [entry(1)]),
+        ),
+      ).run();
+      expect((await feed())['cursor'], 1);
+      expect((await feed())['outbox'], hasLength(1));
+      expect(ids, isEmpty);
+      await store.close();
+      store = await PublicFeedStore.open(directory.path);
+      await poller(FakeConnection((cursor) async => page(cursor, 1))).run();
+      expect(shown, hasLength(1));
+      expect((await feed())['outbox'], isEmpty);
+    },
+  );
 }

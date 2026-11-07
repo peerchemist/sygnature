@@ -447,10 +447,40 @@ notification authorization. A release deployment still needs an APNs provider
 to associate the resulting device token with its opaque wake-up registration;
 APNs credentials never belong in the client.
 
-iOS chooses whether and when to run an app-refresh task. The 15-minute value is
-an earliest-begin hint, not a cadence, and refresh will not relaunch an app the
-user force-quit. Foreground polling remains active while Sygnature is open, so
-correctness never depends on either APNs or background execution.
+Android and iOS use `workmanager` with top-level Dart dispatchers retained by
+callback handle. The iOS worker carries no feed credentials in its input. Its
+stable `network.noosphere.sygnature.public-feed` task requests a 15-minute
+initial delay and is resubmitted with an hourly earliest-start hint. No active
+subscriptions means the pending task is cancelled. iOS enables `fetch`
+background mode and no `processing` mode.
+
+iOS chooses whether and when to run an app-refresh task. Both durations are
+scheduling hints, and refresh will not relaunch an app the user force-quit.
+Foreground polling remains active while Sygnature is open, so correctness never
+depends on either APNs or background execution.
+
+The iOS callback budgets approximately 18 seconds including dependency startup,
+fetches at most three pages with one page per feed, and limits each connection
+to five seconds. A persisted next-feed key provides fairness across engine and
+process restarts. The internal budget stops new work before the normal iOS
+expiration window, while the durable lease and atomic cursor/outbox boundary
+make interruption recoverable. Transient failures retain per-feed backoff. A
+committed outbox entry always reuses its notification ID until delivery is
+acknowledged.
+
+Only local notifications and the public-feed storage channel are registered
+natively in the iOS background engine. The locked `path_provider_foundation`
+2.6.0 uses Dart FFI and its Dart registrant, so there is no native path-provider
+plugin to register. Iroh/QUIC and coinlib are initialized without bootstrapping
+the wallet. Physical-device validation of the headless engine remains necessary.
+
+On iOS the public Hive files are created in `Application Support/public-feed`.
+That directory and existing public-feed files use
+`completeUntilFirstUserAuthentication`; newly created lock, Hive and compaction
+files inherit the directory protection. The encrypted wallet vault is separate.
+This permits refresh after the first device unlock following a reboot, including
+while the screen is subsequently locked. Before that first unlock, unavailable
+storage is an expected infrastructure failure.
 
 ### Durable state boundaries
 

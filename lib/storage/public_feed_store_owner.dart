@@ -118,6 +118,9 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
                   : DateTime.parse(operation[1] as String),
               duration: Duration(milliseconds: operation[2] as int),
             );
+          case 'advanceFeed':
+            _FeedState._checkLease(data, operation[1] as String);
+            data['nextPollingFeed'] = operation[2] as String;
           case 'release':
             await state.releasePollingLease(operation[1] as String);
           case 'host':
