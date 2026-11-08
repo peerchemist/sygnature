@@ -242,9 +242,7 @@ class const _SettingsScreen({
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      onPressed:
-                          notifications.supportsSystemNotifications &&
-                              notifications.systemEnabled
+                      onPressed: notifications.supportsSystemNotifications
                           ? () async {
                               final shown = await notifications.sendTest();
                               if (!shown && context.mounted) {

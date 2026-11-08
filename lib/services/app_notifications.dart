@@ -247,7 +247,10 @@ class AppNotifications({
 
   Future<bool> sendTest() async {
     if (_soundEnabled) _uiSounds.notificationTest(volume: _soundVolume);
-    if (!_systemEnabled || !supportsSystemNotifications) return false;
+    if (!supportsSystemNotifications ||
+        !await _ensureNotificationBackendInitialized(requestPermission: true)) {
+      return false;
+    }
     return _show(
       title: 'Sygnature notifications',
       body: 'System notifications are configured correctly.',

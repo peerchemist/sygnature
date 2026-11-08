@@ -262,9 +262,14 @@ void main() {
     delivery.roastSigningRequest();
     delivery.dkgRequest();
     delivery.roastGroupCreated();
-    expect(await delivery.sendTest(), isFalse);
+    expect(await delivery.sendTest(), isTrue);
 
     expect(sounds.cues, UiSoundCue.values);
+    expect(pluginCalls.map((call) => call.method), [
+      'initialize',
+      'requestNotificationsPermission',
+      'show',
+    ]);
     delivery.dispose();
   });
 
@@ -521,10 +526,7 @@ void main() {
         pluginCalls.add(call);
         return switch (call.method) {
           'initialize' => false,
-          'checkPermissions' => {
-            'isEnabled': true,
-            'isAlertEnabled': true,
-          },
+          'checkPermissions' => {'isEnabled': true, 'isAlertEnabled': true},
           _ => true,
         };
       });
@@ -537,6 +539,7 @@ void main() {
       expect(pluginCalls.map((call) => call.method), [
         'initialize',
         'checkPermissions',
+        'requestPermissions',
         'show',
       ]);
       delivery.dispose();
