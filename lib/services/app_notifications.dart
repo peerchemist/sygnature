@@ -107,7 +107,8 @@ class AppNotifications({
 
   Future<bool?> systemPermissionGranted() async {
     if (!supportsSystemNotifications) return null;
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
+    if (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       return _ensurePluginInitialized(checkPermission: true);
     }
     if (defaultTargetPlatform != TargetPlatform.android) {
@@ -120,7 +121,8 @@ class AppNotifications({
     if (!_systemEnabled &&
         !_systemPreferenceSet &&
         (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS)) {
+            defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
       final permissionReady = await _ensurePluginInitialized(
         checkPermission: true,
       );
@@ -448,6 +450,14 @@ class AppNotifications({
           return true;
         }
         return (await ios.checkPermissions())?.isEnabled ?? false;
+      }
+      if (defaultTargetPlatform == TargetPlatform.macOS && checkPermission) {
+        final macOS = _plugin
+            .resolvePlatformSpecificImplementation<
+              MacOSFlutterLocalNotificationsPlugin
+            >();
+        if (macOS == null) return false;
+        return (await macOS.checkPermissions())?.isEnabled ?? false;
       }
       if (requestPermission) {
         if (defaultTargetPlatform == TargetPlatform.macOS) {
