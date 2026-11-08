@@ -90,15 +90,14 @@ jobs:
           cache: true
           pub-cache: true
 
-      - name: Cache Rust, native builds, and CocoaPods downloads
+      - name: Cache Rust and native builds
         uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-            ~/Library/Caches/CocoaPods
             sygnature_ng/.dart_tool/hooks_runner/shared
-          key: ${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('sygnature_ng/pubspec.lock', 'sygnature_ng/macos/Podfile.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-native-${{ hashFiles('sygnature_ng/pubspec.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-native-
 
