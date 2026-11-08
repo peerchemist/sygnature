@@ -105,6 +105,17 @@ jobs:
         working-directory: sygnature_ng
         run: flutter pub get
 
+      - name: Use TCP for Apple ticket delivery on Intel
+        if: matrix.arch == 'x86_64'
+        shell: bash
+        # Temporary workaround for HTTP/3 connection drops on macos-15-intel:
+        # https://github.com/actions/runner-images/issues/14924#issuecomment-6188826956
+        # This firewall change is confined to the disposable hosted runner.
+        run: |
+          set -euo pipefail
+          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
+          sudo pfctl -E
+
       - name: Build macOS DMG
         working-directory: sygnature_ng
         env:
