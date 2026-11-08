@@ -519,20 +519,24 @@ void main() {
         call,
       ) async {
         pluginCalls.add(call);
-        return call.method != 'initialize';
+        return switch (call.method) {
+          'initialize' => false,
+          'checkPermissions' => {
+            'isEnabled': true,
+            'isAlertEnabled': true,
+          },
+          _ => true,
+        };
       });
 
       final delivery = AppNotifications();
       await delivery.initialize();
-      expect(delivery.systemEnabled, isFalse);
-      expect(pluginCalls, isEmpty);
-      expect(await delivery.setSystemEnabled(true), isTrue);
       expect(delivery.systemEnabled, isTrue);
       delivery.setSoundEnabled(false);
       expect(await delivery.sendTest(), isTrue);
       expect(pluginCalls.map((call) => call.method), [
         'initialize',
-        'requestPermissions',
+        'checkPermissions',
         'show',
       ]);
       delivery.dispose();
