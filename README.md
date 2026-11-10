@@ -1,6 +1,6 @@
-# Sygnature
+# Sygnature — Wallet for Workgroups
 
-Sygnature is a self-custody Peercoin wallet for individuals and groups. Its
+Sygnature is a self-custody cryptocoin wallet for individuals and groups. Its
 shared wallets combine multi-signature approval with multi-party computation
 (MPC): a group chooses how many participants must approve a payment, while
 threshold signing lets them authorize it together without ever assembling the
@@ -26,7 +26,7 @@ two-of-three arrangement: any two members can approve a payment, so one member
 cannot spend alone and one unavailable signer need not prevent the group from
 acting.
 
-Receive Peercoin at the shared wallet address, propose payments and review
+Receive cryptocoin at the shared wallet address, propose payments and review
 transaction details before approving them. Once enough participants approve,
 Sygnature combines their signing contributions and sends the transaction to
 the network. Recent Activity helps participants follow wallet setup, signing
@@ -49,9 +49,6 @@ Create personal wallets from an app-generated random root and manage multiple
 locally named wallets. Sygnature synchronizes balances and available funds, constructs
 payments and broadcasts signed transactions through ElectrumX servers.
 
-Both Peercoin mainnet and testnet are supported. Testnet provides a way to try
-wallet creation and shared approvals without using real funds.
-
 ## How a shared wallet works
 
 1. **Choose the group.** Decide who can sign and how many approvals are needed.
@@ -60,7 +57,7 @@ wallet creation and shared approvals without using real funds.
 2. **Join and create the wallet.** Each participant opens their invitation and
    connects. The group jointly generates the wallet, with each device keeping
    its own private signing share.
-3. **Receive funds.** Use the shared address to receive Peercoin like any other
+3. **Receive funds.** Use the shared address to receive cryptocoin like any other
    wallet.
 4. **Review and approve.** Propose a payment, check its destination, amount and
    fee, and collect the required approvals. Sygnature signs and broadcasts the
