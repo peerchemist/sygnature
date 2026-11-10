@@ -23,7 +23,7 @@ import 'package:noosphere_protocol/domain.dart'
         NewDkgDetails,
         thresholdBip86DerivationPath;
 import 'package:noosphere_flutter/noosphere_flutter.dart'
-    show NoosphereRoomInvite, NoosphereWorkerException;
+    show NoosphereRoomInvite, NoosphereWorkerException, RoomSnapshot;
 
 import '../models/electrumx_utxo.dart';
 import '../models/group_transition.dart';

@@ -263,7 +263,18 @@ extension WalletRoastSetupController on WalletController {
       );
       _roastKeyService.validateRoomInvite(draft, invite);
       phase = _RoastJoinPhase.enrollment;
-      final enrollment = await _roastRuntime!.joinRoom(draft, invite);
+      final runtime = _roastRuntime!;
+      late final RoomSnapshot enrollment;
+      try {
+        enrollment = await runtime.joinRoom(draft, invite);
+      } on RoastEnrollmentFailure catch (error) {
+        if (!error.outcomeMayBePersisted) rethrow;
+        AppLogger.info(
+          '${_roastLogScope(draft.id)} Enrollment response was interrupted; '
+          'recovering the committed result',
+        );
+        enrollment = await runtime.joinRoom(draft, invite);
+      }
       phase = _RoastJoinPhase.localSetup;
       final enrolled = _roastKeyService.applyRoomEnrollment(
         draft,
@@ -292,7 +303,7 @@ extension WalletRoastSetupController on WalletController {
         );
       });
       phase = _RoastJoinPhase.signerStartup;
-      final snapshot = await _roastRuntime.startSetup(enrolled);
+      final snapshot = await runtime.startSetup(enrolled);
       _setRoastPresence(
         enrolled.id,
         connected: snapshot.connected,

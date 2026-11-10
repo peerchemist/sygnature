@@ -14,6 +14,10 @@ import 'package:noosphere_flutter/noosphere_flutter.dart'
         NoosphereFlutter,
         NoosphereRoomInvite,
         RoomInvite,
+        RoomInviteSnapshot,
+        RoomInviteStatus,
+        RoomLifecycle,
+        RoomParticipantSnapshot,
         RoomSnapshot,
         SignaturesRequestDetails;
 import 'package:sygnature_ng/controllers/wallet_controller.dart';
@@ -1241,7 +1245,7 @@ void main() {
   });
 
   test(
-    'distinguishes enrollment rejection and interruption without retrying',
+    'rejects enrollment failures and retries ambiguous outcomes once',
     () async {
       final cases = <({RoastEnrollmentFailure failure, String message})>[
         for (final rejection in const [
@@ -1314,7 +1318,10 @@ void main() {
           throwsA(same(testCase.failure)),
         );
 
-        expect(runtime.joinRoomCalls, 1);
+        expect(
+          runtime.joinRoomCalls,
+          testCase.failure.outcomeMayBePersisted ? 2 : 1,
+        );
         expect(
           controller.roastSetups.single.errorMessage,
           contains(testCase.message),
@@ -1330,6 +1337,84 @@ void main() {
       }
     },
   );
+
+  test('recovers a committed enrollment after its response is lost', () async {
+    final repository = MemoryWalletRepository();
+    final runtime = _FakeRoastRuntime();
+    final controller = WalletController(
+      repository,
+      roastRuntime: runtime,
+      roastKeyService: _EnrollmentRoastKeyService(),
+    );
+    await controller.load();
+    final setupId = await controller.createRoastSetupDraft(
+      role: RoastSetupRole.member,
+      walletName: 'Enrollment recovery test',
+      participantName: 'Signer',
+      threshold: 2,
+      participantCount: 2,
+      network: PeercoinNetworks.mainnet,
+    );
+    final draft = controller.roastSetups.single;
+    final coordinatorEndpointId = Uint8List(32)..[0] = 1;
+    final invite = _roomInvite(
+      draft.localParticipant.publicKeyHex,
+      coordinatorEndpointId: coordinatorEndpointId,
+    );
+    final hostKey = ECCompressedPublicKey.fromPubkey(
+      ECPrivateKey.generate().pubkey,
+    );
+    final enrolledAt = DateTime.now().toUtc();
+    runtime
+      ..joinRoomError = RoastEnrollmentFailure(
+        kind: RoastEnrollmentFailureKind.connection,
+        cause: StateError('response lost'),
+      )
+      ..joinRoomFailuresRemaining = 1
+      ..joinRoomResult = RoomSnapshot(
+        roomId: invite.invite.roomId,
+        lifecycle: RoomLifecycle.enrolling,
+        expectedParticipants: 2,
+        threshold: 2,
+        coordinatorEndpointId: coordinatorEndpointId,
+        invites: [
+          for (final (id, key) in [
+            ('host', hostKey),
+            ('member', invite.invite.expectedParticipantPublicKey),
+          ])
+            RoomInviteSnapshot(
+              inviteId: id,
+              expectedParticipantPublicKey: key,
+              tokenHash: Uint8List(32),
+              issuedAt: enrolledAt,
+              expiresAt: enrolledAt.add(const Duration(days: 1)),
+              usedAt: enrolledAt,
+              revokedAt: null,
+              status: RoomInviteStatus.used,
+            ),
+        ],
+        participants: [
+          RoomParticipantSnapshot(
+            publicKey: hostKey,
+            enrolledAt: enrolledAt,
+            identifier: null,
+          ),
+          RoomParticipantSnapshot(
+            publicKey: invite.invite.expectedParticipantPublicKey,
+            enrolledAt: enrolledAt.add(const Duration(seconds: 1)),
+            identifier: null,
+          ),
+        ],
+        groupConfig: null,
+      );
+
+    await controller.joinRoastSetup(setupId, invite.encode());
+
+    expect(runtime.joinRoomCalls, 2);
+    expect(controller.roastSetups.single.isFinalized, isTrue);
+    expect(controller.roastSetups.single.errorMessage, isNull);
+    controller.dispose();
+  });
 
   test('deletes the last ROAST wallet and its local setup data', () async {
     final runtime = _FakeRoastRuntime();
@@ -3334,6 +3419,8 @@ class _FakeRoastRuntime implements RoastRuntime {
   RoastRuntimeSnapshot? startSnapshot;
   void Function()? afterRoomPrepared;
   Object? joinRoomError;
+  int? joinRoomFailuresRemaining;
+  RoomSnapshot? joinRoomResult;
   Object? signatureRequestError;
   Object? createRoomError;
   int createRoomCalls = 0;
@@ -3389,8 +3476,14 @@ class _FakeRoastRuntime implements RoastRuntime {
   Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) async {
     joinRoomCalls++;
     final error = joinRoomError;
-    if (error != null) throw error;
-    throw UnimplementedError();
+    final failuresRemaining = joinRoomFailuresRemaining;
+    if (error != null && (failuresRemaining == null || failuresRemaining > 0)) {
+      if (failuresRemaining != null) {
+        joinRoomFailuresRemaining = failuresRemaining - 1;
+      }
+      throw error;
+    }
+    return joinRoomResult ?? (throw UnimplementedError());
   }
 
   @override
