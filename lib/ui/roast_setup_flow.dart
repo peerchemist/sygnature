@@ -136,6 +136,7 @@ class const RoastSetupPanel({
         setup,
         if (setup != null) ...[
           controller.roastOperationInProgress(setup.id),
+          controller.roastJoinStage(setup.id),
           controller.roastMessageSigningInProgress(setup.id),
           controller.roastCoordinatorState(setup.id),
           controller.roastCoordinatorRecovery(setup.id),
@@ -152,6 +153,7 @@ class const RoastSetupPanel({
     final setup = controller.setupForAccount(account);
     if (setup == null) return const SizedBox.shrink();
     final messageSigning = controller.roastMessageSigningInProgress(setup.id);
+    final joinStage = controller.roastJoinStage(setup.id);
     final busy =
         controller.roastOperationInProgress(setup.id) || messageSigning;
     final onlineSigners = controller.onlineSignerCount(setup);
@@ -404,7 +406,22 @@ class const RoastSetupPanel({
               const SizedBox(height: 16),
               Wrap(spacing: 10, runSpacing: 10, children: actions),
             ],
-            if (busy) ...[
+            if (joinStage != null) ...[
+              const SizedBox(height: 14),
+              Row(
+                key: const Key('roast-join-progress'),
+                children: [
+                  const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(_roastJoinStageText(joinStage))),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(minHeight: 3),
+            ] else if (busy) ...[
               const SizedBox(height: 14),
               const LinearProgressIndicator(minHeight: 3),
             ],
@@ -413,6 +430,20 @@ class const RoastSetupPanel({
       ),
     );
   }
+
+  String _roastJoinStageText(RoastJoinStage stage) => switch (stage) {
+    RoastJoinStage.validatingInvitation =>
+      'Validating your personal invitation…',
+    RoastJoinStage.findingCoordinator =>
+      'Finding the Iroh peer and resolving its address…',
+    RoastJoinStage.recoveringEnrollment =>
+      'Connection interrupted; checking whether the coordinator accepted '
+          'the join…',
+    RoastJoinStage.savingWallet =>
+      'Enrollment confirmed; saving the shared wallet…',
+    RoastJoinStage.connectingSigner =>
+      'Wallet joined; connecting the ROAST signer…',
+  };
 
   List<Widget> _actions(BuildContext context, RoastSetup setup, bool busy) {
     if (setup.requiresBackupReconciliation) {

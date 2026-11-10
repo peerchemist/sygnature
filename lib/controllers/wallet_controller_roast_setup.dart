@@ -15,6 +15,7 @@ extension WalletRoastSetupController on WalletController {
 
   bool roastOperationInProgress(String setupId) =>
       _roastOperations.contains(setupId);
+  RoastJoinStage? roastJoinStage(String setupId) => _roastJoinStages[setupId];
   List<RoastIssuedInvitation> issuedRoastInvitations(String setupId) =>
       _setupById(setupId).invitations;
   int enrolledRoastParticipantCount(RoastSetup setup) {
@@ -254,6 +255,10 @@ extension WalletRoastSetupController on WalletController {
     if (!draft.isWaitingForInvitation) {
       throw StateError('This setup is not waiting for an invitation.');
     }
+    if (_busy || !_roastOperations.add(setupId)) {
+      throw const WalletBusyFailure();
+    }
+    _setRoastJoinStage(setupId, RoastJoinStage.validatingInvitation);
     var phase = _RoastJoinPhase.invitation;
     try {
       // This validates the bound identity key before the runtime opens Iroh.
@@ -263,6 +268,7 @@ extension WalletRoastSetupController on WalletController {
       );
       _roastKeyService.validateRoomInvite(draft, invite);
       phase = _RoastJoinPhase.enrollment;
+      _setRoastJoinStage(setupId, RoastJoinStage.findingCoordinator);
       final runtime = _roastRuntime!;
       late final RoomSnapshot enrollment;
       try {
@@ -273,9 +279,11 @@ extension WalletRoastSetupController on WalletController {
           '${_roastLogScope(draft.id)} Enrollment response was interrupted; '
           'recovering the committed result',
         );
+        _setRoastJoinStage(setupId, RoastJoinStage.recoveringEnrollment);
         enrollment = await runtime.joinRoom(draft, invite);
       }
       phase = _RoastJoinPhase.localSetup;
+      _setRoastJoinStage(setupId, RoastJoinStage.savingWallet);
       final enrolled = _roastKeyService.applyRoomEnrollment(
         draft,
         invite.invite,
@@ -303,6 +311,7 @@ extension WalletRoastSetupController on WalletController {
         );
       });
       phase = _RoastJoinPhase.signerStartup;
+      _setRoastJoinStage(setupId, RoastJoinStage.connectingSigner);
       final snapshot = await runtime.startSetup(enrolled);
       _setRoastPresence(
         enrolled.id,
@@ -338,7 +347,17 @@ extension WalletRoastSetupController on WalletController {
         ),
       );
       rethrow;
+    } finally {
+      _roastJoinStages.remove(setupId);
+      _roastOperations.remove(setupId);
+      _notifyListeners();
     }
+  }
+
+  void _setRoastJoinStage(String setupId, RoastJoinStage stage) {
+    if (_roastJoinStages[setupId] == stage) return;
+    _roastJoinStages[setupId] = stage;
+    _notifyListeners();
   }
 
   Future<void> _updateRoastInvitation(

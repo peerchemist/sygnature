@@ -68,6 +68,14 @@ enum RoastCoordinatorLocalState {
   recoveryRequired,
 }
 
+enum RoastJoinStage {
+  validatingInvitation,
+  findingCoordinator,
+  recoveringEnrollment,
+  savingWallet,
+  connectingSigner,
+}
+
 class RoastSigningInboxItem({
   required final String setupId,
   required final String walletName,
@@ -204,6 +212,7 @@ class WalletController extends ChangeNotifier {
   Future<void> _roastEventQueue = Future.value();
   Future<void> _utxoReconciliationQueue = Future.value();
   final Set<String> _roastOperations = {};
+  final Map<String, RoastJoinStage> _roastJoinStages = {};
   final Map<String, Future<void>> _roastStarts = {};
   final Map<String, Timer> _roastReconnectTimers = {};
   final Map<String, int> _roastReconnectAttempts = {};

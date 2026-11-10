@@ -50,7 +50,6 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-
     final runtime = _FakeRoastRuntime();
     final repository = MemoryWalletRepository()
       ..value = WalletVault(
@@ -371,6 +370,7 @@ void main() {
 
     final keyService = _FakeRoastKeyService()..acceptInvitation = true;
     final runtime = _FakeRoastRuntime()
+      ..joinRoomGate = Completer<void>()
       ..joinSnapshot = RoastRuntimeSnapshot(
         connected: true,
         signerRunning: true,
@@ -423,9 +423,19 @@ void main() {
     expect(find.text('2 of 2 signers required'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('roast-invite-link-join')));
+    await tester.pump();
+
+    expect(find.byKey(const Key('roast-join-progress')), findsOneWidget);
+    expect(
+      find.text('Finding the Iroh peer and resolving its address…'),
+      findsOneWidget,
+    );
+
+    runtime.joinRoomGate!.complete();
     await tester.pumpAndSettle();
 
     expect(keyService.appliedInvitation, invitation);
+    expect(find.byKey(const Key('roast-join-progress')), findsNothing);
     expect(find.text('Could not join shared wallet'), findsNothing);
     expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
     final configuredSetupId = controller.roastSetups.single.id;
@@ -2142,6 +2152,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   List<RoastSigningRequest> snapshotSigningRequests = const [];
   RoastRuntimeSnapshot? joinSnapshot;
   Object? joinRoomError;
+  Completer<void>? joinRoomGate;
   RoastRoomCreation? roomCreation;
   Object? createRoomError;
   Completer<void>? signatureRequestGate;
@@ -2188,6 +2199,7 @@ class _FakeRoastRuntime implements RoastRuntime {
 
   @override
   Future<RoomSnapshot> joinRoom(setup, NoosphereRoomInvite invite) async {
+    await joinRoomGate?.future;
     if (joinRoomError case final error?) throw error;
     final now = DateTime.now().toUtc();
     final hostPublicKey = ECCompressedPublicKey.fromPubkey(

@@ -1408,9 +1408,26 @@ void main() {
         groupConfig: null,
       );
 
+    final observedStages = <RoastJoinStage?>[];
+    controller.addListener(() {
+      final stage = controller.roastJoinStage(setupId);
+      if (observedStages.isEmpty || observedStages.last != stage) {
+        observedStages.add(stage);
+      }
+    });
+
     await controller.joinRoastSetup(setupId, invite.encode());
 
     expect(runtime.joinRoomCalls, 2);
+    expect(observedStages, [
+      RoastJoinStage.validatingInvitation,
+      RoastJoinStage.findingCoordinator,
+      RoastJoinStage.recoveringEnrollment,
+      RoastJoinStage.savingWallet,
+      RoastJoinStage.connectingSigner,
+      null,
+    ]);
+    expect(controller.roastOperationInProgress(setupId), isFalse);
     expect(controller.roastSetups.single.isFinalized, isTrue);
     expect(controller.roastSetups.single.errorMessage, isNull);
     controller.dispose();

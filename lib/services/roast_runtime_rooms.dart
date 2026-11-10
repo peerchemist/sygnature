@@ -1,5 +1,7 @@
 part of 'roast_runtime_manager.dart';
 
+const _roomEnrollmentTimeout = Duration(seconds: 30);
+
 extension _RoastRoomRuntime on RoastRuntimeManager {
   Future<RoastRoomCreation> _createRoom(
     RoastSetup setup, {
@@ -244,6 +246,8 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
           group: RoastRuntimeManager._bootstrapGroup(setup.groupId),
         ),
         roomPublicFeeds: {setup.groupId: ?publicFeed},
+        authTimeout: _roomEnrollmentTimeout,
+        rpcTimeout: _roomEnrollmentTimeout,
         maxStreamsPerConnection: defaultServerMaxStreamsPerConnection,
       ),
       secretKey: secretKey,
@@ -380,5 +384,22 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
   Future<RoomSnapshot> _joinRoomInvite(
     RoomInvite invite,
     ECPrivateKey privateKey,
-  ) => IrohRoomEnrollmentApi.joinRoom(invite, (_) async => privateKey);
+  ) async {
+    final coordinatorId = EndpointId.fromBytes(invite.coordinatorEndpointId);
+    final api = await IrohRoomEnrollmentApi.connect(
+      IrohClientTransportConfig(
+        bootstrapAddress: EndpointAddr(coordinatorId),
+        pinnedServerId: coordinatorId,
+        connectTimeout: _roomEnrollmentTimeout,
+        authTimeout: _roomEnrollmentTimeout,
+        rpcTimeout: _roomEnrollmentTimeout,
+      ),
+    );
+    try {
+      return await RoomEnrollmentClient(api)
+          .joinRoom(invite, (_) async => privateKey);
+    } finally {
+      await api.close();
+    }
+  }
 }
