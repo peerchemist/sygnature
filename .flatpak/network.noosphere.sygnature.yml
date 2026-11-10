@@ -7,6 +7,9 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 command: sygnature
 
+cleanup:
+  - /flutter
+
 finish-args:
   - --share=ipc
   - --share=network
@@ -17,6 +20,23 @@ finish-args:
   - --talk-name=org.freedesktop.secrets
 
 modules:
+  - name: flutter-sdk
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - flutter/bin/flutter config --no-analytics
+      - flutter/bin/flutter precache --linux
+      - install -d /app/flutter
+      - cp -a flutter/. /app/flutter/
+    sources:
+      - type: git
+        url: https://github.com/flutter/flutter.git
+        commit: c197ca5199e9ee5661e865596c9c07294dfab51c
+        tag: 3.47.9
+        dest: flutter
+
   - name: sygnature
     buildsystem: simple
     build-options:
@@ -28,6 +48,7 @@ modules:
         CARGO_HOME: /run/build/sygnature/.cargo
         PUB_CACHE: /run/build/sygnature/.pub-cache
     build-commands:
+      - cp -a --reflink=auto /app/flutter flutter
       - flutter/bin/flutter config --no-analytics
       - cd app && ../flutter/bin/flutter pub get
       - cd app && ../flutter/bin/flutter build linux --release --no-pub
@@ -70,12 +91,8 @@ modules:
           - linux/flutter/ephemeral
           - macos/Flutter/ephemeral
           - sygnature_ng.iml
+          - todo.md
           - windows/flutter/ephemeral
-      - type: git
-        url: https://github.com/flutter/flutter.git
-        commit: c197ca5199e9ee5661e865596c9c07294dfab51c
-        tag: 3.47.9
-        dest: flutter
       - type: file
         path: rustup
         dest: rustup-wrapper

@@ -38,6 +38,7 @@ mkdir -p "$output_dir" "$repo_dir"
 flatpak-builder \
   --user \
   --force-clean \
+  --delete-build-dirs \
   --ccache \
   --state-dir="$state_dir" \
   --install-deps-from=flathub \
