@@ -46,17 +46,22 @@ class const AboutScreen({super.key}) extends StatelessWidget {
                           ),
                           const SizedBox(height: 24),
                           Text(
-                            'A Peercoin wallet built for individual and shared '
-                            'ownership.',
+                            'Wallet for Workgroups',
                             style: Theme.of(context).textTheme.headlineMedium,
                           ),
                           const SizedBox(height: 16),
                           const Text(
-                            'Sygnature is a cross-platform Peercoin light '
-                            'wallet for managing personal, watch-only, and '
-                            'ROAST threshold wallets. Private keys and signer '
-                            'shares stay on your device while ElectrumX keeps '
-                            'wallet balances and transactions in sync.',
+                            'Sygnature is a cross-platform, self-custody '
+                            'cryptocoin wallet for individuals and groups. '
+                            'Shared wallets combine multi-signature approval '
+                            'with multi-party computation (MPC), allowing a '
+                            'chosen threshold of participants to authorize '
+                            'payments together without ever assembling the '
+                            'complete private key. Each participant keeps a '
+                            'private signing share on their own device, while '
+                            'ElectrumX keeps wallet balances and transactions '
+                            'in sync. Personal and watch-only wallets are '
+                            'supported too.',
                           ),
                         ],
                       ),

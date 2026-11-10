@@ -686,7 +686,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('About'), findsOneWidget);
-    expect(find.textContaining('Peercoin light wallet'), findsOneWidget);
+    expect(find.text('Wallet for Workgroups'), findsOneWidget);
+    expect(
+      find.textContaining('multi-party computation (MPC)'),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('about-version')), findsOneWidget);
     expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
     expect(find.byKey(const Key('licenses-button')), findsOneWidget);
