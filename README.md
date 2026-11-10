@@ -1,10 +1,15 @@
 # Sygnature
 
-Sygnature is a self-custody Peercoin wallet for individuals and groups. Think of
-it as a shared digital safe: several people can manage the same funds, with an
-agreed number of approvals required to make a payment. Each participant holds
-a private signing share on their own device; the complete private key is never
-assembled. Ordinary personal wallets are supported too.
+Sygnature is a self-custody Peercoin wallet for individuals and groups. Its
+shared wallets combine multi-signature approval with multi-party computation
+(MPC): a group chooses how many participants must approve a payment, while
+threshold signing lets them authorize it together without ever assembling the
+complete private key.
+
+Each participant keeps a private signing share on their own device. Approved
+payments produce ordinary Taproot signatures instead of exposing an on-chain
+multisig script, keeping the number of participants and approval threshold
+private. Ordinary personal wallets are supported alongside shared wallets.
 
 A team treasury, community fund or family savings pool can use Sygnature to
 share responsibility without giving one person sole control of the money.
@@ -15,10 +20,11 @@ share responsibility without giving one person sole control of the money.
 
 ### Manage funds together
 
-Create a shared wallet and choose how many participants must approve spending.
-For example, a club could use a two-of-three arrangement: any two members can
-approve a payment, so one member cannot spend alone and one unavailable signer
-need not prevent the group from acting.
+Create a shared wallet and set its multi-signature policy by choosing how many
+participants must approve spending. For example, a club could use a
+two-of-three arrangement: any two members can approve a payment, so one member
+cannot spend alone and one unavailable signer need not prevent the group from
+acting.
 
 Receive Peercoin at the shared wallet address, propose payments and review
 transaction details before approving them. Once enough participants approve,
@@ -60,20 +66,13 @@ wallet creation and shared approvals without using real funds.
    fee, and collect the required approvals. Sygnature signs and broadcasts the
    transaction when the threshold is met.
 
-## Shared control, private signing policy
-
-Sygnature uses **threshold signatures**, rather than an on-chain multisig
-script. Shared payments look like ordinary single-signature Taproot
-transactions: the signature does not reveal the number of participants or the
-approval threshold. This keeps the signing arrangement private, but does not
-hide payment amounts or transaction history.
-
-Under the hood, ROAST coordinates FROST signing rounds so that enough responsive
-signers can complete a signature even when other signers are unavailable. The
-app uses Noosphere for coordination and encrypted [Iroh](https://www.iroh.computer/)
-connections between participants and the group's coordinator, without a central
-Sygnature service. The coordinator must be available for the group to work,
-but cannot authorize a payment on its own.
+Under the hood, [ROAST](https://eprint.iacr.org/2022/550) coordinates
+[FROST](https://eprint.iacr.org/2020/852) signing rounds so that enough
+responsive signers can complete a signature even when other signers are
+unavailable. The app uses Noosphere for coordination and encrypted
+[Iroh](https://www.iroh.computer/) connections between participants and the
+group's coordinator, without a central Sygnature service. The coordinator must
+be available for the group to work, but cannot authorize a payment on its own.
 
 Secret wallet material and shared-wallet state are stored in encrypted local
 vaults backed by platform secure storage. Signing requests are validated against
