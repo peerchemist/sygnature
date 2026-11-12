@@ -56,7 +56,9 @@ for tool in flutter adb; do
 done
 
 cd -- "$project_dir"
-flutter build apk "--$build_mode"
+flutter build apk \
+  "--$build_mode" \
+  --target-platform android-arm64,android-x64
 
 readonly apk="$project_dir/build/app/outputs/flutter-apk/app-$build_mode.apk"
 if [[ ! -f "$apk" ]]; then

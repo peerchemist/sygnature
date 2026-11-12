@@ -59,6 +59,7 @@ jobs:
         working-directory: sygnature_ng
         run: >-
           flutter build apk --release
+          --target-platform android-arm64,android-x64
           --android-project-arg=sygnatureApplicationIdSuffix=.alfa
 
       - name: Upload APK

@@ -38,7 +38,7 @@ installation, run:
 
 ```sh
 flutter pub get
-flutter build apk --release --no-pub
+flutter build apk --release --no-pub --target-platform android-arm64,android-x64
 ```
 
 The release APK is written to
