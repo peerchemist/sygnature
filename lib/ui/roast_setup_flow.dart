@@ -219,13 +219,16 @@ class const RoastSetupPanel({
               ],
             ),
             if (setup.isFinalized) ...[
-              const SizedBox(height: 14),
-              _CoordinatorConnectionStatus(
-                key: ValueKey('${setup.id}-${coordinatorState.name}'),
-                state: coordinatorState,
-                endpointId: setup.coordinatorId,
-                remainingSigners: setup.participantCount - enrolledSigners,
-              ),
+              if (setup.role != RoastSetupRole.host ||
+                  coordinatorState != RoastCoordinatorLocalState.connected) ...[
+                const SizedBox(height: 14),
+                _CoordinatorConnectionStatus(
+                  key: ValueKey('${setup.id}-${coordinatorState.name}'),
+                  state: coordinatorState,
+                  endpointId: setup.coordinatorId,
+                  remainingSigners: setup.participantCount - enrolledSigners,
+                ),
+              ],
               if (setup.role == RoastSetupRole.host &&
                   setup.invitations.isNotEmpty) ...[
                 _RoastEnrollmentProgress(
