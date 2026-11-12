@@ -1008,15 +1008,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('coordinator-connected')), findsOneWidget);
+    expect(find.byKey(const Key('coordinator-connected')), findsNothing);
     expect(find.text('Shared key secured on this device'), findsOneWidget);
     expect(find.text('ROAST operation was interrupted'), findsNothing);
     expect(find.text('Coordinator connection lost.'), findsNothing);
     expect(controller.roastSetups.single.status, RoastSetupStatus.active);
     expect(controller.roastSetups.single.errorMessage, isNull);
-    await tester.tap(find.byTooltip('Dismiss coordinator status'));
-    await tester.pump();
-    expect(find.byKey(const Key('coordinator-connected')), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -1176,7 +1173,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('coordinator-connected')), findsOneWidget);
+    expect(find.byKey(const Key('coordinator-connected')), findsNothing);
     await tester.tap(find.byTooltip('Wallet settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Change ROAST coordinator'));
