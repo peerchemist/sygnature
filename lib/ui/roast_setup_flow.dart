@@ -159,6 +159,18 @@ class const RoastSetupPanel({
     final onlineSigners = controller.onlineSignerCount(setup);
     final enrolledSigners = controller.enrolledRoastParticipantCount(setup);
     final coordinatorState = controller.roastCoordinatorState(setup.id);
+    final coordinatorIdentity =
+        setup.status == RoastSetupStatus.ready &&
+            setup.role == RoastSetupRole.host &&
+            enrolledSigners >= setup.participantCount &&
+            setup.coordinatorId != null
+        ? '${setup.coordinatorId}\n${setup.localParticipant.publicKeyHex}'
+        : null;
+    final statusStyle = TextStyle(
+      color: AppColors.of(context).inkMuted,
+      fontSize: 12,
+      height: 1.35,
+    );
     final actions = _actions(context, setup, busy);
     final errorMessage = _displayError(setup);
     final memberInstructions = _isMobilePlatform
@@ -203,14 +215,30 @@ class const RoastSetupPanel({
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 3),
-                      Text(
-                        _statusText(setup, enrolledSigners),
-                        style: TextStyle(
-                          color: AppColors.of(context).inkMuted,
-                          fontSize: 12,
-                          height: 1.35,
-                        ),
-                      ),
+                      coordinatorIdentity == null
+                          ? Text(
+                              _statusText(setup, enrolledSigners),
+                              style: statusStyle,
+                            )
+                          : Wrap(
+                              children: [
+                                Text(
+                                  'All $enrolledSigners signers joined · ',
+                                  style: statusStyle,
+                                ),
+                                InkWell(
+                                  onTap: () => _copy(
+                                    context,
+                                    coordinatorIdentity,
+                                    'Coordinator Iroh ID and ROAST public key copied.',
+                                  ),
+                                  child: Text(
+                                    'coordinator online',
+                                    style: statusStyle,
+                                  ),
+                                ),
+                              ],
+                            ),
                     ],
                   ),
                 ),
