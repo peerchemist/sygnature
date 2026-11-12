@@ -147,9 +147,11 @@ final class PublicFeedPoller(
         continue;
       }
       FeedConnection? client;
+      var stage = _FeedPollStage.notificationDelivery;
       try {
         // Drain committed intent even when the coordinator is temporarily offline.
         await _deliver(key, feed, timeLeft, owner);
+        stage = _FeedPollStage.coordinatorConnection;
         var abandoned = false;
         final connecting = connect(feed).then((connection) async {
           if (abandoned) {
@@ -174,6 +176,7 @@ final class PublicFeedPoller(
           if (await isCancelled?.call() ?? false) break;
           remaining--;
           feedPages++;
+          stage = _FeedPollStage.feedRequest;
           final page = await client
               .fetch(
                 PublicFeedId(feed['feedId'] as String),
@@ -185,6 +188,7 @@ final class PublicFeedPoller(
               (await isCancelled?.call() ?? false)) {
             break;
           }
+          stage = _FeedPollStage.responseStorage;
           await store.commitPage(
             key,
             page,
@@ -192,6 +196,7 @@ final class PublicFeedPoller(
             leaseOwner: owner,
           );
           feed = ((await store.snapshot())['feeds'] as Map)[key] as Map;
+          stage = _FeedPollStage.notificationDelivery;
           await _deliver(key, feed, timeLeft, owner);
           if (!page.hasMore) break;
         }
@@ -242,11 +247,18 @@ final class PublicFeedPoller(
           DateTime.now(),
           leaseOwner: owner,
         );
+      } on TimeoutException {
+        await store.failure(
+          key,
+          stage.timeoutIssue,
+          DateTime.now(),
+          leaseOwner: owner,
+        );
       } on Object {
         // Do not log arbitrary transport errors: they may include capabilities.
         await store.failure(
           key,
-          'Public feed connection or notification failed. Retrying later.',
+          stage.failureIssue,
           DateTime.now(),
           leaseOwner: owner,
         );
@@ -293,3 +305,40 @@ final class PublicFeedPoller(
 }
 
 final class const _FeedPollCancelled() implements Exception;
+
+enum _FeedPollStage {
+  notificationDelivery,
+  coordinatorConnection,
+  feedRequest,
+  responseStorage;
+
+  String get timeoutIssue => switch (this) {
+    notificationDelivery =>
+      'A public feed update was received, but system notification delivery '
+          'timed out. Check notification permission and system settings. '
+          'Retrying later.',
+    coordinatorConnection =>
+      'Coordinator connection timed out. The phone could not establish an '
+          'Iroh connection before the polling deadline. Check that the '
+          'coordinator is online and reachable. Retrying later.',
+    feedRequest =>
+      'Public feed request timed out after connecting to the coordinator. '
+          'Retrying later.',
+    responseStorage => 'Timed out while saving the public feed response locally. Retrying later.',
+  };
+
+  String get failureIssue => switch (this) {
+    notificationDelivery =>
+      'A public feed update was received, but system notification delivery '
+          'failed. Check notification permission and system settings. '
+          'Retrying later.',
+    coordinatorConnection =>
+      'Unable to connect to the coordinator over Iroh. Check coordinator '
+          'availability and the phone network. Retrying later.',
+    feedRequest =>
+      'Public feed request failed after connecting to the coordinator. '
+          'Retrying later.',
+    responseStorage =>
+      'The public feed response could not be saved locally. Retrying later.',
+  };
+}

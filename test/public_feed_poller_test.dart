@@ -336,6 +336,10 @@ void main() {
     await service.run();
     expect((await feed())['cursor'], 1); // Atomically committed with intent.
     expect(((await feed())['outbox'] as Map).length, 1);
+    expect(
+      (await feed())['issue'],
+      contains('system notification delivery failed'),
+    );
     await store.close();
     store = await PublicFeedStore.open(directory.path);
     await store.retry(key);
@@ -528,7 +532,7 @@ void main() {
       notify: (_, _) async => true,
       connect: (_) async {
         connections++;
-        throw const SocketException('offline');
+        throw const SocketException('sensitive endpoint must not be persisted');
       },
     );
     await service.run();
@@ -537,6 +541,12 @@ void main() {
     expect((await feed())['cursor'], 0);
     expect((await feed())['retryAt'], isNotNull);
     expect((await feed())['blocked'], isFalse);
+    expect(
+      (await feed())['issue'],
+      'Unable to connect to the coordinator over Iroh. Check coordinator '
+      'availability and the phone network. Retrying later.',
+    );
+    expect((await feed())['issue'], isNot(contains('sensitive endpoint')));
   });
 
   test(
@@ -632,7 +642,10 @@ void main() {
       ).run();
       expect(connection.closed, isTrue);
       expect((await feed())['cursor'], 0);
-      expect((await feed())['issue'], contains('Retrying later'));
+      expect(
+        (await feed())['issue'],
+        contains('Public feed request timed out after connecting'),
+      );
     },
   );
 
@@ -664,6 +677,10 @@ void main() {
       );
       await service.run();
       expect((await feed())['cursor'], 0);
+      expect(
+        (await feed())['issue'],
+        contains('Coordinator connection timed out'),
+      );
       ready.complete(connection);
       await Future<void>.delayed(Duration.zero);
       expect(connection.closed, isTrue);
