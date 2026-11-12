@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Sygnature
-Comment=Peercoin wallet with ROAST threshold signing
+Comment=A wallet for workgroups
 Exec=sygnature %u
 Icon=network.noosphere.sygnature
 Terminal=false

@@ -2,15 +2,18 @@
 <component type="desktop-application">
   <id>network.noosphere.sygnature</id>
   <name>Sygnature</name>
-  <summary>Peercoin wallet with ROAST threshold signing</summary>
+  <summary>Wallet for Workgroups</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LicenseRef-proprietary</project_license>
   <description>
     <p>
-      Sygnature is a Peercoin light wallet for personal and ROAST threshold
-      wallets. It supports Taproot transactions, ElectrumX synchronization,
-      and distributed signing without any participant holding the complete
-      private key.
+      Sygnature is a cross-platform, self-custody cryptocoin wallet for
+      individuals and groups. Shared wallets combine multi-signature approval
+      with multi-party computation (MPC), allowing a chosen threshold of
+      participants to authorize payments together without ever assembling the
+      complete private key. Each participant keeps a private signing share on
+      their own device, while ElectrumX keeps wallet balances and transactions
+      in sync. Personal and watch-only wallets are supported too.
     </p>
   </description>
   <launchable type="desktop-id">network.noosphere.sygnature.desktop</launchable>
@@ -21,6 +24,6 @@
   <content_rating type="oars-1.1" />
   <releases>
     <!-- The Flatpak build replaces this version from pubspec.yaml. -->
-    <release version="0.9.50" date="2026-10-11" />
+    <release version="0.9.65" date="2026-10-11" />
   </releases>
 </component>
