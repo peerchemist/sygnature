@@ -190,6 +190,13 @@ extension WalletRoastCoordinatorController on WalletController {
     );
   }
 
+  Future<void> reconnectRoastSetup(String setupId) {
+    final setup = _setupById(setupId);
+    return setup.role == RoastSetupRole.host
+        ? resetHostedRoastCoordinator(setupId)
+        : resumeRoastSetup(setupId);
+  }
+
   Future<void> resetHostedRoastCoordinator(String setupId) async {
     final setup = _setupById(setupId);
     if (setup.role != RoastSetupRole.host) {

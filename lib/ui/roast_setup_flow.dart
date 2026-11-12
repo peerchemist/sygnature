@@ -658,14 +658,19 @@ class const RoastSetupPanel({
         setup.status == RoastSetupStatus.interrupted) {
       return [
         FilledButton.icon(
+          key: const Key('reconnect-roast-setup'),
           onPressed: busy
               ? null
               : () => _perform(
                   context,
-                  () => controller.resumeRoastSetup(setup.id),
+                  () => controller.reconnectRoastSetup(setup.id),
                 ),
           icon: const Icon(Icons.refresh_rounded),
-          label: const Text('Reconnect'),
+          label: Text(
+            setup.role == RoastSetupRole.host
+                ? 'Reconnect coordinator'
+                : 'Reconnect',
+          ),
         ),
       ];
     }

@@ -110,7 +110,15 @@ extension WalletRoastEventController on WalletController {
           ),
         );
       case RoastRuntimeSnapshotEvent():
-        if (event.connected && event.signerRunning) {
+        final healthy = event.connected && event.signerRunning;
+        final previousPresence = _roastPresence[event.setupId];
+        final connectionLost =
+            !_busy &&
+            !_roastOperations.contains(event.setupId) &&
+            previousPresence?.connected == true &&
+            previousPresence?.signerRunning == true &&
+            !healthy;
+        if (healthy) {
           _cancelRoastReconnect(event.setupId);
         }
         final presenceChanged = _setRoastPresence(
@@ -121,15 +129,25 @@ extension WalletRoastEventController on WalletController {
         );
         await _updateSetup(setup.id, (setup) {
           final recovered =
-              event.connected &&
-              event.signerRunning &&
+              healthy &&
               (setup.status == RoastSetupStatus.connecting ||
                   setup.status == RoastSetupStatus.interrupted);
           return setup.copyWith(
             coordinatorId: event.coordinatorId,
             coordinatorRelayUrls: event.coordinatorRelayUrls,
             coordinatorIpAddrs: event.coordinatorIpAddrs,
-            status: recovered ? _restoredRoastStatus(setup) : setup.status,
+            status: recovered
+                ? _restoredRoastStatus(setup)
+                : connectionLost
+                ? RoastSetupStatus.interrupted
+                : setup.status,
+            errorMessage: connectionLost
+                ? setup.role == RoastSetupRole.host
+                      ? 'This ROAST coordinator lost its Iroh connection. '
+                            'Reconnect to restart the coordinator and signer.'
+                      : 'The ROAST signer lost its Iroh connection. '
+                            'Reconnect to restore it.'
+                : null,
             clearError: recovered,
           );
         }, notifyIfUnchanged: presenceChanged);

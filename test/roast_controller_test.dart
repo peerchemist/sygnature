@@ -155,8 +155,13 @@ void main() {
 
     runtime.emit(snapshot(connected: false));
     await _flushEvents();
-    expect(repository.saveCount, saves);
+    expect(repository.saveCount, saves + 1);
     expect(notifications, 1);
+    expect(
+      controller.roastSetups.single.errorMessage,
+      contains('ROAST coordinator lost its Iroh connection'),
+    );
+    expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
     expect(
       controller.roastCoordinatorState(setup.id),
       RoastCoordinatorLocalState.stopped,
@@ -164,7 +169,7 @@ void main() {
 
     runtime.emit(snapshot(online: const ['01']));
     await _flushEvents();
-    expect(repository.saveCount, saves);
+    expect(repository.saveCount, saves + 2);
     expect(controller.onlineRoastParticipantIds(setup.id), ['01']);
     expect(notifications, 2);
     controller.dispose();

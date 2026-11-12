@@ -952,7 +952,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('refreshes the ROAST UI after coordinator reconnection', (
+  testWidgets('detects a coordinator Iroh disconnect and offers restart', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
@@ -982,32 +982,31 @@ void main() {
     await tester.pumpAndSettle();
 
     runtime.emit(
-      RoastRuntimeFailureEvent(
+      RoastRuntimeSnapshotEvent(
         'setup',
-        message: 'Coordinator connection lost.',
-        interrupted: true,
-        operation: RoastRuntimeOperation.connection,
+        connected: false,
+        signerRunning: false,
+        onlineParticipantIds: const [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('coordinator-stopped')), findsOneWidget);
     expect(find.text('ROAST operation was interrupted'), findsOneWidget);
-    expect(find.text('Coordinator connection lost.'), findsOneWidget);
-
-    runtime.emit(
-      RoastRuntimeSnapshotEvent(
-        'setup',
-        connected: true,
-        signerRunning: true,
-        onlineParticipantIds: ['01'],
-        coordinatorId: 'coordinator',
-        coordinatorRelayUrls: [],
-        coordinatorIpAddrs: [],
-      ),
+    expect(
+      find.textContaining('coordinator lost its Iroh connection'),
+      findsOneWidget,
     );
+    expect(find.text('Reconnect coordinator'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('reconnect-roast-setup')));
     await tester.pumpAndSettle();
 
+    expect(runtime.stopCalls, 1);
+    expect(runtime.startCalls, 2);
     expect(find.byKey(const Key('coordinator-connected')), findsNothing);
     expect(find.text('Shared key secured on this device'), findsOneWidget);
     expect(find.text('ROAST operation was interrupted'), findsNothing);
@@ -1049,7 +1048,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
-    expect(find.text('Reconnect'), findsOneWidget);
+    expect(find.text('Reconnect coordinator'), findsOneWidget);
 
     runtime.startSnapshot = RoastRuntimeSnapshot(
       connected: true,
@@ -1061,12 +1060,12 @@ void main() {
       groupKeyHex: 'group-key',
       pendingDkgProposalHex: null,
     );
-    await tester.tap(find.text('Reconnect'));
+    await tester.tap(find.text('Reconnect coordinator'));
     await tester.pumpAndSettle();
 
     expect(runtime.startCalls, 2);
     expect(controller.roastSetups.single.status, RoastSetupStatus.active);
-    expect(find.text('Reconnect'), findsNothing);
+    expect(find.text('Reconnect coordinator'), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -1115,7 +1114,7 @@ void main() {
       expect(controller.roastSetups.single.status, RoastSetupStatus.error);
       expect(find.text('1.25 PPC'), findsWidgets);
       expect(find.text('Resume setup'), findsNothing);
-      expect(find.text('Reconnect'), findsOneWidget);
+      expect(find.text('Reconnect coordinator'), findsOneWidget);
       final sendButton = tester.widget<OutlinedButton>(
         find.widgetWithText(OutlinedButton, 'Send'),
       );
@@ -1138,7 +1137,7 @@ void main() {
 
       expect(runtime.startCalls, 2);
       expect(controller.roastSetups.single.status, RoastSetupStatus.active);
-      expect(find.text('Reconnect'), findsNothing);
+      expect(find.text('Reconnect coordinator'), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
@@ -2155,6 +2154,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   Completer<void>? signatureRequestGate;
   Object? signatureRequestError;
   int startCalls = 0;
+  int stopCalls = 0;
   int createRoomCalls = 0;
   Duration? transactionRequestTimeout;
   Duration? messageRequestTimeout;
@@ -2308,7 +2308,9 @@ class _FakeRoastRuntime implements RoastRuntime {
   ) => throw UnimplementedError();
 
   @override
-  Future<void> stopSetup(String setupId) async {}
+  Future<void> stopSetup(String setupId) async {
+    stopCalls++;
+  }
 
   @override
   Future<T> withPausedForBackup<T>(Future<T> Function() snapshot) => snapshot();

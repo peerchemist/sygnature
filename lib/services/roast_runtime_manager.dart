@@ -740,8 +740,7 @@ final class RoastRuntimeManager(
     _refreshAgain.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
-    await _roomServers[setupId]?.close();
-    _roomServers.remove(setupId);
+    await _roomServers.remove(setupId)?.close();
     _freezingRooms.remove(setupId);
     _roomSignerTimers.remove(setupId)?.cancel();
     _connectingRoomSigners.remove(setupId);
@@ -911,7 +910,14 @@ final class RoastRuntimeManager(
             'The ROAST signing operation failed.',
           RoastRuntimeOperation.dkg =>
             'The ROAST key creation operation failed.',
-          RoastRuntimeOperation.connection => 'The ROAST connection failed.',
+          RoastRuntimeOperation.connection
+              when event.operation == 'serve' ||
+                  event.operation == 'serverAddress' =>
+            'The ROAST coordinator disconnected from the Iroh network. '
+                'Reconnect to restart it.',
+          RoastRuntimeOperation.connection =>
+            'The ROAST signer lost its Iroh connection. '
+                'Reconnect to restore it.',
           RoastRuntimeOperation.worker => 'The ROAST worker failed.',
           _ => 'The ROAST operation failed.',
         };
@@ -1468,10 +1474,11 @@ final class RoastRuntimeManager(
       await subscription.cancel();
     }
     _roomSubscriptions.clear();
-    for (final server in _roomServers.values) {
+    final roomServers = _roomServers.values.toList(growable: false);
+    _roomServers.clear();
+    for (final server in roomServers) {
       await server.close();
     }
-    _roomServers.clear();
     _freezingRooms.clear();
     for (final timer in _roomSignerTimers.values) {
       timer.cancel();

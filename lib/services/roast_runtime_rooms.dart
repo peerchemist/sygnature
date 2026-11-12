@@ -271,13 +271,31 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
   }
 
   Future<void> _serveRoomServer(String setupId, IrohServer server) async {
+    Object? failure;
+    StackTrace? failureStackTrace;
     try {
       await server.serve();
     } catch (error, stackTrace) {
-      if (identical(_roomServers[setupId], server)) {
-        _emitRoomFailure(setupId, error, stackTrace);
-      }
+      failure = error;
+      failureStackTrace = stackTrace;
     }
+    if (!identical(_roomServers[setupId], server)) return;
+    _roomServers.remove(setupId);
+    await _roomSubscriptions.remove(setupId)?.cancel();
+    try {
+      await server.close();
+    } on Object catch (error, stackTrace) {
+      failure ??= error;
+      failureStackTrace ??= stackTrace;
+    }
+    _emitRoomFailure(
+      setupId,
+      failure ?? StateError('Room coordinator stopped serving.'),
+      stackTrace: failureStackTrace,
+      message:
+          'The ROAST coordinator disconnected from the Iroh network. '
+          'Reconnect to restart it.',
+    );
   }
 
   void _onRoomSnapshot(String setupId, RoomSnapshot room) {
@@ -339,7 +357,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       final snapshot = await startSetup(setup);
       _emitSnapshotValues(setupId, snapshot);
     } catch (error, stackTrace) {
-      _emitRoomFailure(setupId, error, stackTrace);
+      _emitRoomFailure(setupId, error, stackTrace: stackTrace);
     } finally {
       _freezingRooms.remove(setupId);
     }
@@ -347,9 +365,10 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
 
   void _emitRoomFailure(
     String setupId,
-    Object error, [
+    Object error, {
     StackTrace? stackTrace,
-  ]) {
+    String message = 'The ROAST room operation failed.',
+  }) {
     AppLogger.error(
       '${RoastRuntimeManager._roastScope(setupId)} Room operation failed',
       error: error,
@@ -359,7 +378,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     _events.add(
       RoastRuntimeFailureEvent(
         setupId,
-        message: 'The ROAST room operation failed.',
+        message: message,
         interrupted: true,
         operation: RoastRuntimeOperation.room,
       ),
