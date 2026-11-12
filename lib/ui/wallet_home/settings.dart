@@ -538,6 +538,13 @@ Future<void> _showElectrumEndpointSettings(
     for (final endpoint in selectedEndpoints)
       TextEditingController(text: endpoint.toString()),
   ];
+  final endpointTests = [
+    for (var index = 0; index < presets.length; index++)
+      PeercoinElectrumxService.testEndpoint(
+        presets[index],
+        selectedEndpoints[index],
+      ),
+  ];
   final endpoints = await showDialog<List<Uri>>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -564,13 +571,23 @@ Future<void> _showElectrumEndpointSettings(
                   decoration: InputDecoration(
                     labelText:
                         '${_capitalized(presets[index].networkLabel)} endpoint',
-                    suffixIcon: IconButton(
-                      tooltip: 'Use default',
-                      onPressed: () => textControllers[index].text =
-                          PeercoinElectrumxService.defaultBackend(
-                            presets[index],
-                          ).toString(),
-                      icon: const Icon(Icons.restore_rounded),
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FutureBuilder<void>(
+                          future: endpointTests[index],
+                          builder: (context, test) =>
+                              _electrumEndpointStatus(context, test),
+                        ),
+                        IconButton(
+                          tooltip: 'Use default',
+                          onPressed: () => textControllers[index].text =
+                              PeercoinElectrumxService.defaultBackend(
+                                presets[index],
+                              ).toString(),
+                          icon: const Icon(Icons.restore_rounded),
+                        ),
+                      ],
                     ),
                   ),
                   validator: (value) {
@@ -638,6 +655,37 @@ Future<void> _showElectrumEndpointSettings(
     }
   }
 }
+
+Widget _electrumEndpointStatus(BuildContext context, AsyncSnapshot<void> test) {
+  final (message, indicator) = switch (test) {
+    AsyncSnapshot(connectionState: ConnectionState.waiting) => (
+      'Testing endpoint…',
+      const SizedBox.square(
+        dimension: 14,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    ),
+    AsyncSnapshot(hasError: true, :final error) => (
+      _electrumEndpointError(error!),
+      Icon(Icons.error, size: 17, color: AppColors.of(context).danger),
+    ),
+    _ => (
+      'Endpoint is online and compatible.',
+      Icon(Icons.check_circle, size: 17, color: AppColors.of(context).success),
+    ),
+  };
+  return Tooltip(
+    message: message,
+    child: SizedBox.square(dimension: 28, child: Center(child: indicator)),
+  );
+}
+
+String _electrumEndpointError(Object error) => switch (error) {
+  ElectrumxException(message: final message, cause: final cause) =>
+    cause == null ? message : '$message\n${_electrumEndpointError(cause)}',
+  FormatException(message: final message) => message,
+  _ => error.toString(),
+};
 
 String _capitalized(String value) =>
     '${value.substring(0, 1).toUpperCase()}${value.substring(1)}';

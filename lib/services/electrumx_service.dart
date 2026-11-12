@@ -450,6 +450,27 @@ class PeercoinElectrumxService
     return endpoint;
   }
 
+  static Future<void> testEndpoint(
+    PeercoinNetworkPreset preset,
+    Uri endpoint,
+  ) async {
+    if (!_isSupportedEndpoint(endpoint)) {
+      throw ArgumentError.value(endpoint, 'endpoint', _endpointRequirement);
+    }
+    final client = _ElectrumxClient(
+      server: endpoint,
+      electrumNetwork: PeercoinElectrumxNetworks.forPreset(preset),
+      connector: WebSocketElectrumxConnection.connect,
+      timeout: const Duration(seconds: 12),
+      keepAliveInterval: Duration.zero,
+    );
+    try {
+      await client.connect();
+    } finally {
+      await client.close();
+    }
+  }
+
   static Future<void> setSelectedBackend(
     PeercoinNetworkPreset preset,
     Uri backend,
