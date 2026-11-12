@@ -2,7 +2,7 @@
 // flutter test integration_test/ios_wallet_startup_test.dart -d <simulator-id> \
 //   --dart-define=RUN_IOS_WALLET_STARTUP_TESTS=true
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:integration_test/integration_test.dart';

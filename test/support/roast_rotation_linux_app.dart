@@ -7,7 +7,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:coinlib/coinlib.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_server/testing.dart';
 import 'package:sygnature_ng/storage/hive_storage_initializer.dart';
