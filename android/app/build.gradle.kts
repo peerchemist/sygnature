@@ -20,7 +20,7 @@ fun keystoreProperty(name: String): String =
 android {
     namespace = "network.noosphere.sygnature"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "29.0.14206865"
+    ndkVersion = "30.0.16248370"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
