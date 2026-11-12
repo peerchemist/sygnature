@@ -1012,12 +1012,27 @@ class const _RoastEnrollmentProgress({
 
 class _RoastEnrollmentProgressState extends State<_RoastEnrollmentProgress> {
   var _dismissed = false;
+  late bool _observedPendingEnrollment;
+
+  @override
+  void initState() {
+    super.initState();
+    _observedPendingEnrollment = widget.joined < widget.total;
+  }
+
+  @override
+  void didUpdateWidget(covariant _RoastEnrollmentProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.joined < widget.total) _observedPendingEnrollment = true;
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (_dismissed) return const SizedBox.shrink();
-
     final complete = widget.joined >= widget.total;
+    if (_dismissed || (complete && !_observedPendingEnrollment)) {
+      return const SizedBox.shrink();
+    }
+
     final color = complete
         ? AppColors.of(context).success
         : AppColors.of(context).forest;
