@@ -120,7 +120,7 @@ printf '%s\n' "$manifest_stamp" >"$output_dir/.build-ok"
 if [ "$share_data" = "yes" ]; then
   echo "Share-data debug build: app-id kept as $app_id, so it runs on the release"
   echo "app's per-app dir (~/.var/app/$app_id). Run without installing:"
-  echo "  flatpak-builder --run --disable-rofiles-fuse --state-dir=$state_dir --env=RUST_BACKTRACE=1 $build_dir $manifest"
+  echo "  flatpak-builder --run --state-dir=$state_dir --env=RUST_BACKTRACE=1 $build_dir $manifest sygnature"
   echo "Or install it over the release app:"
   echo "  flatpak remote-add --user --if-not-exists sygnature-debug $repo_dir"
   echo "  flatpak install --user --reinstall sygnature-debug $app_id"
