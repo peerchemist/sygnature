@@ -109,10 +109,10 @@ packages:
     dependency: "direct main"
     description:
       name: coinlib
-      sha256: "199988876053f6177f168014ffd92fe4db6c1f48787afa57da4fcb4debd625ce"
+      sha256: "52594092b4595e92bfc44067cd001a201d5d03490bff44e4844ca52f718f1308"
       url: "https://pub.dev"
     source: hosted
-    version: "6.0.1"
+    version: "6.1.0"
   collection:
     dependency: transitive
     description:
@@ -793,14 +793,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
-  pointycastle:
-    dependency: transitive
-    description:
-      name: pointycastle
-      sha256: "92aa3841d083cc4b0f4709b5c74fd6409a3e6ba833ffc7dc6a8fee096366acf5"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.0.0"
   process:
     dependency: transitive
     description:
