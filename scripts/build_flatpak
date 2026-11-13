@@ -59,6 +59,7 @@ else
   output_dir="$project_dir/build/flatpak"
 fi
 readonly effective_app_id manifest output_dir
+manifest_stamp="$(sha256sum "$manifest" | awk '{print $1}')"
 readonly build_dir="$output_dir/build"
 readonly repo_dir="$output_dir/repo"
 readonly bundle="$output_dir/$effective_app_id.flatpak"
@@ -85,11 +86,15 @@ done
 mkdir -p "$output_dir" "$repo_dir"
 
 # Debug builds keep the build dir so repeated runs only rebuild what changed,
-# but a build dir left behind by an interrupted run must be cleaned first.
+# but a build dir left behind by an interrupted run or generated from a
+# different manifest must be cleaned first.
 clean_args=(--force-clean --delete-build-dirs)
 if [ "$mode" = "debug" ]; then
   clean_args=()
-  if [ -d "$build_dir" ] && [ ! -f "$output_dir/.build-ok" ]; then
+  if [ -d "$build_dir" ] && {
+    [ ! -f "$output_dir/.build-ok" ] ||
+      [ "$(cat "$output_dir/.build-ok")" != "$manifest_stamp" ]
+  }; then
     clean_args=(--force-clean)
   fi
 fi
@@ -110,7 +115,7 @@ trap 'rm -f -- "$temporary_bundle"' EXIT
 flatpak build-bundle "$repo_dir" "$temporary_bundle" "$effective_app_id"
 mv -f -- "$temporary_bundle" "$bundle"
 trap - EXIT
-touch "$output_dir/.build-ok"
+printf '%s\n' "$manifest_stamp" >"$output_dir/.build-ok"
 
 if [ "$share_data" = "yes" ]; then
   echo "Share-data debug build: app-id kept as $app_id, so it runs on the release"
