@@ -8,6 +8,7 @@
 .build/
 .buildlog/
 .flatpak-builder/
+.flatpak/*.Debug.yml
 .history
 .svn/
 .swiftpm/

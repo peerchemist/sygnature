@@ -8,11 +8,43 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
 project_dir="$(cd -- "$script_dir/.." && pwd)"
 readonly project_dir
-readonly manifest="$project_dir/.flatpak/$app_id.yml"
-readonly output_dir="$project_dir/build/flatpak"
+
+mode="release"
+if [ "$#" -gt 1 ]; then
+  echo "usage: $0 [--release|--debug]" >&2
+  exit 2
+fi
+case "${1:-}" in
+  "" | --release) ;;
+  --debug) mode="debug" ;;
+  *)
+    echo "usage: $0 [--release|--debug]" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$mode" = "debug" ]; then
+  # Debug builds compile the Rust crates with the dev profile, where panics
+  # unwind instead of aborting, so an iroh panic surfaces as a Dart error
+  # instead of a silent process kill. The generated manifest lives next to the
+  # release one so its relative source paths (`..`, `rustup`) still resolve.
+  effective_app_id="$app_id.Debug"
+  manifest="$project_dir/.flatpak/$effective_app_id.yml"
+  sed \
+    -e "s/^app-id: .*/app-id: $effective_app_id/" \
+    -e "s/--release/--debug/" \
+    -e "s|/release/bundle/|/debug/bundle/|" \
+    "$project_dir/.flatpak/$app_id.yml" >"$manifest"
+  output_dir="$project_dir/build/flatpak-debug"
+else
+  effective_app_id="$app_id"
+  manifest="$project_dir/.flatpak/$app_id.yml"
+  output_dir="$project_dir/build/flatpak"
+fi
+readonly effective_app_id manifest output_dir
 readonly build_dir="$output_dir/build"
 readonly repo_dir="$output_dir/repo"
-readonly bundle="$output_dir/$app_id.flatpak"
+readonly bundle="$output_dir/$effective_app_id.flatpak"
 readonly state_dir="$project_dir/.flatpak-builder"
 
 for tool in flatpak flatpak-builder; do
@@ -35,11 +67,21 @@ done
 
 mkdir -p "$output_dir" "$repo_dir"
 
+# Debug builds keep the build dir so repeated runs only rebuild what changed,
+# but a build dir left behind by an interrupted run must be cleaned first.
+clean_args=(--force-clean --delete-build-dirs)
+if [ "$mode" = "debug" ]; then
+  clean_args=()
+  if [ -d "$build_dir" ] && [ ! -f "$output_dir/.build-ok" ]; then
+    clean_args=(--force-clean)
+  fi
+fi
+
 flatpak-builder \
   --user \
-  --force-clean \
-  --delete-build-dirs \
+  "${clean_args[@]}" \
   --ccache \
+  --disable-rofiles-fuse \
   --state-dir="$state_dir" \
   --install-deps-from=flathub \
   --repo="$repo_dir" \
@@ -48,8 +90,9 @@ flatpak-builder \
 
 temporary_bundle="$bundle.tmp"
 trap 'rm -f -- "$temporary_bundle"' EXIT
-flatpak build-bundle "$repo_dir" "$temporary_bundle" "$app_id"
+flatpak build-bundle "$repo_dir" "$temporary_bundle" "$effective_app_id"
 mv -f -- "$temporary_bundle" "$bundle"
 trap - EXIT
+touch "$output_dir/.build-ok"
 
-echo "Flatpak bundle: $bundle"
+echo "Flatpak bundle ($mode): $bundle"
