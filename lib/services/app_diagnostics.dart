@@ -15,6 +15,8 @@ enum AppDiagnosticEvent {
   nativeInitializationStarted,
   nativeInitializationSucceeded,
   nativeInitializationFailed,
+  roastFailure,
+  roastCoordinatorDisconnected,
 }
 
 abstract final class AppDiagnostics {
@@ -31,13 +33,18 @@ abstract final class AppDiagnostics {
     }
   }
 
-  static Future<void> record(AppDiagnosticEvent event, {Object? error}) {
+  static Future<void> record(
+    AppDiagnosticEvent event, {
+    Object? error,
+    Map<String, Object?>? details,
+  }) {
     final file = _file;
     if (file == null) return Future.value();
     final line = jsonEncode({
       'at': DateTime.now().toUtc().toIso8601String(),
       'event': event.name,
       if (error != null) 'errorType': '${error.runtimeType}',
+      if (details != null && details.isNotEmpty) 'details': details,
     });
     _writes = _writes.then((_) => _append(file, line)).catchError((_) {});
     return _writes;

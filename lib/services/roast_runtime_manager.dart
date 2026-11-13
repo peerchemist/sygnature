@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:coinlib/coinlib.dart'
     show TaprootKeySignDetails, bytesEqual, bytesToHex, hexToBytes;
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:iroh_quic/iroh_quic.dart' show Endpoint;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_server/noosphere_server.dart'
     show
@@ -17,6 +18,7 @@ import 'package:noosphere_server/noosphere_server.dart'
 import '../models/roast_setup.dart';
 import '../storage/roast_storage.dart';
 import '../storage/public_feed_store.dart';
+import 'app_diagnostics.dart';
 import 'app_logger.dart';
 import 'roast_runtime.dart';
 import 'wallet_transaction_service.dart';
@@ -30,6 +32,17 @@ part 'roast_runtime_signing_mapper.dart';
 enum _ExistingDkgResolution { none, resumed, cancelled }
 
 typedef WalletSeedProvider = FutureOr<Uint8List> Function();
+
+/// Backoff for restarting a room coordinator whose serve loop exited
+/// unexpectedly. A coordinator that served stably for a minute earns a fresh
+/// budget (see `_serveRoomServer`).
+const List<Duration> _roomServerRestartBackoff = [
+  Duration(seconds: 2),
+  Duration(seconds: 10),
+  Duration(seconds: 30),
+];
+
+const Duration _roomServerStableAfter = Duration(minutes: 1);
 
 final class RoastRuntimeManager(
   RoastPersistenceFactory persistenceFactory, {
@@ -64,6 +77,7 @@ final class RoastRuntimeManager(
   final Set<String> _synchronizingDkgSetups = {};
   final Map<String, Uint8List> _approvedDkgDetailsBySetup = {};
   final Map<String, Timer> _keyReadinessTimers = {};
+  final Map<String, int> _roomServerRestartAttempts = {};
   final Map<String, Future<void>> _refreshes = {};
   final Set<String> _refreshAgain = {};
   NoosphereWorker? _worker;
@@ -720,6 +734,7 @@ final class RoastRuntimeManager(
     AppLogger.info('${_roastScope(setupId)} Stopping setup');
     _roomSignerTimers.remove(setupId)?.cancel();
     _keyReadinessTimers.remove(setupId)?.cancel();
+    _roomServerRestartAttempts.remove(setupId);
     // A background connection may still be creating roles. Let it settle
     // before stopping them; otherwise it could restart a signer mid-backup.
     try {
@@ -853,7 +868,21 @@ final class RoastRuntimeManager(
   }
 
   void _onWorkerEvent(NoosphereWorkerEvent event) {
-    if (_events.isClosed || !_setups.containsKey(event.setupId)) return;
+    if (_events.isClosed) return;
+    if (!_setups.containsKey(event.setupId)) {
+      // Late failures (e.g. 'serve'/'serverAddress' during shutdown) arrive
+      // after the setup was removed; record them instead of dropping them.
+      final detail = switch (event) {
+        WorkerFailureEvent() =>
+          ' operation=${event.operation} interrupted=${event.interrupted}',
+        _ => '',
+      };
+      AppLogger.warn(
+        '${_noosphereScope(event.setupId)} Dropping worker event for an '
+        'unknown setup (${event.runtimeType}$detail)',
+      );
+      return;
+    }
     switch (event) {
       case WorkerSnapshotEvent():
         if (!_synchronizingDkgSetups.contains(event.setupId)) {
@@ -924,6 +953,16 @@ final class RoastRuntimeManager(
         AppLogger.error(
           '${_noosphereScope(event.setupId)} Worker ${operation.name} '
           'operation failed',
+        );
+        unawaited(
+          AppDiagnostics.record(
+            AppDiagnosticEvent.roastFailure,
+            details: {
+              'operation': operation.name,
+              'workerOperation': event.operation,
+              'interrupted': event.interrupted,
+            },
+          ),
         );
         _events.add(
           RoastRuntimeFailureEvent(
@@ -1489,6 +1528,7 @@ final class RoastRuntimeManager(
       timer.cancel();
     }
     _keyReadinessTimers.clear();
+    _roomServerRestartAttempts.clear();
     await _events.close();
     AppLogger.info('[NOOSPHERE] Runtime closed');
   }

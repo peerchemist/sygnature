@@ -2,6 +2,35 @@ part of 'roast_runtime_manager.dart';
 
 const _roomEnrollmentTimeout = Duration(seconds: 30);
 
+/// Polls the endpoint address until a home relay is selected.
+///
+/// This deliberately avoids `homeRelayStatus()`: the Rust stream registry is
+/// process-wide while Dart stream tokens are allocated per isolate, so a
+/// root-isolate stream can collide with a worker-isolate stream and abort the
+/// wrong native task. `Endpoint.addr` is a plain synchronous FRB call.
+Future<void> _waitForHomeRelay(Endpoint endpoint, Duration timeout) async {
+  if (endpoint.addr.relayUrls.isNotEmpty) return;
+  final completer = Completer<void>();
+  final timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    if (endpoint.isClosed) {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          StateError('The Iroh endpoint closed before a home relay was selected.'),
+        );
+      }
+      return;
+    }
+    if (endpoint.addr.relayUrls.isNotEmpty && !completer.isCompleted) {
+      completer.complete();
+    }
+  });
+  try {
+    await completer.future.timeout(timeout);
+  } finally {
+    timer.cancel();
+  }
+}
+
 extension _RoastRoomRuntime on RoastRuntimeManager {
   Future<RoastRoomCreation> _createRoom(
     RoastSetup setup, {
@@ -19,10 +48,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     AppLogger.info(
       '${RoastRuntimeManager._irohScope(setup.id)} Waiting for coordinator discovery',
     );
-    await server.endpoint
-        .homeRelayStatus()
-        .firstWhere((statuses) => statuses.any((status) => status.connected))
-        .timeout(const Duration(seconds: 30));
+    await _waitForHomeRelay(server.endpoint, const Duration(seconds: 30));
     final rooms = server.rooms!;
     late RoomSnapshot room;
     try {
@@ -271,6 +297,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
   }
 
   Future<void> _serveRoomServer(String setupId, IrohServer server) async {
+    final startedAt = DateTime.now();
     Object? failure;
     StackTrace? failureStackTrace;
     try {
@@ -288,14 +315,94 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       failure ??= error;
       failureStackTrace ??= stackTrace;
     }
+    // A coordinator that served stably earns a fresh restart budget.
+    if (DateTime.now().difference(startedAt) >= _roomServerStableAfter) {
+      _roomServerRestartAttempts.remove(setupId);
+    }
+    final coordinatorFailure =
+        failure ?? StateError('Room coordinator stopped serving.');
     _emitRoomFailure(
       setupId,
-      failure ?? StateError('Room coordinator stopped serving.'),
+      coordinatorFailure,
       stackTrace: failureStackTrace,
       message:
           'The ROAST coordinator disconnected from the Iroh network. '
           'Reconnect to restart it.',
     );
+    unawaited(
+      AppDiagnostics.record(
+        AppDiagnosticEvent.roastCoordinatorDisconnected,
+        error: coordinatorFailure,
+        details: {
+          'setupId': RoastRuntimeManager._shortId(setupId),
+          'servedForSeconds': DateTime.now().difference(startedAt).inSeconds,
+        },
+      ),
+    );
+    _scheduleRoomServerRestart(setupId);
+  }
+
+  /// Restarts the room coordinator after an unexpected serve-loop exit.
+  ///
+  /// Intentional stops never reach this: stopSetup/close remove the setup and
+  /// the server from the maps before closing, so `_serveRoomServer` returns
+  /// early. The delayed restart re-checks the guards when it fires, so a stop
+  /// or backup pause that happens during the backoff cancels it implicitly.
+  void _scheduleRoomServerRestart(String setupId) {
+    final setup = _setups[setupId];
+    if (setup == null ||
+        _backupPaused ||
+        _events.isClosed ||
+        setup.role != RoastSetupRole.host ||
+        !setup.usesRoomEnrollment) {
+      return;
+    }
+    final attempt = _roomServerRestartAttempts[setupId] ?? 0;
+    if (attempt >= _roomServerRestartBackoff.length) {
+      AppLogger.warn(
+        '${RoastRuntimeManager._irohScope(setupId)} Room coordinator restart '
+        'attempts exhausted; reconnect manually',
+      );
+      return;
+    }
+    final delay = _roomServerRestartBackoff[attempt];
+    _roomServerRestartAttempts[setupId] = attempt + 1;
+    AppLogger.warn(
+      '${RoastRuntimeManager._irohScope(setupId)} Restarting room coordinator '
+      'in ${delay.inSeconds}s (attempt ${attempt + 1})',
+    );
+    unawaited(_restartRoomServerAfter(setupId, delay));
+  }
+
+  Future<void> _restartRoomServerAfter(String setupId, Duration delay) async {
+    await Future<void>.delayed(delay);
+    final setup = _setups[setupId];
+    if (setup == null || _backupPaused || _events.isClosed) return;
+    try {
+      await _ensureRoomServer(setup);
+      AppLogger.info(
+        '${RoastRuntimeManager._irohScope(setupId)} Room coordinator restarted',
+      );
+      // Surface the recovered connection through the ordinary snapshot path
+      // so the controller can leave the interrupted state.
+      if (_signerSetups.contains(setupId)) _runBackground(_refresh(setupId));
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        '${RoastRuntimeManager._irohScope(setupId)} Room coordinator restart '
+        'failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _emitRoomFailure(
+        setupId,
+        error,
+        stackTrace: stackTrace,
+        message:
+            'The ROAST coordinator could not be restarted automatically. '
+            'Reconnect to restart it.',
+      );
+      _scheduleRoomServerRestart(setupId);
+    }
   }
 
   void _onRoomSnapshot(String setupId, RoomSnapshot room) {
@@ -373,6 +480,13 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       '${RoastRuntimeManager._roastScope(setupId)} Room operation failed',
       error: error,
       stackTrace: stackTrace,
+    );
+    unawaited(
+      AppDiagnostics.record(
+        AppDiagnosticEvent.roastFailure,
+        error: error,
+        details: {'operation': 'room', 'message': message},
+      ),
     );
     if (_events.isClosed) return;
     _events.add(

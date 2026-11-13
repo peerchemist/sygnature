@@ -41,4 +41,38 @@ void main() {
     expect(events.single['event'], 'nativeInitializationFailed');
     expect(events.single['errorType'], 'StateError');
   });
+
+  test('exports roast failure events with structured details', () async {
+    await AppDiagnostics.record(
+      AppDiagnosticEvent.roastCoordinatorDisconnected,
+      error: StateError('serve loop ended'),
+      details: {'setupId': 'setup-1', 'servedForSeconds': 3},
+    );
+    await AppDiagnostics.record(
+      AppDiagnosticEvent.roastFailure,
+      details: {
+        'operation': 'connection',
+        'workerOperation': 'serve',
+        'interrupted': true,
+      },
+    );
+
+    final bytes = await AppDiagnostics.exportReport(
+      appVersion: '0.9.53+39',
+      platform: 'ios',
+      notificationEnabled: false,
+      notificationPermissionGranted: null,
+      backgroundFrequencyMinutes: null,
+    );
+    final report = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    final events = report['events'] as List;
+
+    expect(events, hasLength(2));
+    expect(events[0]['event'], 'roastCoordinatorDisconnected');
+    expect(events[0]['errorType'], 'StateError');
+    expect(events[0]['details'], {'setupId': 'setup-1', 'servedForSeconds': 3});
+    expect(events[1]['event'], 'roastFailure');
+    expect(events[1]['details']['workerOperation'], 'serve');
+    expect(utf8.decode(bytes), isNot(contains('serve loop ended')));
+  });
 }
