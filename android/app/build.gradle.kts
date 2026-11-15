@@ -19,7 +19,7 @@ fun keystoreProperty(name: String): String =
 
 android {
     namespace = "network.noosphere.sygnature"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = "30.0.16248370"
 
     compileOptions {
