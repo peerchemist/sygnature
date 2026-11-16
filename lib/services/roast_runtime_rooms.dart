@@ -15,7 +15,9 @@ Future<void> _waitForHomeRelay(Endpoint endpoint, Duration timeout) async {
     if (endpoint.isClosed) {
       if (!completer.isCompleted) {
         completer.completeError(
-          StateError('The Iroh endpoint closed before a home relay was selected.'),
+          StateError(
+            'The Iroh endpoint closed before a home relay was selected.',
+          ),
         );
       }
       return;
@@ -379,13 +381,16 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     final setup = _setups[setupId];
     if (setup == null || _backupPaused || _events.isClosed) return;
     try {
-      await _ensureRoomServer(setup);
+      final server = await _ensureRoomServer(setup);
+      await _waitForHomeRelay(server.endpoint, _roomEnrollmentTimeout);
       AppLogger.info(
         '${RoastRuntimeManager._irohScope(setupId)} Room coordinator restarted',
       );
-      // Surface the recovered connection through the ordinary snapshot path
-      // so the controller can leave the interrupted state.
-      if (_signerSetups.contains(setupId)) _runBackground(_refresh(setupId));
+      // Surface recovery even while the room is still enrolling. There is no
+      // worker signer to refresh until the room freezes, so invite-stage
+      // coordinators need an explicit pending snapshot here.
+      final snapshot = await _startSetup(setup, scheduleRoomRetry: true);
+      _emitSnapshotValues(setupId, snapshot);
     } catch (error, stackTrace) {
       AppLogger.error(
         '${RoastRuntimeManager._irohScope(setupId)} Room coordinator restart '

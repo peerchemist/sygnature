@@ -111,6 +111,14 @@ extension WalletRoastEventController on WalletController {
         );
       case RoastRuntimeSnapshotEvent():
         final healthy = event.connected && event.signerRunning;
+        final enrolling =
+            setup.role == RoastSetupRole.host &&
+            setup.usesRoomEnrollment &&
+            setup.groupKeyHex == null &&
+            enrolledRoastParticipantCount(setup) < setup.participantCount &&
+            event.coordinatorId != null &&
+            !event.connected &&
+            !event.signerRunning;
         final previousPresence = _roastPresence[event.setupId];
         final connectionLost =
             !_busy &&
@@ -118,7 +126,7 @@ extension WalletRoastEventController on WalletController {
             previousPresence?.connected == true &&
             previousPresence?.signerRunning == true &&
             !healthy;
-        if (healthy) {
+        if (healthy || enrolling) {
           _cancelRoastReconnect(event.setupId);
         }
         final presenceChanged = _setRoastPresence(
@@ -129,7 +137,7 @@ extension WalletRoastEventController on WalletController {
         );
         await _updateSetup(setup.id, (setup) {
           final recovered =
-              healthy &&
+              (healthy || enrolling) &&
               (setup.status == RoastSetupStatus.connecting ||
                   setup.status == RoastSetupStatus.interrupted);
           return setup.copyWith(

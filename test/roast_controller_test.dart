@@ -175,6 +175,63 @@ void main() {
     controller.dispose();
   });
 
+  test('invite-stage coordinator returns to enrolling after restart', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(repository, runtime);
+    final vault = repository.value!;
+    final setup = _setup(RoastSetupRole.host, enrollment: true).copyWith(
+      invitations: [
+        RoastIssuedInvitation(
+          participantName: 'Member',
+          participantPublicKeyHex: '03${'33' * 32}',
+          encoded: 'invite',
+          issuedAt: DateTime.utc(2026),
+          expiresAt: DateTime.utc(2027),
+        ),
+      ],
+    );
+    repository.value = vault.copyWith(roastSetups: [setup]);
+    await controller.load();
+    await _flushEvents();
+
+    runtime.emit(
+      RoastRuntimeFailureEvent(
+        'setup',
+        message: 'The ROAST coordinator disconnected.',
+        interrupted: true,
+        operation: RoastRuntimeOperation.room,
+      ),
+    );
+    await _flushEvents();
+    expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.stopped,
+    );
+
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        'setup',
+        connected: false,
+        signerRunning: false,
+        onlineParticipantIds: [],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: [],
+        coordinatorIpAddrs: [],
+      ),
+    );
+    await _flushEvents();
+
+    expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
+    expect(controller.roastSetups.single.errorMessage, isNull);
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.enrolling,
+    );
+    controller.dispose();
+  });
+
   test('keeps presence out of saved and restored setup state', () async {
     final repository = _CoordinatorRepository();
     final runtime = _CoordinatorRoastRuntime();
@@ -3189,7 +3246,11 @@ WalletController _controller({
   );
 }
 
-RoastSetup _setup(RoastSetupRole role, {bool active = false}) => RoastSetup(
+RoastSetup _setup(
+  RoastSetupRole role, {
+  bool active = false,
+  bool enrollment = false,
+}) => RoastSetup(
   id: 'setup',
   groupId: 'group',
   name: 'Family',
@@ -3217,6 +3278,7 @@ RoastSetup _setup(RoastSetupRole role, {bool active = false}) => RoastSetup(
   ],
   keyName: 'setup:generation:1',
   createdAt: DateTime.utc(2026),
+  usesRoomEnrollment: enrollment,
   hostParticipantId: '01',
   coordinatorId: 'coordinator',
   groupFingerprintHex: 'fingerprint',
