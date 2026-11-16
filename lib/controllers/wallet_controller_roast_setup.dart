@@ -715,10 +715,18 @@ extension WalletRoastSetupController on WalletController {
     _RoastJoinPhase.enrollment => _cleanRoastError(error),
     _RoastJoinPhase.localSetup =>
       'Room enrollment succeeded, but this device could not configure the '
-          'shared wallet. The invitation has already been used.',
+          'shared wallet: ${_localSetupErrorDetail(error)}',
     _RoastJoinPhase.signerStartup =>
       'Room enrollment was saved, but the signer could not finish starting. '
           'Use Reconnect after the coordinator is ready.',
+  };
+
+  /// The enrollment already committed on the coordinator, so a localSetup
+  /// failure is never an "invitation already used" rejection; surface the
+  /// actual reason (e.g. a signing-policy mismatch with the local draft).
+  static String _localSetupErrorDetail(Object error) => switch (error) {
+    FormatException(:final message) when message.isNotEmpty => message,
+    _ => 'an unexpected local error occurred while saving the wallet',
   };
 
   static String _roastLogScope(String setupId) {

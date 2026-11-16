@@ -1495,6 +1495,96 @@ void main() {
     controller.dispose();
   });
 
+  test(
+    'surfaces the real localSetup failure after a committed enrollment',
+    () async {
+      final repository = MemoryWalletRepository();
+      final runtime = _FakeRoastRuntime();
+      final controller = WalletController(
+        repository,
+        roastRuntime: runtime,
+        roastKeyService: _EnrollmentRoastKeyService(),
+      );
+      await controller.load();
+      final setupId = await controller.createRoastSetupDraft(
+        role: RoastSetupRole.member,
+        walletName: 'Enrollment mismatch test',
+        participantName: 'Signer',
+        threshold: 2,
+        participantCount: 2,
+        network: PeercoinNetworks.mainnet,
+      );
+      final draft = controller.roastSetups.single;
+      final coordinatorEndpointId = Uint8List(32)..[0] = 1;
+      final invite = _roomInvite(
+        draft.localParticipant.publicKeyHex,
+        coordinatorEndpointId: coordinatorEndpointId,
+      );
+      final hostKey = ECCompressedPublicKey.fromPubkey(
+        ECPrivateKey.generate().pubkey,
+      );
+      final enrolledAt = DateTime.now().toUtc();
+      // The coordinator committed the enrollment for a 3-of-3 room while the
+      // local draft expects 2-of-2, so localSetup fails after enrollment.
+      runtime.joinRoomResult = RoomSnapshot(
+        roomId: invite.invite.roomId,
+        lifecycle: RoomLifecycle.enrolling,
+        expectedParticipants: 3,
+        threshold: 3,
+        coordinatorEndpointId: coordinatorEndpointId,
+        invites: [
+          for (final (id, key) in [
+            ('host', hostKey),
+            ('member', invite.invite.expectedParticipantPublicKey),
+          ])
+            RoomInviteSnapshot(
+              inviteId: id,
+              expectedParticipantPublicKey: key,
+              tokenHash: Uint8List(32),
+              issuedAt: enrolledAt,
+              expiresAt: enrolledAt.add(const Duration(days: 1)),
+              usedAt: enrolledAt,
+              revokedAt: null,
+              status: RoomInviteStatus.used,
+            ),
+        ],
+        participants: [
+          RoomParticipantSnapshot(
+            publicKey: hostKey,
+            enrolledAt: enrolledAt,
+            identifier: null,
+          ),
+          RoomParticipantSnapshot(
+            publicKey: invite.invite.expectedParticipantPublicKey,
+            enrolledAt: enrolledAt.add(const Duration(seconds: 1)),
+            identifier: null,
+          ),
+        ],
+        groupConfig: null,
+      );
+
+      await expectLater(
+        controller.joinRoastSetup(setupId, invite.encode()),
+        throwsA(isA<FormatException>()),
+      );
+
+      expect(runtime.joinRoomCalls, 1);
+      final errorMessage = controller.roastSetups.single.errorMessage!;
+      expect(
+        errorMessage,
+        contains('Room enrollment succeeded, but this device could not '
+            'configure the shared wallet'),
+      );
+      expect(
+        errorMessage,
+        contains('The room signing policy does not match this wallet draft.'),
+      );
+      expect(errorMessage, isNot(contains('already been used')));
+      expect(controller.roastSetups.single.status, RoastSetupStatus.draft);
+      controller.dispose();
+    },
+  );
+
   test('deletes the last ROAST wallet and its local setup data', () async {
     final runtime = _FakeRoastRuntime();
     final operations = MemoryRoastSigningOperationRepository();
