@@ -40,6 +40,7 @@ for tool in flutter cargo java javac; do
 done
 
 cd -- "$project_dir"
+flutter clean
 flutter build appbundle \
   --release \
   --target-platform android-arm64,android-x64 \
