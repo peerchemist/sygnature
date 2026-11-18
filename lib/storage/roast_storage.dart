@@ -226,7 +226,7 @@ class RoastPersistenceFactory implements RoastSigningOperationRepository {
       }
     }
     final groups = <BackupGroup>[];
-    for (final s in vault.roastSetups) {
+    for (final s in vault.roastSetups.where(BackupGroup.canBackup)) {
       // Read only keys: nonce/session decoders must never feed the backup DTO.
       final raw = p._box.get('client:${s.id}') as Map?;
       final keys = ((raw?['keys'] as List?) ?? const [])

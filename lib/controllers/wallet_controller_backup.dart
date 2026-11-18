@@ -25,11 +25,6 @@ extension WalletBackupController on WalletController {
               'Finish the active signing operation before exporting.',
             );
           }
-          if (_roastOperations.isNotEmpty) {
-            throw const FormatException(
-              'A ROAST configuration operation is still in progress. Wait for it to finish before exporting.',
-            );
-          }
           if (_roastSigningRequests.values.any(
             (item) =>
                 item.request.expiry.isAfter(now) &&

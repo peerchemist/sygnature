@@ -277,9 +277,13 @@ backed up explicitly; it is not assumed root-derived.
 A room is present only for a host with room enrollment. It must have been fully
 frozen, with roster/count/threshold/fingerprint matching the group. Restore
 reconstructs that public frozen room from the group and enrollment times, with
-no invite tokens. Incomplete rooms, incomplete DKGs, orphaned signing keys,
-HDParticipantKeyInfo and reconstructed/shared-private-key collection state fail
-export descriptively instead of producing an incomplete backup.
+no invite tokens. Invite-stage groups and initial DKGs without a completed local
+signing share are omitted together with their dependent accounts and transitions,
+so they do not prevent the rest of the wallet from being backed up. A transient
+DKG action does not replace an already completed group's stable recovery state.
+Missing or corrupt recovery data for a completed group, orphaned signing keys,
+HDParticipantKeyInfo and reconstructed/shared-private-key collection state still
+fail export descriptively instead of producing an invalid group backup.
 
 ## Persistent transition consent binary records
 

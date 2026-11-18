@@ -190,11 +190,19 @@ final class BackupWallet(
   final List<BackupAccount> accounts, {
   final List<BackupTransition> transitions = const [],
 }) {
-  factory BackupWallet.fromVault(WalletVault vault) {
+  factory BackupWallet.fromVault(
+    WalletVault vault, {
+    Set<String>? includedRoastSetupIds,
+  }) {
     final seed = cl.hexToBytes(vault.rootSeedHex);
     final accounts = <BackupAccount>[];
     try {
       for (final account in vault.accounts) {
+        if (account.keySource == WalletKeySource.roast &&
+            includedRoastSetupIds != null &&
+            !includedRoastSetupIds.contains(account.sourceId)) {
+          continue;
+        }
         accounts.add(
           BackupAccount(
             account,
@@ -215,7 +223,17 @@ final class BackupWallet(
         seed,
         vault.nextAccountIndex,
         accounts,
-        transitions: vault.groupTransitions.map(BackupTransition.new).toList(),
+        transitions: vault.groupTransitions
+            .where(
+              (transition) =>
+                  includedRoastSetupIds == null ||
+                  (includedRoastSetupIds.contains(transition.sourceSetupId) &&
+                      includedRoastSetupIds.contains(
+                        transition.successorSetupId,
+                      )),
+            )
+            .map(BackupTransition.new)
+            .toList(),
       );
     } catch (_) {
       seed.fillRange(0, seed.length, 0);
@@ -677,6 +695,9 @@ final class BackupGroup({
   required final List<BackupSigningKey> keys,
   required final BackupRoom? room,
 }) {
+  static bool canBackup(RoastSetup setup) =>
+      setup.isFinalized && setup.groupKeyHex != null;
+
   Map<String, Object?> toCbor() => {
     'setup_id': setup.id,
     'group_id': setup.groupId,
@@ -818,11 +839,8 @@ final class BackupGroup({
   );
   void validate({required bool hasRootSeed}) {
     final s = setup;
-    if (!s.isFinalized ||
-        s.threshold < 2 ||
-        s.threshold > s.participantCount ||
-        s.pendingDkgProposalHex != null) {
-      backupInvalid('ROAST group is incomplete or has an unfinished DKG.');
+    if (!s.isFinalized || s.threshold < 2 || s.threshold > s.participantCount) {
+      backupInvalid('ROAST group is incomplete.');
     }
     if (s.keyName.length < 3 ||
         s.keyName.length > 40 ||

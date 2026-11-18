@@ -44,16 +44,23 @@ final class WalletBackupService(
 
   Future<Uint8List> _export(String passphrase) async {
     final vault = await repository.load();
-    if (vault != null &&
-        vault.roastSetups.isNotEmpty &&
-        roastPersistence == null) {
+    final includedRoastSetupIds = <String>{
+      for (final setup in vault?.roastSetups ?? const [])
+        if (BackupGroup.canBackup(setup)) setup.id,
+    };
+    if (includedRoastSetupIds.isNotEmpty && roastPersistence == null) {
       backupInvalid(
         'ROAST signing storage is unavailable; no backup was created.',
       );
     }
     final backup = WalletBackupV1(
       createdAt: DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000,
-      wallet: vault == null ? null : BackupWallet.fromVault(vault),
+      wallet: vault == null
+          ? null
+          : BackupWallet.fromVault(
+              vault,
+              includedRoastSetupIds: includedRoastSetupIds,
+            ),
       groups: [],
     );
     Uint8List? plaintext;

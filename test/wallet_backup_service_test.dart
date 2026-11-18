@@ -59,8 +59,11 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  Future<WalletController> connectedController(_SnapshotRuntime runtime) async {
-    await repository.save(fixture.vault);
+  Future<WalletController> connectedController(
+    _SnapshotRuntime runtime, {
+    WalletVault? vault,
+  }) async {
+    await repository.save(vault ?? fixture.vault);
     final p = await factory.open();
     await p
         .clientStorage(fixture.setup.id)
@@ -188,6 +191,40 @@ void main() {
       expect(runtime.starts, 2);
       expect(runtime.paused, isFalse);
       expect(controller.busy, isFalse);
+    },
+  );
+
+  test(
+    'active DKG action does not block backup of the completed group',
+    () async {
+      final setup = fixture.setup.copyWith(
+        status: RoastSetupStatus.awaitingDkgApproval,
+        pendingDkgProposalHex: 'abcd',
+      );
+      final rejectGate = Completer<void>();
+      final runtime = _SnapshotRuntime(setup, rejectDkgGate: rejectGate.future);
+      final controller = await connectedController(
+        runtime,
+        vault: fixture.vault.copyWith(roastSetups: [setup]),
+      );
+      while (controller.roastOperationInProgress(setup.id)) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+
+      final rejecting = controller.rejectRoastDkg(setup.id);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.roastOperationInProgress(setup.id), isTrue);
+
+      final file = await controller.exportEncryptedBackup('12345678');
+      final plaintext = await BackupEnvelope.decrypt(file, '12345678');
+      final backup = WalletBackupV1.decode(plaintext);
+      expect(backup.groups, hasLength(1));
+      expect(backup.groups.single.setup.pendingDkgProposalHex, isNull);
+      backup.clearSecrets();
+      plaintext.fillRange(0, plaintext.length, 0);
+
+      rejectGate.complete();
+      await rejecting;
     },
   );
 
@@ -519,11 +556,36 @@ void main() {
       );
     },
   );
+
+  test(
+    'invite-stage group is omitted without blocking the rest of the wallet',
+    () async {
+      final setup = fixture.setup.copyWith(
+        status: RoastSetupStatus.connecting,
+        participants: [fixture.setup.localParticipant],
+      );
+      await repository.save(fixture.vault.copyWith(roastSetups: [setup]));
+
+      final file = await WalletBackupService(
+        repository,
+        null,
+      ).exportEncrypted('12345678');
+      final plaintext = await BackupEnvelope.decrypt(file, '12345678');
+      final backup = WalletBackupV1.decode(plaintext);
+      expect(backup.groups, isEmpty);
+      expect(backup.wallet!.accounts.map((item) => item.account.id), [
+        'personal',
+      ]);
+      backup.clearSecrets();
+      plaintext.fillRange(0, plaintext.length, 0);
+    },
+  );
 }
 
 final class _SnapshotRuntime(
   final RoastSetup setup, {
   final Future<void>? startGate,
+  final Future<void>? rejectDkgGate,
 }) implements RoastRuntime {
   final _events = StreamController<RoastRuntimeEvent>.broadcast();
   int starts = 0;
@@ -546,8 +608,13 @@ final class _SnapshotRuntime(
       coordinatorRelayUrls: setup.coordinatorRelayUrls,
       coordinatorIpAddrs: setup.coordinatorIpAddrs,
       groupKeyHex: setup.groupKeyHex,
-      pendingDkgProposalHex: null,
+      pendingDkgProposalHex: setup.pendingDkgProposalHex,
     );
+  }
+
+  @override
+  Future<void> rejectDkg(String setupId, String proposalHex) async {
+    await rejectDkgGate;
   }
 
   @override
