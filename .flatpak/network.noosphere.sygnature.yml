@@ -35,7 +35,7 @@ modules:
       - type: git
         url: https://github.com/flutter/flutter.git
         commit: ab2912035e160d9cad6306df307576da6128ebdb
-        tag: 3.50.0
+        tag: 3.50.1
         dest: flutter
 
   - name: sygnature
