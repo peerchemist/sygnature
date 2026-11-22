@@ -460,17 +460,10 @@ extension WalletRoastCoordinatorController on WalletController {
       return;
     }
     final attempt = _roastReconnectAttempts[setupId] ?? 0;
-    final multiplier = 1 << (attempt > 4 ? 4 : attempt);
-    final retryMilliseconds =
-        WalletController._initialRoastReconnectDelay.inMilliseconds *
-        multiplier;
-    final maxMilliseconds =
-        WalletController._maxRoastReconnectDelay.inMilliseconds;
-    final delay = Duration(
-      milliseconds: retryMilliseconds < maxMilliseconds
-          ? retryMilliseconds
-          : maxMilliseconds,
-    );
+    final backoff = roastReconnectBackoff;
+    final delay = backoff == null
+        ? WalletController.defaultRoastReconnectDelay(attempt)
+        : backoff[attempt.clamp(0, backoff.length - 1)];
     _roastReconnectAttempts[setupId] = attempt + 1;
     AppLogger.info(
       '${WalletRoastSetupController._roastLogScope(setupId)} Reconnecting in ${delay.inSeconds}s',

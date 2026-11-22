@@ -974,6 +974,8 @@ void main() {
       roastRuntime: runtime,
       roastKeyService: _FakeRoastKeyService(),
       networkServiceFactory: (_) async => null,
+      // Keep the manual reconnect deterministic: no automatic retry here.
+      roastReconnectBackoff: const [Duration(hours: 1)],
     );
     await controller.load();
     await tester.pumpWidget(
@@ -1017,6 +1019,69 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+    'automatically retries reconnect after a coordinator Iroh disconnect',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final runtime = _FakeRoastRuntime()
+        ..startSnapshot = RoastRuntimeSnapshot(
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: const ['01'],
+          coordinatorId: 'coordinator',
+          coordinatorRelayUrls: const [],
+          coordinatorIpAddrs: const [],
+          groupKeyHex: 'group-key',
+          pendingDkgProposalHex: null,
+        );
+      final controller = WalletController(
+        MemoryWalletRepository()..value = _activeRoastVault(),
+        roastRuntime: runtime,
+        roastKeyService: _FakeRoastKeyService(),
+        networkServiceFactory: (_) async => null,
+      );
+      await controller.load();
+      await tester.pumpWidget(
+        SygnatureApp(controllerFactory: () async => controller),
+      );
+      await tester.pumpAndSettle();
+      expect(runtime.startCalls, 1);
+      expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+
+      runtime.emit(
+        RoastRuntimeSnapshotEvent(
+          'setup',
+          connected: false,
+          signerRunning: false,
+          onlineParticipantIds: const [],
+          coordinatorId: 'coordinator',
+          coordinatorRelayUrls: const [],
+          coordinatorIpAddrs: const [],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        controller.roastSetups.single.status,
+        RoastSetupStatus.interrupted,
+      );
+      expect(find.text('Reconnect coordinator'), findsOneWidget);
+
+      // No manual tap: the scheduled auto-reconnect fires after the backoff.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(runtime.startCalls, 2);
+      expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+      expect(controller.roastSetups.single.errorMessage, isNull);
+      expect(find.text('Reconnect coordinator'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
 
   testWidgets('offers a manual reconnect for a disconnected startup', (
     tester,

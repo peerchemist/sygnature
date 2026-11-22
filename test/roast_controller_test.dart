@@ -175,6 +175,100 @@ void main() {
     controller.dispose();
   });
 
+  test('automatically retries reconnect after the signer loses its Iroh connection', () async {
+    final repository = _CoordinatorRepository();
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(
+      repository,
+      runtime,
+      roastReconnectBackoff: const [Duration(milliseconds: 20)],
+    );
+    await controller.load();
+    await _flushEvents();
+    final setup = controller.roastSetups.single;
+    RoastRuntimeSnapshotEvent snapshot({required bool connected}) =>
+        RoastRuntimeSnapshotEvent(
+          setup.id,
+          connected: connected,
+          signerRunning: connected,
+          onlineParticipantIds: const ['02'],
+          coordinatorId: setup.coordinatorId,
+          coordinatorRelayUrls: List.of(setup.coordinatorRelayUrls),
+          coordinatorIpAddrs: List.of(setup.coordinatorIpAddrs),
+        );
+    runtime.emit(snapshot(connected: true));
+    await _flushEvents();
+    expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+    final startsAfterLoad = runtime.startedCoordinatorIds.length;
+
+    runtime.emit(snapshot(connected: false));
+    await _flushEvents();
+    expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
+    expect(
+      controller.roastSetups.single.errorMessage,
+      contains('lost its Iroh connection'),
+    );
+
+    // No manual tap: the scheduled auto-reconnect fires on its own.
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await _flushEvents();
+    expect(runtime.startedCoordinatorIds.length, greaterThan(startsAfterLoad));
+    expect(controller.roastSetups.single.status, RoastSetupStatus.active);
+    expect(controller.roastSetups.single.errorMessage, isNull);
+    controller.dispose();
+  });
+
+  test(
+    'a connection failure event also schedules an automatic reconnect',
+    () async {
+      final repository = _CoordinatorRepository();
+      final runtime = _CoordinatorRoastRuntime();
+      final controller = _coordinatorController(
+        repository,
+        runtime,
+        roastReconnectBackoff: const [Duration(milliseconds: 20)],
+      );
+      await controller.load();
+      await _flushEvents();
+      final setup = controller.roastSetups.single;
+      runtime.emit(
+        RoastRuntimeSnapshotEvent(
+          setup.id,
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: const ['02'],
+          coordinatorId: setup.coordinatorId,
+          coordinatorRelayUrls: List.of(setup.coordinatorRelayUrls),
+          coordinatorIpAddrs: List.of(setup.coordinatorIpAddrs),
+        ),
+      );
+      await _flushEvents();
+      final startsAfterLoad = runtime.startedCoordinatorIds.length;
+
+      runtime.emit(
+        RoastRuntimeFailureEvent(
+          setup.id,
+          message: 'The ROAST signer lost its Iroh connection.',
+          interrupted: true,
+          operation: RoastRuntimeOperation.connection,
+        ),
+      );
+      await _flushEvents();
+      expect(
+        controller.roastSetups.single.status,
+        RoastSetupStatus.interrupted,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await _flushEvents();
+      expect(
+        runtime.startedCoordinatorIds.length,
+        greaterThan(startsAfterLoad),
+      );
+      controller.dispose();
+    },
+  );
+
   test('invite-stage coordinator returns to enrolling after restart', () async {
     final repository = _CoordinatorRepository();
     final runtime = _CoordinatorRoastRuntime();
@@ -1572,8 +1666,10 @@ void main() {
       final errorMessage = controller.roastSetups.single.errorMessage!;
       expect(
         errorMessage,
-        contains('Room enrollment succeeded, but this device could not '
-            'configure the shared wallet'),
+        contains(
+          'Room enrollment succeeded, but this device could not '
+          'configure the shared wallet',
+        ),
       );
       expect(
         errorMessage,
@@ -3215,8 +3311,9 @@ void main() {
 
 WalletController _coordinatorController(
   _CoordinatorRepository repository,
-  _CoordinatorRoastRuntime runtime,
-) {
+  _CoordinatorRoastRuntime runtime, {
+  List<Duration>? roastReconnectBackoff,
+}) {
   repository.value ??= WalletVault(
     rootSeedHex: _rootSeedHex,
     accounts: [
@@ -3243,6 +3340,7 @@ WalletController _coordinatorController(
     roastRuntime: runtime,
     roastKeyService: _FakeRoastKeyService(),
     networkServiceFactory: (_) async => null,
+    roastReconnectBackoff: roastReconnectBackoff,
   );
 }
 

@@ -127,6 +127,20 @@ class WalletController extends ChangeNotifier {
   static const _initialRoastReconnectDelay = Duration(seconds: 2);
   static const _maxRoastReconnectDelay = Duration(seconds: 30);
 
+  /// Exponential backoff for automatic ROAST reconnect attempts, capped at
+  /// [_maxRoastReconnectDelay]. Tests can inject [roastReconnectBackoff].
+  static Duration defaultRoastReconnectDelay(int attempt) {
+    final multiplier = 1 << (attempt > 4 ? 4 : attempt);
+    final retryMilliseconds =
+        _initialRoastReconnectDelay.inMilliseconds * multiplier;
+    final maxMilliseconds = _maxRoastReconnectDelay.inMilliseconds;
+    return Duration(
+      milliseconds: retryMilliseconds < maxMilliseconds
+          ? retryMilliseconds
+          : maxMilliseconds,
+    );
+  }
+
   WalletController(
     this._repository, {
     this.networkServiceFactory,
@@ -142,6 +156,7 @@ class WalletController extends ChangeNotifier {
     RoastSigningOperationRepository? roastSigningOperations,
     List<WalletNetwork>? supportedNetworks,
     WalletBackupService? backupService,
+    List<Duration>? roastReconnectBackoff,
   }) : _keyService = keyService ?? CoinlibWalletKeyService(),
        _transactionService =
            transactionService ?? const CoinlibWalletTransactionService(),
@@ -152,6 +167,9 @@ class WalletController extends ChangeNotifier {
        _backupService = backupService,
        _roastSigningOperations =
            roastSigningOperations ?? MemoryRoastSigningOperationRepository(),
+       roastReconnectBackoff = roastReconnectBackoff == null
+           ? null
+           : List.unmodifiable(roastReconnectBackoff),
        supportedNetworks = List.unmodifiable(
          supportedNetworks ?? PeercoinNetworks.values,
        ) {
@@ -177,6 +195,7 @@ class WalletController extends ChangeNotifier {
   final RoastRuntime? _roastRuntime;
   final RoastKeyService _roastKeyService;
   final RoastSigningOperationRepository _roastSigningOperations;
+  final List<Duration>? roastReconnectBackoff;
   final List<WalletNetwork> supportedNetworks;
   final Map<String, ElectrumxService> _networkServices = {};
   WalletVault? _vault;

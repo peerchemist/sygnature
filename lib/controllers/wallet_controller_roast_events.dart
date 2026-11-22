@@ -128,6 +128,10 @@ extension WalletRoastEventController on WalletController {
             !healthy;
         if (healthy || enrolling) {
           _cancelRoastReconnect(event.setupId);
+        } else if (connectionLost) {
+          // A running signer that lost its Iroh connection is retried
+          // automatically with backoff instead of waiting for a manual tap.
+          _scheduleRoastReconnect(event.setupId);
         }
         final presenceChanged = _setRoastPresence(
           event.setupId,
@@ -319,6 +323,14 @@ extension WalletRoastEventController on WalletController {
         }
         final presenceChanged =
             event.interrupted && _roastPresence.remove(event.setupId) != null;
+        if (event.interrupted &&
+            event.operation == RoastRuntimeOperation.connection &&
+            !_busy &&
+            !_roastOperations.contains(event.setupId)) {
+          // The coordinator or signer dropped its Iroh connection; retry
+          // automatically with backoff instead of waiting for a manual tap.
+          _scheduleRoastReconnect(event.setupId);
+        }
         await _updateSetup(
           setup.id,
           (setup) => setup.copyWith(
