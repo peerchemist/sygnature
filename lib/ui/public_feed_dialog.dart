@@ -308,7 +308,7 @@ class const _SyncHealth({
         ),
         Text(
           android
-              ? 'Android checks periodically in the background. The 15-minute interval is a minimum; battery and system scheduling may delay a check.'
+              ? 'Android checks at the selected background frequency. The selected interval is a minimum; battery and system scheduling may delay a check.'
               : ios
               ? 'APNs alerts are the primary iOS signal. Background refresh is best effort: iOS chooses the timing, does not guarantee a 15-minute cadence, and will not relaunch refresh work after a force-quit.'
               : 'Background scheduling is not available on this platform. Sygnature checks while the app is open.',
