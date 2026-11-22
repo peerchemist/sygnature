@@ -15,7 +15,10 @@ class const PublicFeedDialog({
   required final RoastSetup setup,
   required final Future<bool> Function(int, String) notify,
   required final Future<bool?> Function() notificationPermission,
+  this.androidBackgroundFrequency = const Duration(hours: 1),
 }) extends StatefulWidget {
+  final Duration androidBackgroundFrequency;
+
   @override
   State<PublicFeedDialog> createState() => _PublicFeedDialogState();
 }
@@ -193,6 +196,8 @@ class _PublicFeedDialogState extends State<PublicFeedDialog> {
                     feed: feed,
                     foregroundPoll: polls?['foreground'] as String?,
                     backgroundPoll: polls?['background'] as String?,
+                    androidBackgroundFrequency:
+                        widget.androidBackgroundFrequency,
                     permission: _permission,
                     formatTime: _time,
                     busy: _busy,
@@ -253,6 +258,7 @@ class const _SyncHealth({
   required final Map feed,
   required final String? foregroundPoll,
   required final String? backgroundPoll,
+  required final Duration androidBackgroundFrequency,
   required final bool? permission,
   required final String Function(String?) formatTime,
   required final bool busy,
@@ -267,10 +273,10 @@ class const _SyncHealth({
         ? null
         : DateTime.parse(backgroundPoll!);
     final delayed =
-        backgroundAvailable &&
-        (backgroundTime == null ||
-            DateTime.now().toUtc().difference(backgroundTime) >
-                const Duration(minutes: 45));
+        android &&
+        backgroundTime != null &&
+        DateTime.now().toUtc().difference(backgroundTime) >
+            androidBackgroundFrequency * 2;
     final blocked = feed['blocked'] == true || permission == false;
     final issue = feed['issue'] as String?;
     final status = blocked

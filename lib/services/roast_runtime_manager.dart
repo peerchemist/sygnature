@@ -377,6 +377,10 @@ final class RoastRuntimeManager(
           );
         },
       );
+      await _configureMemberFeed(
+        setup.groupId,
+        _endpointAddress(newCoordinator),
+      );
       _signerSetups.add(setup.id);
       return await _snapshot(snapshot, _setups[setup.id] ?? setup);
     } on NoosphereWorkerException catch (error, stackTrace) {
@@ -409,7 +413,9 @@ final class RoastRuntimeManager(
     if (!_signerSetups.contains(setup.id)) {
       throw StateError('The ROAST signer is not running.');
     }
-    await worker.updateSignerAddress(setup.id, _endpointAddress(coordinator));
+    final address = _endpointAddress(coordinator);
+    await worker.updateSignerAddress(setup.id, address);
+    await _configureMemberFeed(setup.groupId, address);
     _signerCoordinators[setup.id] = coordinator;
     _setups[setup.id] = setup.copyWith(
       coordinatorId: coordinator.id,

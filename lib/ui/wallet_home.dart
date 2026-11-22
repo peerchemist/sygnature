@@ -535,6 +535,10 @@ class _WalletDashboard extends StatelessWidget {
       onOpenPublicFeed: roastSetup != null && controller.publicFeedStore != null
           ? () async {
               final store = await controller.publicFeedStore!;
+              final androidBackgroundFrequency =
+                  defaultTargetPlatform == TargetPlatform.android
+                  ? await loadAndroidPublicFeedWorkFrequency()
+                  : androidPublicFeedDefaultWorkFrequency;
               if (!context.mounted) return;
               await showDialog<void>(
                 context: context,
@@ -543,6 +547,7 @@ class _WalletDashboard extends StatelessWidget {
                   setup: roastSetup,
                   notify: notifications.publicFeedRequested,
                   notificationPermission: notifications.systemPermissionGranted,
+                  androidBackgroundFrequency: androidBackgroundFrequency,
                 ),
               );
             }

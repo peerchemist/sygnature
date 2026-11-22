@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:coinlib/coinlib.dart' show ECCompressedPublicKey;
@@ -157,6 +158,56 @@ void main() {
           find.byKey(const Key('public-feed-sync-technical-details')),
           findsOneWidget,
         );
+        await tester.pumpWidget(const SizedBox());
+      } finally {
+        await store.close();
+        await directory.delete(recursive: true);
+      }
+    });
+  });
+
+  testWidgets('Android sync health uses the selected background frequency', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.runAsync(() async {
+      final directory = await Directory.systemTemp.createTemp(
+        'sygnature-feed-health-',
+      );
+      final store = await PublicFeedStore.open(directory.path);
+      try {
+        final setup = WalletBackupFixture().setup;
+        await store.bindFeedFromSetup(
+          groupId: setup.groupId,
+          address: 'coordinator-address',
+          pin: setup.coordinatorId!,
+          feedId: await publicFeedIdForGroup(setup.groupId),
+        );
+        await store.recordPoll(
+          PublicFeedPollSource.background,
+          DateTime.now().toUtc().subtract(const Duration(minutes: 90)),
+        );
+        Future<void> pump(Duration frequency) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: PublicFeedDialog(
+                store: store,
+                setup: setup,
+                notify: (_, _) async => true,
+                notificationPermission: () async => true,
+                androidBackgroundFrequency: frequency,
+              ),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          await tester.pump();
+        }
+
+        await pump(const Duration(hours: 1));
+        expect(find.text('Healthy'), findsOneWidget);
+        await pump(const Duration(minutes: 30));
+        expect(find.text('Delayed'), findsOneWidget);
         await tester.pumpWidget(const SizedBox());
       } finally {
         await store.close();

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,7 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_flutter/testing.dart';
+import 'package:sygnature_ng/services/roast_runtime_manager.dart';
 import 'package:sygnature_ng/storage/roast_storage.dart';
+import 'package:sygnature_ng/storage/public_feed_store.dart';
 
 import 'fixtures/native_dkg_fixture.dart';
 import 'fixtures/wallet_backup_fixture.dart';
@@ -64,6 +67,53 @@ void main() {
     expect(snapshot.pendingDkgProposalHex, isNull);
     expect(await storage.loadAll(), isEmpty);
     expect(_hasDkgSecretRecord(fixture.setup.id), isFalse);
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('coordinator address updates rebind the public feed', () async {
+    final fixture = WalletBackupFixture(
+      setupId: 'feed-rebind-setup',
+      groupId: 'feed-rebind-group',
+    );
+    final coordinator = await startNativeDkgCoordinator(
+      fixture.setup,
+      setupId: 'feed-rebind-coordinator',
+    );
+    addTearDown(coordinator.worker.close);
+    final feedStore = await PublicFeedStore.open('${directory.path}/feed');
+    addTearDown(feedStore.close);
+    final runtime = RoastRuntimeManager(
+      RoastPersistenceFactory(cipherKey: Uint8List(32)),
+      getWalletSeed: () => throw StateError('Member has no server seed.'),
+      publicFeedStore: Future.value(feedStore),
+      initializeNative: () async {},
+      startWorker: NoosphereWorker.startNativeForTesting,
+    );
+    addTearDown(runtime.close);
+    await runtime.startSetup(coordinator.setup);
+    final feedId = await publicFeedIdForGroup(fixture.setup.groupId);
+    await feedStore.subscribe(
+      groupId: fixture.setup.groupId,
+      address: 'stale-address',
+      pin: coordinator.setup.coordinatorId!,
+      feedId: feedId,
+    );
+
+    await runtime.updateCoordinatorAddress(
+      coordinator.setup,
+      RoastCoordinatorAddress(
+        id: coordinator.setup.coordinatorId!,
+        relayUrls: coordinator.setup.coordinatorRelayUrls,
+        ipAddrs: coordinator.setup.coordinatorIpAddrs,
+      ),
+    );
+
+    final data = await feedStore.snapshot();
+    final key = (data['bindings'] as Map)[fixture.setup.groupId] as String;
+    final feed = (data['feeds'] as Map)[key] as Map;
+    expect(
+      feed['address'],
+      base64UrlEncode(coordinator.address.canonical().encode()),
+    );
   }, timeout: const Timeout(Duration(minutes: 1)));
 
   test('startup deletes a DKG secret immediately after importing it', () async {
