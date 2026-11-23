@@ -1,6 +1,6 @@
 part of '../wallet_home.dart';
 
-const _publicFeedNotificationWindows = {
+const _durationLabels = {
   15: '15 minutes',
   30: '30 minutes',
   60: '1 hour',
@@ -15,11 +15,6 @@ Future<void> _showSettings(
   WalletController controller,
   AppNotifications notifications,
 ) {
-  final publicFeedNotificationWindow =
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS)
-      ? controller.publicFeedStore?.then((store) => store.notificationWindow())
-      : null;
   final publicFeedWorkFrequency =
       defaultTargetPlatform == TargetPlatform.android
       ? loadAndroidPublicFeedWorkFrequency()
@@ -29,7 +24,6 @@ Future<void> _showSettings(
       builder: (_) => _SettingsScreen(
         controller: controller,
         notifications: notifications,
-        publicFeedNotificationWindow: publicFeedNotificationWindow,
         publicFeedWorkFrequency: publicFeedWorkFrequency,
       ),
     ),
@@ -39,7 +33,6 @@ Future<void> _showSettings(
 class const _SettingsScreen({
   required final WalletController controller,
   required final AppNotifications notifications,
-  required final Future<Duration>? publicFeedNotificationWindow,
   required final Future<Duration>? publicFeedWorkFrequency,
 }) extends StatelessWidget {
   @override
@@ -260,8 +253,7 @@ class const _SettingsScreen({
                       label: const Text('Send test notification'),
                     ),
                   ),
-                  if (publicFeedNotificationWindow != null ||
-                      publicFeedWorkFrequency != null) ...[
+                  if (publicFeedWorkFrequency != null) ...[
                     const SizedBox(height: 20),
                     Text(
                       'ROAST EVENT NOTIFICATIONS',
@@ -292,8 +284,7 @@ class const _SettingsScreen({
                                 DropdownMenuItem(
                                   value: frequency.inMinutes,
                                   child: Text(
-                                    _publicFeedNotificationWindows[frequency
-                                            .inMinutes] ??
+                                    _durationLabels[frequency.inMinutes] ??
                                         '${frequency.inMinutes} minutes',
                                   ),
                                 ),
@@ -322,45 +313,6 @@ class const _SettingsScreen({
                         ),
                       ),
                       const SizedBox(height: 12),
-                    ],
-                    if (publicFeedNotificationWindow != null) ...[
-                      const Text(
-                        'How old can ROAST events be and still notify you?',
-                      ),
-                      const SizedBox(height: 8),
-                      FutureBuilder<Duration>(
-                        future: publicFeedNotificationWindow,
-                        builder: (context, snapshot) => KeyedSubtree(
-                          key: const Key('public-feed-notification-window'),
-                          child: DropdownButtonFormField<int>(
-                            key: ValueKey(snapshot.data?.inMinutes),
-                            initialValue:
-                                snapshot.data?.inMinutes ??
-                                publicFeedDefaultNotificationWindow.inMinutes,
-                            decoration: InputDecoration(
-                              labelText: 'Maximum event age',
-                              helperText: snapshot.hasError
-                                  ? 'Event age setting unavailable.'
-                                  : 'Older or expired events do not notify.',
-                            ),
-                            items: [
-                              for (final option
-                                  in _publicFeedNotificationWindows.entries)
-                                DropdownMenuItem(
-                                  value: option.key,
-                                  child: Text(option.value),
-                                ),
-                            ],
-                            onChanged: snapshot.hasData
-                                ? (minutes) async =>
-                                      (await controller.publicFeedStore!)
-                                          .setNotificationWindow(
-                                            Duration(minutes: minutes!),
-                                          )
-                                : null,
-                          ),
-                        ),
-                      ),
                     ],
                   ],
                   const Divider(height: 32),

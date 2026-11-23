@@ -20,7 +20,6 @@ import '../services/electrumx_service.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
-import '../storage/public_feed_store.dart';
 import 'about_screen.dart';
 import 'app_theme.dart';
 import 'public_feed_dialog.dart';

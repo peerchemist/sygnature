@@ -18,13 +18,21 @@ PublicFeedEntry entry(
   PublicFeedLifecycle state = PublicFeedLifecycle.requested,
   PublicFeedId? event,
   DateTime? observedAt,
-}) => PublicFeedEntry(
-  cursor: cursor,
-  eventId: event ?? eventId,
-  category: PublicFeedCategory.signing,
-  state: state,
-  observedAt: observedAt ?? DateTime.now().toUtc(),
-);
+  DateTime? expiresAt,
+  bool includeExpiry = true,
+}) {
+  final observed = observedAt ?? DateTime.now().toUtc();
+  return PublicFeedEntry(
+    cursor: cursor,
+    eventId: event ?? eventId,
+    category: PublicFeedCategory.signing,
+    state: state,
+    observedAt: observed,
+    expiresAt: includeExpiry
+        ? expiresAt ?? observed.add(const Duration(days: 30))
+        : null,
+  );
+}
 
 PublicFeedPage page(
   int after,
@@ -154,7 +162,6 @@ void main() {
 
   test('no-op mutations do not append or flush another state record', () async {
     await store.configureHost('unchanged-host', true);
-    await store.setNotificationWindow(const Duration(hours: 1));
     final owner = await store.acquirePollingLease();
     expect(owner, isNotNull);
     final before = await store.snapshot();
@@ -162,7 +169,6 @@ void main() {
     final bytes = await file.readAsBytes();
     await store.configureHost('unchanged-host', true);
     await store.enabledHostId('unchanged-host');
-    await store.setNotificationWindow(const Duration(hours: 1));
     expect(await store.acquirePollingLease(), isNull);
     await store.releasePollingLease('not-the-owner');
     expect(await store.snapshot(), before);
@@ -419,110 +425,55 @@ void main() {
     expect((await feed())['outbox'], isEmpty);
   });
 
-  test('old and expired requests never flood notifications after an offline period', () async {
+  test('catch-up waits for later lifecycle pages before notifying', () async {
     await baseline();
+    final connection = FakeConnection(
+      (cursor) async => cursor == 0
+          ? page(0, 2, entries: [entry(1)])
+          : page(
+              1,
+              2,
+              entries: [entry(2, state: PublicFeedLifecycle.cancelled)],
+            ),
+    );
+    await poller(connection, maxPages: 1).run();
+    expect(shown, isEmpty);
+    expect((await feed())['outbox'], hasLength(1));
+    expect((await feed())['catchingUp'], isTrue);
+
+    await poller(connection).run();
+    expect(shown, isEmpty);
+    expect((await feed())['outbox'], isEmpty);
+    expect((await feed())['catchingUp'], isFalse);
+  });
+
+  test('request eligibility is determined only by its expiry', () async {
+    await baseline();
+    final now = DateTime.now().toUtc();
     await poller(
       FakeConnection(
         (_) async => page(
           0,
-          1,
+          3,
           entries: [
             entry(
               1,
-              observedAt: DateTime.now().subtract(const Duration(days: 1)),
+              observedAt: now.subtract(const Duration(days: 1)),
+              expiresAt: now.add(const Duration(hours: 1)),
             ),
+            entry(
+              2,
+              event: PublicFeedId('02' * 32),
+              expiresAt: now.subtract(const Duration(minutes: 1)),
+            ),
+            entry(3, event: PublicFeedId('03' * 32), includeExpiry: false),
           ],
         ),
       ),
     ).run();
-    expect((await feed())['cursor'], 1);
-    expect(shown, isEmpty);
+    expect((await feed())['cursor'], 3);
+    expect(shown, hasLength(1));
   });
-
-  test(
-    'notification window defaults to one hour and persists up to 24 hours',
-    () async {
-      expect(await store.notificationWindow(), const Duration(hours: 1));
-      await store.setNotificationWindow(const Duration(hours: 24));
-      await store.close();
-      store = await PublicFeedStore.open(directory.path);
-      expect(await store.notificationWindow(), const Duration(hours: 24));
-      await expectLater(
-        store.setNotificationWindow(const Duration(hours: 24, minutes: 1)),
-        throwsFormatException,
-      );
-      await expectLater(
-        store.setNotificationWindow(Duration.zero),
-        throwsFormatException,
-      );
-    },
-  );
-
-  test(
-    'configured window includes recent catch-up and excludes older requests',
-    () async {
-      await baseline();
-      await store.setNotificationWindow(const Duration(hours: 24));
-      await poller(
-        FakeConnection(
-          (_) async => page(
-            0,
-            1,
-            entries: [
-              entry(
-                1,
-                observedAt: DateTime.now().subtract(const Duration(hours: 23)),
-              ),
-            ],
-          ),
-        ),
-      ).run();
-      expect(shown, hasLength(1));
-      await poller(
-        FakeConnection(
-          (_) async => page(
-            1,
-            2,
-            entries: [
-              entry(
-                2,
-                event: PublicFeedId('02' * 32),
-                observedAt: DateTime.now().subtract(const Duration(hours: 25)),
-              ),
-            ],
-          ),
-        ),
-      ).run();
-      expect(shown, hasLength(1));
-      expect((await feed())['cursor'], 2);
-    },
-  );
-
-  test(
-    'delivery uses the latest configured window for a durable outbox',
-    () async {
-      await baseline();
-      await store.commitPage(
-        key,
-        page(
-          0,
-          1,
-          entries: [
-            entry(
-              1,
-              observedAt: DateTime.now().subtract(const Duration(minutes: 30)),
-            ),
-          ],
-        ),
-        DateTime.now(),
-      );
-      expect(((await feed())['outbox'] as Map), hasLength(1));
-      await store.setNotificationWindow(const Duration(minutes: 15));
-      await poller(FakeConnection((cursor) async => page(cursor, 1))).run();
-      expect(shown, isEmpty);
-      expect((await feed())['outbox'], isEmpty);
-    },
-  );
 
   test('network errors retain cursor, persist backoff and do not reconnect immediately', () async {
     await baseline();

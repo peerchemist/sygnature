@@ -130,8 +130,6 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
             );
           case 'enabledHostId':
             result = await state.enabledHostId(operation[1] as String);
-          case 'notificationWindow':
-            await state.setNotificationWindow(operation[1] as int);
           case 'subscribe':
             result = await state.subscribe(
               groupId: operation[1] as String,

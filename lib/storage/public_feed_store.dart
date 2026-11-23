@@ -19,9 +19,6 @@ import 'public_feed_directory.dart'
 part 'public_feed_store_owner.dart';
 part 'public_feed_store_state.dart';
 
-const publicFeedDefaultNotificationWindow = Duration(hours: 1);
-const publicFeedMaxNotificationWindow = Duration(hours: 24);
-
 enum PublicFeedPollSource { foreground, background }
 
 Future<String> publicFeedIdForGroup(String groupId) async {
@@ -32,12 +29,6 @@ Future<String> publicFeedIdForGroup(String groupId) async {
       .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
       .join();
 }
-
-Duration _notificationWindow(Map data) => Duration(
-  minutes:
-      data['notificationWindowMinutes'] as int? ??
-      publicFeedDefaultNotificationWindow.inMinutes,
-);
 
 /// Only the shared owner isolate opens Hive. Clients send whole mutations,
 /// never a separate read/modify/write sequence or a cached copy of the box.
@@ -182,11 +173,6 @@ final class PublicFeedStore._(
   Future<bool> hostPollingEnabled(String groupId) async =>
       (((await snapshot())['hosts'] as Map)[groupId] as Map?)?['polling'] !=
       false;
-
-  Future<Duration> notificationWindow() async =>
-      _notificationWindow(await snapshot());
-  Future<void> setNotificationWindow(Duration value) =>
-      _request(['notificationWindow', value.inMinutes]);
 
   Future<String> subscribe({
     required String groupId,

@@ -281,17 +281,16 @@ final class PublicFeedPoller(
     Duration Function() timeLeft,
     String owner,
   ) async {
-    final notificationWindow = await store.notificationWindow();
+    // A later page can contain the terminal state for a request queued by an
+    // earlier page. Wait until the feed reaches its current head.
+    if (feed['catchingUp'] == true) return;
     for (final entry in (feed['outbox'] as Map).entries) {
       if (await isCancelled?.call() ?? false) throw const _FeedPollCancelled();
       await store.checkPollingLease(owner, key);
       final item = entry.value as Map;
       final now = DateTime.now().toUtc();
       final expiry = item['expiresAt'] as String?;
-      final stale =
-          DateTime.parse(item['observedAt'] as String)
-              .isBefore(now.subtract(notificationWindow)) ||
-          (expiry != null && !DateTime.parse(expiry).isAfter(now));
+      final stale = expiry == null || !DateTime.parse(expiry).isAfter(now);
       if (!stale &&
           !await notify(
             item['id'] as int,

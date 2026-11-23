@@ -62,9 +62,9 @@ reviewed. Background polling does not unlock the vault, start a signer or
 coordinator, request biometrics, or play wallet event sounds.
 
 Sygnature stays quiet when a feed is first enabled so retained history does not
-produce a burst of old notifications. Later requests notify only if they are
-still active and fall within the user's notification window, which defaults to
-one hour and can be set from 15 minutes to 24 hours.
+produce a burst of old notifications. Later requests notify while their
+published expiry time is still in the future. Requests without an expiry time
+do not notify.
 
 ## Local state and recovery
 

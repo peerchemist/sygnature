@@ -664,10 +664,9 @@ void main() {
     expect(find.text('30 minutes'), findsOneWidget);
     expect(
       find.text('How old can ROAST events be and still notify you?'),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('Maximum event age'), findsOneWidget);
-    expect(find.text('1 hour'), findsOneWidget);
+    expect(find.text('Maximum event age'), findsNothing);
     expect(find.byKey(const Key('settings-version')), findsOneWidget);
     expect(find.text('Version $sygnatureVersionString'), findsOneWidget);
     expect(find.byKey(const Key('export-diagnostics-button')), findsOneWidget);

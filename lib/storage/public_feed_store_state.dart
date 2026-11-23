@@ -190,13 +190,6 @@ final class _FeedState(final Map<String, dynamic> data) {
   static List<dynamic> _disabledGroups(Map<String, dynamic> data) =>
       data.putIfAbsent('disabledGroups', () => <String>[]) as List;
 
-  Future<void> setNotificationWindow(int minutes) => _mutate((data) {
-    if (minutes < 1 || minutes > publicFeedMaxNotificationWindow.inMinutes) {
-      throw const FormatException('Invalid notification window');
-    }
-    data['notificationWindowMinutes'] = minutes;
-  });
-
   Future<void> commitPage(
     String key,
     PublicFeedPage page,
@@ -248,11 +241,9 @@ final class _FeedState(final Map<String, dynamic> data) {
           continue;
         }
         if (entry.cursor <= (feed['initialThrough'] as int) ||
-            entry.observedAt.isBefore(
-              now.subtract(_notificationWindow(data)),
-            ) ||
             entry.observedAt.isAfter(now.add(const Duration(minutes: 1))) ||
-            (entry.expiresAt != null && !entry.expiresAt!.isAfter(now))) {
+            entry.expiresAt == null ||
+            !entry.expiresAt!.isAfter(now)) {
           continue;
         }
         final id = data['nextNotificationId'] as int;
@@ -272,6 +263,7 @@ final class _FeedState(final Map<String, dynamic> data) {
       }
       feed['historyGap'] = feed['historyGap'] == true || page.historyGap;
       feed['cursor'] = page.nextCursor; // Empty pages advance too.
+      feed['catchingUp'] = page.hasMore;
       feed['lastSuccessfulFetchAt'] = now.toUtc().toIso8601String();
       feed['failures'] = 0;
       feed.remove('retryAt');
