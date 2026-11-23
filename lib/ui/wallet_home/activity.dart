@@ -322,6 +322,12 @@ Future<void> _showActivityDetails(
                 label: 'Created',
                 value: _activityDateTime(activity.occurredAt),
               ),
+              if (_isRequestActivity(activity))
+                if (activity.expiresAt case final expiresAt?)
+                  _ActivityDetail(
+                    label: 'Expires',
+                    value: _activityDateTime(expiresAt),
+                  ),
               if (expired)
                 const _ActivityDetail(label: 'Status', value: 'Expired'),
               if (setup != null) ...[
