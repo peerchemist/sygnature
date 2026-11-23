@@ -270,38 +270,43 @@ void main() {
     });
   }
 
-  test('expected transport failure persists backoff and returns success without a retry storm', () async {
-    final store = await PublicFeedStore.open(directory.path);
-    final key = await store.subscribe(
-      groupId: 'g',
-      address: 'address',
-      pin: 'pin',
-      feedId: feedId.hex,
-    );
-    await store.close();
-    var connections = 0;
-    final worker = task(
-      poll: (store, notify) => PublicFeedPoller(
-        store,
-        notify: notify,
-        connect: (_) async {
-          connections++;
-          throw const SocketException(
-            'sensitive capability must never be logged',
-          );
-        },
-      ).run(),
-    );
-    expect(await worker.execute(publicFeedWorkTaskName), isTrue);
-    expect(await worker.execute(publicFeedWorkTaskName), isTrue);
-    expect(connections, 1);
-    final inspect = await PublicFeedStore.open(directory.path);
-    final feed = ((await inspect.snapshot())['feeds'] as Map)[key] as Map;
-    expect(feed['cursor'], 0);
-    expect(feed['failures'], 1);
-    expect(feed['retryAt'], isNotNull);
-    await inspect.close();
-  });
+  test(
+    'background transport failure requests one retry without a retry storm',
+    () async {
+      final store = await PublicFeedStore.open(directory.path);
+      final key = await store.subscribe(
+        groupId: 'g',
+        address: 'address',
+        pin: 'pin',
+        feedId: feedId.hex,
+      );
+      await store.close();
+      var connections = 0;
+      final worker = task(
+        poll: (store, notify) => PublicFeedPoller(
+          store,
+          source: PublicFeedPollSource.background,
+          notify: notify,
+          connect: (_) async {
+            connections++;
+            throw const SocketException(
+              'sensitive capability must never be logged',
+            );
+          },
+        ).run(),
+      );
+      expect(await worker.execute(publicFeedWorkTaskName), isFalse);
+      expect(await worker.execute(publicFeedWorkTaskName), isTrue);
+      expect(connections, 1);
+      final inspect = await PublicFeedStore.open(directory.path);
+      final feed = ((await inspect.snapshot())['feeds'] as Map)[key] as Map;
+      expect(feed['cursor'], 0);
+      expect(feed['failures'], 1);
+      expect(feed['retryAt'], isNotNull);
+      expect(feed['backgroundIssue'], isNotNull);
+      await inspect.close();
+    },
+  );
 
   test(
     'worker interruption reuses the committed outbox notification ID',

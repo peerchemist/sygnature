@@ -500,6 +500,51 @@ void main() {
     expect((await feed())['issue'], isNot(contains('sensitive endpoint')));
   });
 
+  test('background connection failure requests OS retry and remains visible after foreground recovery', () async {
+    await baseline();
+    final background = PublicFeedPoller(
+      store,
+      source: PublicFeedPollSource.background,
+      notify: (_, _) async => true,
+      connect: (_) async => throw const SocketException('offline'),
+    );
+    await expectLater(
+      background.run(),
+      throwsA(isA<PublicFeedConnectionsUnavailable>()),
+    );
+    expect((await feed())['backgroundIssue'], isNotNull);
+    expect((await store.snapshot())['polls']['background'], isNotNull);
+
+    await store.retry(key);
+    await poller(FakeConnection((cursor) async => page(cursor, cursor))).run();
+    expect((await feed())['issue'], isNull);
+    expect((await feed())['backgroundIssue'], isNotNull);
+
+    await PublicFeedPoller(
+      store,
+      source: PublicFeedPollSource.background,
+      notify: (_, _) async => true,
+      connect: (_) async =>
+          FakeConnection((cursor) async => page(cursor, cursor)),
+    ).run();
+    expect((await feed())['backgroundIssue'], isNull);
+    expect((await feed())['lastSuccessfulBackgroundFetchAt'], isNotNull);
+  });
+
+  test(
+    'blocked background configuration failure does not request OS retry',
+    () async {
+      await baseline();
+      await PublicFeedPoller(
+        store,
+        source: PublicFeedPollSource.background,
+        notify: (_, _) async => true,
+        connect: (_) async => throw const FormatException('bad address'),
+      ).run();
+      expect((await feed())['blocked'], isTrue);
+    },
+  );
+
   test(
     'security errors discard response and block polling with cursor unchanged',
     () async {

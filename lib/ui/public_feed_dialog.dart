@@ -278,7 +278,8 @@ class const _SyncHealth({
         DateTime.now().toUtc().difference(backgroundTime) >
             androidBackgroundFrequency * 2;
     final blocked = feed['blocked'] == true || permission == false;
-    final issue = feed['issue'] as String?;
+    final issue =
+        (feed['backgroundIssue'] as String?) ?? feed['issue'] as String?;
     final status = blocked
         ? 'Needs attention'
         : issue != null || delayed

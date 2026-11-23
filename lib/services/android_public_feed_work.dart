@@ -76,15 +76,49 @@ typedef PublicFeedBackgroundPoll = Future<void> Function(
 Future<void> _pollOnce(
   PublicFeedStore store,
   Future<bool> Function(int, String) notify,
-) => PublicFeedPoller(
-  store,
-  notify: notify,
-  source: PublicFeedPollSource.background,
-).run();
+) async {
+  await PublicFeedPoller(
+    store,
+    notify: notify,
+    source: PublicFeedPollSource.background,
+    connectionTimeout: const Duration(seconds: 65),
+    maxDuration: const Duration(seconds: 90),
+    connect: (feed) async {
+      final elapsed = Stopwatch()..start();
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.publicFeedConnectionStarted,
+      );
+      try {
+        final connection = await connectPublicFeed(
+          feed,
+          connectTimeout: const Duration(seconds: 30),
+          retryWithFreshDiscovery: true,
+          onFreshDiscoveryRetry: () => AppDiagnostics.record(
+            AppDiagnosticEvent.publicFeedConnectionFreshDiscoveryRetry,
+            details: {'elapsedMilliseconds': elapsed.elapsedMilliseconds},
+          ),
+        );
+        await AppDiagnostics.record(
+          AppDiagnosticEvent.publicFeedConnectionSucceeded,
+          details: {'elapsedMilliseconds': elapsed.elapsedMilliseconds},
+        );
+        return connection;
+      } on Object catch (error) {
+        await AppDiagnostics.record(
+          AppDiagnosticEvent.publicFeedConnectionFailed,
+          error: error,
+          details: {'elapsedMilliseconds': elapsed.elapsedMilliseconds},
+        );
+        rethrow;
+      }
+    },
+  ).run();
+}
 
 /// Injectable boundaries keep execution tests independent of an Android job.
-/// Expected feed failures are handled by the poller's durable per-feed backoff;
-/// only task infrastructure failures return false (WorkManager retry).
+/// Feed failures keep durable per-feed backoff. When every coordinator
+/// connection fails transiently, false requests one WorkManager retry; the
+/// persisted backoff makes that retry a successful no-op if it runs too soon.
 final class PublicFeedBackgroundTask({
   final Future<void> Function() initializePlugins = _initializePlugins,
   final Future<void> Function() initializeNative = _initializeNative,
@@ -126,8 +160,37 @@ final class PublicFeedBackgroundTask({
         await initializeWithinBudget(
           () => AppDiagnostics.initialize(directory.path),
         );
-        await AppDiagnostics.record(AppDiagnosticEvent.backgroundWorkStarted);
-        await initializeWithinBudget(initializeNative);
+        await AppDiagnostics.record(
+          AppDiagnosticEvent.backgroundWorkStarted,
+          details: {'elapsedMilliseconds': elapsed.elapsedMilliseconds},
+        );
+        final nativeStartedAt = elapsed.elapsed;
+        await AppDiagnostics.record(
+          AppDiagnosticEvent.nativeInitializationStarted,
+          details: {'context': 'background'},
+        );
+        try {
+          await initializeWithinBudget(initializeNative);
+          await AppDiagnostics.record(
+            AppDiagnosticEvent.nativeInitializationSucceeded,
+            details: {
+              'context': 'background',
+              'elapsedMilliseconds':
+                  (elapsed.elapsed - nativeStartedAt).inMilliseconds,
+            },
+          );
+        } on Object catch (error) {
+          await AppDiagnostics.record(
+            AppDiagnosticEvent.nativeInitializationFailed,
+            error: error,
+            details: {
+              'context': 'background',
+              'elapsedMilliseconds':
+                  (elapsed.elapsed - nativeStartedAt).inMilliseconds,
+            },
+          );
+          rethrow;
+        }
         var abandoned = false;
         try {
           store = await initializeWithinBudget(
@@ -149,12 +212,16 @@ final class PublicFeedBackgroundTask({
       } finally {
         await store?.close();
       }
-      await AppDiagnostics.record(AppDiagnosticEvent.backgroundWorkSucceeded);
+      await AppDiagnostics.record(
+        AppDiagnosticEvent.backgroundWorkSucceeded,
+        details: {'elapsedMilliseconds': elapsed.elapsedMilliseconds},
+      );
       return true;
     } on Object catch (error) {
       await AppDiagnostics.record(
         AppDiagnosticEvent.backgroundWorkFailed,
         error: error,
+        details: {'elapsedMilliseconds': elapsed.elapsedMilliseconds},
       );
       // Never log exceptions: native/transport errors may contain capabilities.
       return false;

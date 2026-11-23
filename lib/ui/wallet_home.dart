@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -20,6 +21,7 @@ import '../services/electrumx_service.dart';
 import '../services/peercoin_network_service.dart';
 import '../services/roast_runtime_manager.dart';
 import '../services/wallet_transaction_service.dart';
+import '../storage/public_feed_store.dart';
 import 'about_screen.dart';
 import 'app_theme.dart';
 import 'public_feed_dialog.dart';
@@ -518,6 +520,27 @@ class _WalletDashboard extends StatelessWidget {
       );
     }
     final roastSetup = controller.setupForAccount(account);
+    final openPublicFeed =
+        roastSetup != null && controller.publicFeedStore != null
+        ? () async {
+            final store = await controller.publicFeedStore!;
+            final androidBackgroundFrequency =
+                defaultTargetPlatform == TargetPlatform.android
+                ? await loadAndroidPublicFeedWorkFrequency()
+                : androidPublicFeedDefaultWorkFrequency;
+            if (!context.mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (_) => PublicFeedDialog(
+                store: store,
+                setup: roastSetup,
+                notify: notifications.publicFeedRequested,
+                notificationPermission: notifications.systemPermissionGranted,
+                androidBackgroundFrequency: androidBackgroundFrequency,
+              ),
+            );
+          }
+        : null;
     final header = _DashboardHeader(
       account: account,
       networkLabel: controller.networkForAccount(account).label,
@@ -531,25 +554,17 @@ class _WalletDashboard extends StatelessWidget {
       publicFeedLabel: roastSetup?.role == RoastSetupRole.member
           ? 'Receive background notifications'
           : 'Public operation feed',
-      onOpenPublicFeed: roastSetup != null && controller.publicFeedStore != null
-          ? () async {
-              final store = await controller.publicFeedStore!;
-              final androidBackgroundFrequency =
-                  defaultTargetPlatform == TargetPlatform.android
-                  ? await loadAndroidPublicFeedWorkFrequency()
-                  : androidPublicFeedDefaultWorkFrequency;
-              if (!context.mounted) return;
-              await showDialog<void>(
-                context: context,
-                builder: (_) => PublicFeedDialog(
-                  store: store,
-                  setup: roastSetup,
-                  notify: notifications.publicFeedRequested,
-                  notificationPermission: notifications.systemPermissionGranted,
-                  androidBackgroundFrequency: androidBackgroundFrequency,
-                ),
-              );
-            }
+      onOpenPublicFeed: openPublicFeed,
+      publicFeedHealth:
+          roastSetup?.role == RoastSetupRole.member &&
+              controller.publicFeedStore != null &&
+              openPublicFeed != null
+          ? _PublicFeedHealthIcon(
+              key: ValueKey('public-feed-health-${roastSetup!.groupId}'),
+              store: controller.publicFeedStore!,
+              groupId: roastSetup.groupId,
+              onPressed: openPublicFeed,
+            )
           : null,
       onChangeSignerGroup:
           roastSetup?.isActive == true && controller.roastAvailable
@@ -945,6 +960,7 @@ class _DashboardHeader extends StatelessWidget {
     this.onExtendRecoveryScan,
     this.publicFeedLabel = 'Public operation feed',
     this.onOpenPublicFeed,
+    this.publicFeedHealth,
     this.onChangeSignerGroup,
     this.onSwitchCoordinator,
     this.onResetCoordinator,
@@ -958,6 +974,7 @@ class _DashboardHeader extends StatelessWidget {
   final VoidCallback? onExtendRecoveryScan;
   final String publicFeedLabel;
   final VoidCallback? onOpenPublicFeed;
+  final Widget? publicFeedHealth;
   final VoidCallback? onChangeSignerGroup;
   final VoidCallback? onSwitchCoordinator;
   final VoidCallback? onResetCoordinator;
@@ -1042,6 +1059,10 @@ class _DashboardHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+            if (publicFeedHealth case final health?) ...[
+              health,
+              const SizedBox(width: 4),
+            ],
             PopupMenuButton<String>(
               key: const Key('wallet-settings-button'),
               tooltip: 'Wallet settings',
@@ -1159,6 +1180,120 @@ class _DashboardHeader extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+enum _PublicFeedHealth { unknown, healthy, delayed, failed }
+
+class _PublicFeedHealthIcon extends StatefulWidget {
+  const _PublicFeedHealthIcon({
+    super.key,
+    required this.store,
+    required this.groupId,
+    required this.onPressed,
+  });
+
+  final Future<PublicFeedStore> store;
+  final String groupId;
+  final VoidCallback onPressed;
+
+  @override
+  State<_PublicFeedHealthIcon> createState() => _PublicFeedHealthIconState();
+}
+
+class _PublicFeedHealthIconState extends State<_PublicFeedHealthIcon> {
+  _PublicFeedHealth _health = _PublicFeedHealth.unknown;
+  Timer? _refresh;
+  var _frequency = androidPublicFeedDefaultWorkFrequency;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      unawaited(
+        loadAndroidPublicFeedWorkFrequency().then((frequency) {
+          _frequency = frequency;
+          return _load();
+        }),
+      );
+    }
+    _refresh = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_load()),
+    );
+  }
+
+  Future<void> _load() async {
+    try {
+      final state = await (await widget.store).snapshot();
+      final key = (state['bindings'] as Map)[widget.groupId] as String?;
+      final feed = key == null ? null : (state['feeds'] as Map)[key] as Map?;
+      final backgroundPoll = (state['polls'] as Map?)?['background'] as String?;
+      final issue =
+          (feed?['backgroundIssue'] as String?) ?? feed?['issue'] as String?;
+      final checked = defaultTargetPlatform == TargetPlatform.android
+          ? backgroundPoll != null
+          : feed?['lastSuccessfulFetchAt'] != null;
+      final delayed =
+          defaultTargetPlatform == TargetPlatform.android &&
+          backgroundPoll != null &&
+          DateTime.now().toUtc().difference(DateTime.parse(backgroundPoll)) >
+              _frequency * 2;
+      final health = feed == null || !checked
+          ? _PublicFeedHealth.unknown
+          : feed['blocked'] == true || issue != null
+          ? _PublicFeedHealth.failed
+          : delayed
+          ? _PublicFeedHealth.delayed
+          : _PublicFeedHealth.healthy;
+      if (mounted && health != _health) setState(() => _health = health);
+    } on Object {
+      if (mounted && _health != _PublicFeedHealth.unknown) {
+        setState(() => _health = _PublicFeedHealth.unknown);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _refresh?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, tooltip) = switch (_health) {
+      _PublicFeedHealth.healthy => (
+        Icons.notifications_active_outlined,
+        AppColors.of(context).greenDark,
+        'Public feed healthy',
+      ),
+      _PublicFeedHealth.delayed => (
+        Icons.schedule_rounded,
+        AppColors.of(context).warningDark,
+        'Public feed delayed',
+      ),
+      _PublicFeedHealth.failed => (
+        Icons.error_outline_rounded,
+        AppColors.of(context).danger,
+        'Public feed needs attention',
+      ),
+      _PublicFeedHealth.unknown => (
+        Icons.notifications_none_rounded,
+        AppColors.of(context).inkMuted,
+        'Public feed status unavailable',
+      ),
+    };
+    return IconButton(
+      key: const Key('public-feed-health'),
+      tooltip: tooltip,
+      onPressed: widget.onPressed,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      padding: const EdgeInsets.all(6),
+      icon: Icon(icon, size: 18, color: color),
     );
   }
 }

@@ -855,8 +855,8 @@ class _CoordinatorConnectionStatusState
         AppColors.of(context).success,
       ),
       RoastCoordinatorLocalState.connected => (
-        'Signer connected',
-        'This device is connected to its saved coordinator.',
+        'ROAST signer connected',
+        'The ROAST signer is connected to its saved coordinator.',
         Icons.link_rounded,
         AppColors.of(context).success,
       ),

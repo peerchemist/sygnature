@@ -15,6 +15,10 @@ enum AppDiagnosticEvent {
   nativeInitializationStarted,
   nativeInitializationSucceeded,
   nativeInitializationFailed,
+  publicFeedConnectionStarted,
+  publicFeedConnectionFreshDiscoveryRetry,
+  publicFeedConnectionSucceeded,
+  publicFeedConnectionFailed,
   roastFailure,
   roastCoordinatorDisconnected,
 }

@@ -195,6 +195,7 @@ final class _FeedState(final Map<String, dynamic> data) {
     PublicFeedPage page,
     DateTime now, {
     String? leaseOwner,
+    String? source,
   }) => _mutate(
     (data) {
       final feed = (data['feeds'] as Map)[key] as Map;
@@ -265,6 +266,10 @@ final class _FeedState(final Map<String, dynamic> data) {
       feed['cursor'] = page.nextCursor; // Empty pages advance too.
       feed['catchingUp'] = page.hasMore;
       feed['lastSuccessfulFetchAt'] = now.toUtc().toIso8601String();
+      if (source == PublicFeedPollSource.background.name) {
+        feed['lastSuccessfulBackgroundFetchAt'] = now.toUtc().toIso8601String();
+        feed.remove('backgroundIssue');
+      }
       feed['failures'] = 0;
       feed.remove('retryAt');
       feed.remove('issue');
@@ -290,12 +295,16 @@ final class _FeedState(final Map<String, dynamic> data) {
     DateTime now, {
     bool blocked = false,
     String? leaseOwner,
+    String? source,
   }) => _mutate(
     (data) {
       final feed = (data['feeds'] as Map)[key] as Map;
       final count = ((feed['failures'] as int) + 1).clamp(1, 10);
       feed['failures'] = count;
       feed['issue'] = issue;
+      if (source == PublicFeedPollSource.background.name) {
+        feed['backgroundIssue'] = issue;
+      }
       feed['blocked'] = blocked;
       feed['retryAt'] = now
           .add(Duration(seconds: (15 * (1 << count)).clamp(30, 3600)))

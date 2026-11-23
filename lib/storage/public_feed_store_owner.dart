@@ -163,6 +163,7 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
               PublicFeedPage.fromBytes(operation[2] as List<int>),
               DateTime.parse(operation[3] as String),
               leaseOwner: operation[4] as String?,
+              source: operation[5] as String?,
             );
           case 'delivered':
             await state.delivered(
@@ -177,6 +178,7 @@ Future<void> _publicFeedStoreOwner((String, String, SendPort) args) async {
               DateTime.parse(operation[3] as String),
               blocked: operation[4] as bool,
               leaseOwner: operation[5] as String?,
+              source: operation[6] as String?,
             );
           case 'retry':
             await state.retry(operation[1] as String);

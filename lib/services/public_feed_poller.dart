@@ -43,14 +43,30 @@ Future<void> initializePublicFeedNative({String? libraryPath}) async {
   await Iroh.init(libraryPath: libraryPath);
 }
 
-Future<FeedConnection> connectPublicFeed(Map feed) async {
+Future<FeedConnection> connectPublicFeed(
+  Map feed, {
+  Duration connectTimeout = const Duration(seconds: 15),
+  bool retryWithFreshDiscovery = false,
+  Future<void> Function()? onFreshDiscoveryRetry,
+}) async {
   await initializePublicFeedNative();
-  return _Connection(
-    await PublicFeedClient.connect(
-      EndpointAddr.decode(base64Url.decode(feed['address'] as String)),
-      EndpointId.fromZ32(feed['pin'] as String),
-    ),
+  final address = EndpointAddr.decode(
+    base64Url.decode(feed['address'] as String),
   );
+  final pin = EndpointId.fromZ32(feed['pin'] as String);
+  Future<FeedConnection> connect(EndpointAddr target) async => _Connection(
+    await PublicFeedClient.connect(target, pin, connectTimeout: connectTimeout),
+  );
+  try {
+    return await connect(address);
+  } on TimeoutException {
+    if (!retryWithFreshDiscovery ||
+        (address.relayUrls.isEmpty && address.ipAddrs.isEmpty)) {
+      rethrow;
+    }
+    await onFreshDiscoveryRetry?.call();
+    return connect(EndpointAddr(pin));
+  }
 }
 
 /// UI-independent, locked-wallet polling. The injected delivery callback must
@@ -112,6 +128,9 @@ final class PublicFeedPoller(
   Future<void> _run(String owner) async {
     final budget = Stopwatch()..start();
     var remaining = maxPages;
+    var connectionAttempts = 0;
+    var successfulConnections = 0;
+    var transientConnectionFailures = 0;
     Duration timeLeft() {
       final left = maxDuration - budget.elapsed;
       if (left <= Duration.zero) {
@@ -152,6 +171,7 @@ final class PublicFeedPoller(
         // Drain committed intent even when the coordinator is temporarily offline.
         await _deliver(key, feed, timeLeft, owner);
         stage = _FeedPollStage.coordinatorConnection;
+        connectionAttempts++;
         var abandoned = false;
         final connecting = connect(feed).then((connection) async {
           if (abandoned) {
@@ -169,6 +189,7 @@ final class PublicFeedPoller(
             throw TimeoutException('Public feed connection budget');
           },
         );
+        successfulConnections++;
         var feedPages = 0;
         while (remaining > 0 &&
             budget.elapsed < maxDuration &&
@@ -194,6 +215,7 @@ final class PublicFeedPoller(
             page,
             DateTime.now().toUtc(),
             leaseOwner: owner,
+            source: source,
           );
           feed = ((await store.snapshot())['feeds'] as Map)[key] as Map;
           stage = _FeedPollStage.notificationDelivery;
@@ -211,6 +233,7 @@ final class PublicFeedPoller(
           DateTime.now(),
           leaseOwner: owner,
           blocked: true,
+          source: source,
         );
       } on PinnedEndpointMismatchException {
         await store.failure(
@@ -219,6 +242,7 @@ final class PublicFeedPoller(
           DateTime.now(),
           leaseOwner: owner,
           blocked: true,
+          source: source,
         );
       } on FormatException {
         await store.failure(
@@ -227,6 +251,7 @@ final class PublicFeedPoller(
           DateTime.now(),
           leaseOwner: owner,
           blocked: true,
+          source: source,
         );
       } on IrohKeyException {
         // Malformed signature/key bytes also fail inside the public client.
@@ -236,6 +261,7 @@ final class PublicFeedPoller(
           DateTime.now(),
           leaseOwner: owner,
           blocked: true,
+          source: source,
         );
       } on PublicFeedException catch (error) {
         // NOT_FOUND deliberately does not distinguish disabled/unknown feeds.
@@ -246,21 +272,30 @@ final class PublicFeedPoller(
               : 'Public feed request failed.',
           DateTime.now(),
           leaseOwner: owner,
+          source: source,
         );
       } on TimeoutException {
+        if (stage == _FeedPollStage.coordinatorConnection) {
+          transientConnectionFailures++;
+        }
         await store.failure(
           key,
           stage.timeoutIssue,
           DateTime.now(),
           leaseOwner: owner,
+          source: source,
         );
       } on Object {
+        if (stage == _FeedPollStage.coordinatorConnection) {
+          transientConnectionFailures++;
+        }
         // Do not log arbitrary transport errors: they may include capabilities.
         await store.failure(
           key,
           stage.failureIssue,
           DateTime.now(),
           leaseOwner: owner,
+          source: source,
         );
       } finally {
         try {
@@ -272,6 +307,12 @@ final class PublicFeedPoller(
           /* No cursor change. */
         }
       }
+    }
+    if (source == PublicFeedPollSource.background &&
+        connectionAttempts > 0 &&
+        successfulConnections == 0 &&
+        transientConnectionFailures == connectionAttempts) {
+      throw const PublicFeedConnectionsUnavailable();
     }
   }
 
@@ -304,6 +345,8 @@ final class PublicFeedPoller(
 }
 
 final class const _FeedPollCancelled() implements Exception;
+
+final class const PublicFeedConnectionsUnavailable() implements Exception;
 
 enum _FeedPollStage {
   notificationDelivery,

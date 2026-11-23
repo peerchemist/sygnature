@@ -230,12 +230,14 @@ final class PublicFeedStore._(
     PublicFeedPage page,
     DateTime now, {
     String? leaseOwner,
+    PublicFeedPollSource? source,
   }) => _request([
     'commit',
     key,
     page.toBytes(),
     now.toUtc().toIso8601String(),
     leaseOwner,
+    source?.name,
   ]);
   Future<void> delivered(String key, String cursor, {String? leaseOwner}) =>
       _request(['delivered', key, cursor, leaseOwner]);
@@ -245,6 +247,7 @@ final class PublicFeedStore._(
     DateTime now, {
     bool blocked = false,
     String? leaseOwner,
+    PublicFeedPollSource? source,
   }) => _request([
     'failure',
     key,
@@ -252,6 +255,7 @@ final class PublicFeedStore._(
     now.toUtc().toIso8601String(),
     blocked,
     leaseOwner,
+    source?.name,
   ]);
   Future<void> retry(String key) => _request(['retry', key]);
   Future<void> advancePollingFeed(String owner, String nextKey) =>
