@@ -176,7 +176,12 @@ extension WalletRoastCoordinatorController on WalletController {
     }
   }
 
-  Future<void> resumeRoastSetup(String setupId) async {
+  Future<void> resumeRoastSetup(String setupId) => _resumeRoastSetup(setupId);
+
+  Future<void> _resumeRoastSetup(
+    String setupId, {
+    bool reconnect = false,
+  }) async {
     final setup = _setupById(setupId);
     if (setup.requiresBackupReconciliation) {
       throw StateError(
@@ -187,6 +192,7 @@ extension WalletRoastCoordinatorController on WalletController {
     _cancelRoastReconnect(setupId);
     await _startRoastRuntime(
       setup.copyWith(status: RoastSetupStatus.connecting),
+      reconnect: reconnect,
     );
   }
 
@@ -194,7 +200,7 @@ extension WalletRoastCoordinatorController on WalletController {
     final setup = _setupById(setupId);
     return setup.role == RoastSetupRole.host
         ? resetHostedRoastCoordinator(setupId)
-        : resumeRoastSetup(setupId);
+        : _resumeRoastSetup(setupId, reconnect: true);
   }
 
   Future<void> resetHostedRoastCoordinator(String setupId) async {
@@ -326,17 +332,21 @@ extension WalletRoastCoordinatorController on WalletController {
           'Verify that it serves this exact group, then retry explicitly.',
   };
 
-  Future<void> _startRoastRuntime(RoastSetup setup) {
+  Future<void> _startRoastRuntime(RoastSetup setup, {bool reconnect = false}) {
     final pending = _roastStarts[setup.id];
     if (pending != null) return pending;
-    final starting = _startRoastRuntimeNow(setup).whenComplete(() {
-      _roastStarts.remove(setup.id);
-    });
+    final starting = _startRoastRuntimeNow(setup, reconnect: reconnect)
+        .whenComplete(() {
+          _roastStarts.remove(setup.id);
+        });
     _roastStarts[setup.id] = starting;
     return starting;
   }
 
-  Future<void> _startRoastRuntimeNow(RoastSetup setup) async {
+  Future<void> _startRoastRuntimeNow(
+    RoastSetup setup, {
+    required bool reconnect,
+  }) async {
     if (_busy) throw const WalletBusyFailure();
     if (setup.requiresBackupReconciliation) {
       throw StateError('Restored group requires live reconciliation.');
@@ -349,7 +359,7 @@ extension WalletRoastCoordinatorController on WalletController {
         setup.id,
         (setup) => setup.copyWith(status: RoastSetupStatus.connecting),
       );
-      final snapshot = await runtime.startSetup(setup);
+      final snapshot = await runtime.startSetup(setup, reconnect: reconnect);
       final waitingForEnrollment =
           setup.role == RoastSetupRole.host &&
           setup.usesRoomEnrollment &&

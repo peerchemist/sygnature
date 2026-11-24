@@ -46,6 +46,7 @@ void main() {
         );
 
         final signers = <NoosphereWorker>[];
+        final signerOptions = <ClientNodeOptions>[];
         phase('starting signer workers');
         for (
           var participant = 1;
@@ -55,10 +56,9 @@ void main() {
           final worker = await NoosphereWorker.startNativeForTesting();
           workers.add(worker);
           signers.add(worker);
-          await worker.startSetup(
-            setupId: rotationSetupId,
-            client: _clientOptions(participant, oldCoordinator),
-          );
+          final options = _clientOptions(participant, oldCoordinator);
+          signerOptions.add(options);
+          await worker.startSetup(setupId: rotationSetupId, client: options);
         }
         phase('waiting for the original group');
         await _waitForFullGroup(signers);
@@ -145,10 +145,18 @@ void main() {
         );
         await _waitForFullGroup(signers);
 
-        phase('signing through replacement coordinator');
-        final signingRequest = _nextEvent<WorkerSigningRequestEvent>(
-          signers[1],
+        phase(
+          'taking one signer offline before requesting a message signature',
+        );
+        await signers[1].lockSigner(rotationSetupId);
+        final liveRequest = _nextEvent<WorkerSigningRequestEvent>(
+          signers[2],
           (event) => event.setupId == rotationSetupId,
+        );
+        final reconnected = _nextEvent<WorkerSnapshotEvent>(
+          signers[1],
+          (event) =>
+              event.setupId == rotationSetupId && event.snapshot.connected,
         );
         final signingResult = _nextEvent<WorkerSigningResultEvent>(
           signers[0],
@@ -162,8 +170,17 @@ void main() {
             expiry: Expiry(const Duration(minutes: 2)),
           ),
         );
-        final request = await signingRequest;
-        await signers[1].acceptSignatures(rotationSetupId, request.request);
+        final request = (await liveRequest).request;
+
+        phase('catching up the signing request after a fresh login');
+        await signers[1].startSetup(
+          setupId: rotationSetupId,
+          client: signerOptions[1].withCoordinator(replacementCoordinator),
+        );
+        final recovered = (await reconnected).snapshot.signingRequests.single;
+        expect(recovered.id, request.id);
+        expect(recovered.proposalBytes, request.proposalBytes);
+        await signers[1].acceptSignatures(rotationSetupId, recovered);
 
         final signedMessage = (await signingResult).toSignedMessage();
         expect(signedMessage.text, rotationMessage);

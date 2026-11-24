@@ -21,6 +21,7 @@ import '../storage/public_feed_store.dart';
 import 'app_diagnostics.dart';
 import 'app_logger.dart';
 import 'roast_runtime.dart';
+import 'roast_signing_request_state.dart';
 import 'wallet_transaction_service.dart';
 
 export 'roast_runtime.dart';
@@ -58,8 +59,7 @@ final class RoastRuntimeManager(
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final Map<String, WorkerDkgStatus> _dkgProposals = {};
-  final Map<String, WorkerSigningRequest> _signingRequests = {};
-  final Map<String, DateTime> _cancelledSigningRequests = {};
+  final Map<String, RoastSigningRequestState> _signingStates = {};
   final Map<String, RoastSetup> _setups = {};
   final Map<String, String> _emittedGroupKeys = {};
   final Set<String> _serverSetups = {};
@@ -119,7 +119,6 @@ final class RoastRuntimeManager(
     _signerSetups.clear();
     _workerSetups.clear();
     _dkgProposals.clear();
-    _signingRequests.clear();
     for (final timer in _keyReadinessTimers.values) {
       timer.cancel();
     }
@@ -143,7 +142,10 @@ final class RoastRuntimeManager(
   }
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  }) async {
     if (setup.requiresBackupReconciliation) {
       throw StateError(
         'Restored group requires reconciliation with live participants.',
@@ -155,7 +157,11 @@ final class RoastRuntimeManager(
       '${setup.participantCount} participants, threshold ${setup.threshold})',
     );
     try {
-      final snapshot = await _startSetup(setup, scheduleRoomRetry: true);
+      final snapshot = await _startSetup(
+        setup,
+        scheduleRoomRetry: true,
+        reconnect: reconnect,
+      );
       AppLogger.info(
         '$scope Setup state: connected=${snapshot.connected}, '
         'signerRunning=${snapshot.signerRunning}, '
@@ -176,6 +182,7 @@ final class RoastRuntimeManager(
     RoastSetup setup, {
     required bool scheduleRoomRetry,
     bool publishDkgs = true,
+    bool reconnect = false,
   }) {
     if (_backupPaused) {
       return Future.error(StateError('ROAST is paused for wallet backup.'));
@@ -186,6 +193,7 @@ final class RoastRuntimeManager(
       setup,
       scheduleRoomRetry: scheduleRoomRetry,
       publishDkgs: publishDkgs,
+      reconnect: reconnect,
     );
     final result = starting.whenComplete(() {
       _setupStarts.remove(setup.id);
@@ -198,6 +206,7 @@ final class RoastRuntimeManager(
     RoastSetup setup, {
     required bool scheduleRoomRetry,
     required bool publishDkgs,
+    required bool reconnect,
   }) async {
     if (!setup.isFinalized) {
       throw StateError('Finalize the participant roster before connecting.');
@@ -303,6 +312,12 @@ final class RoastRuntimeManager(
     );
     late NoosphereWorkerSnapshot snapshot;
     try {
+      if (reconnect && _workerSetups.contains(setup.id)) {
+        _signingState(setup.id).invalidateSnapshots();
+        await worker.lockSigner(setup.id);
+        _signerSetups.remove(setup.id);
+        if (!_serverSetups.contains(setup.id)) _workerSetups.remove(setup.id);
+      }
       snapshot = _signerSetups.contains(setup.id)
           ? await worker.snapshot(setup.id)
           : await _startWorkerSetup(
@@ -683,7 +698,7 @@ final class RoastRuntimeManager(
 
   @override
   Future<void> acceptSignatures(String setupId, String requestIdHex) async {
-    final request = _signingRequests['$setupId:$requestIdHex'];
+    final request = _signingStates[setupId]?[requestIdHex];
     if (request == null || request.status != 'waiting') {
       throw StateError('The signing request is no longer available.');
     }
@@ -696,7 +711,7 @@ final class RoastRuntimeManager(
 
   @override
   Future<void> rejectSignatures(String setupId, String requestIdHex) async {
-    final request = _signingRequests['$setupId:$requestIdHex'];
+    final request = _signingStates[setupId]?[requestIdHex];
     if (request == null || request.status != 'waiting') {
       throw StateError('The signing request is no longer available.');
     }
@@ -754,10 +769,7 @@ final class RoastRuntimeManager(
     _emittedGroupKeys.remove(setupId);
     _signerCoordinators.remove(setupId);
     _dkgProposals.removeWhere((key, _) => key.startsWith('$setupId:'));
-    _signingRequests.removeWhere((key, _) => key.startsWith('$setupId:'));
-    _cancelledSigningRequests.removeWhere(
-      (key, _) => key.startsWith('$setupId:'),
-    );
+    _signingStates.remove(setupId);
     _refreshAgain.remove(setupId);
     _keyReadinessTimers.remove(setupId)?.cancel();
     await _roomSubscriptions.remove(setupId)?.cancel();
@@ -894,8 +906,8 @@ final class RoastRuntimeManager(
         if (!_synchronizingDkgSetups.contains(event.setupId)) {
           _rememberDkgs(event.snapshot);
         }
-        _rememberCancelledSigningRequests(event.snapshot);
-        _rememberSigningRequests(event.snapshot);
+        _signingState(event.setupId)
+            .applySnapshot(event.snapshot, replay: true);
         _emitSnapshot(event.snapshot);
         _runBackground(_rememberExpectedKeySafely(event.snapshot));
       case WorkerDkgEvent():
@@ -930,6 +942,7 @@ final class RoastRuntimeManager(
         _runBackground(_deleteDkgSecret(event.setupId, event.key.name));
         _runBackground(_refresh(event.setupId));
       case WorkerFailureEvent():
+        _signingState(event.setupId).invalidateSnapshots();
         final operation = switch (event.operation) {
           'signatures' => RoastRuntimeOperation.signatures,
           'dkg' => RoastRuntimeOperation.dkg,
@@ -986,6 +999,7 @@ final class RoastRuntimeManager(
         );
         _runBackground(_refresh(event.setupId));
       case WorkerSessionReplacedEvent():
+        _signingState(event.setupId).invalidateSnapshots();
         AppLogger.warn(
           '${_noosphereScope(event.setupId)} Worker session replaced',
         );
@@ -999,14 +1013,12 @@ final class RoastRuntimeManager(
           'contributors=${event.request.progress.contributingParticipants.length}/'
           '${event.request.progress.threshold}',
         );
-        _emitSigningRequest(event.setupId, event.request);
+        _signingState(event.setupId).receive(event.request);
       case WorkerSignaturesCancelledEvent():
-        _rememberCancelledSigningRequest(
-          event.setupId,
-          bytesToHex(event.requestId),
-          event.expiresAt,
-        );
+        _signingState(event.setupId)
+            .cancel(bytesToHex(event.requestId), event.expiresAt);
       case WorkerSigningResultEvent():
+        _signingState(event.setupId).complete(bytesToHex(event.requestId));
         AppLogger.info(
           '${_roastScope(event.setupId)} Signing completed for '
           '${_shortId(bytesToHex(event.requestId))}; '
@@ -1108,6 +1120,8 @@ final class RoastRuntimeManager(
     final worker = _worker;
     final setup = _setups[setupId];
     if (worker == null || worker.isClosed || setup == null) return;
+    final signingState = _signingState(setupId);
+    final signingRevision = signingState.revision;
     try {
       var snapshot = await worker.snapshot(setupId);
       if (_events.isClosed ||
@@ -1116,9 +1130,19 @@ final class RoastRuntimeManager(
         return;
       }
       snapshot = await _reconcileDkgSecrets(worker, setup, snapshot);
+      if (_events.isClosed ||
+          !identical(worker, _worker) ||
+          !identical(setup, _setups[setupId])) {
+        return;
+      }
+      if (!signingState.applySnapshot(
+        snapshot,
+        expectedRevision: signingRevision,
+      )) {
+        _refreshAgain.add(setupId);
+        return;
+      }
       _rememberDkgs(snapshot);
-      _rememberCancelledSigningRequests(snapshot);
-      _rememberSigningRequests(snapshot);
       _emitSnapshot(snapshot);
       await _rememberExpectedKeySafely(snapshot);
     } on Object catch (error, stackTrace) {
@@ -1198,6 +1222,7 @@ final class RoastRuntimeManager(
       _scheduleKeyReadinessPoll(setup.id);
       return;
     }
+    if (_events.isClosed || !identical(setup, _setups[setup.id])) return;
     _keyReadinessTimers.remove(setup.id)?.cancel();
     _emittedGroupKeys[snapshot.setupId] = key.groupKeyHex;
     AppLogger.info('${_roastScope(snapshot.setupId)} Group key is ready');
@@ -1209,6 +1234,7 @@ final class RoastRuntimeManager(
         description: key.description,
       ),
     );
+    _signingStates[setup.id]?.replay();
   }
 
   Future<bool> _hasAllKeyAcknowledgements(
@@ -1285,92 +1311,15 @@ final class RoastRuntimeManager(
     }
   }
 
-  void _rememberSigningRequests(NoosphereWorkerSnapshot snapshot) {
-    final prefix = '${snapshot.setupId}:';
-    final currentIds = {
-      for (final request in snapshot.signingRequests) bytesToHex(request.id),
-    };
-    final removed = _signingRequests.keys
-        .where(
-          (key) =>
-              key.startsWith(prefix) &&
-              !currentIds.contains(key.substring(prefix.length)),
-        )
-        .toList(growable: false);
-    for (final key in removed) {
-      final request = _signingRequests.remove(key);
-      _events.add(
-        RoastRuntimeSigningRequestRemovedEvent(
-          snapshot.setupId,
-          requestIdHex: key.substring(prefix.length),
-          expired: request?.expiry.isBefore(DateTime.now()) ?? false,
+  RoastSigningRequestState _signingState(String setupId) =>
+      _signingStates.putIfAbsent(
+        setupId,
+        () => RoastSigningRequestState(
+          setupId,
+          emit: _events.add,
+          mapRequest: (request, id) => _mapSigningRequest(request, idHex: id),
         ),
       );
-    }
-    for (final request in snapshot.signingRequests) {
-      _emitSigningRequest(snapshot.setupId, request);
-    }
-  }
-
-  void _rememberCancelledSigningRequests(NoosphereWorkerSnapshot snapshot) {
-    final now = DateTime.now();
-    _cancelledSigningRequests.removeWhere((_, expiry) => !expiry.isAfter(now));
-    for (final request in snapshot.cancelledRequests) {
-      _rememberCancelledSigningRequest(
-        snapshot.setupId,
-        bytesToHex(request.requestId),
-        request.expiresAt,
-      );
-    }
-  }
-
-  void _rememberCancelledSigningRequest(
-    String setupId,
-    String requestIdHex,
-    DateTime expiresAt,
-  ) {
-    final key = '$setupId:$requestIdHex';
-    if (_cancelledSigningRequests[key] == expiresAt) return;
-    _cancelledSigningRequests[key] = expiresAt;
-    _signingRequests.remove(key);
-    AppLogger.info(
-      '${_roastScope(setupId)} Signing request '
-      '${_shortId(requestIdHex)} cancelled',
-    );
-    _events.add(
-      RoastRuntimeSigningRequestCancelledEvent(
-        setupId,
-        requestIdHex: requestIdHex,
-        expiresAt: expiresAt,
-      ),
-    );
-  }
-
-  void _emitSigningRequest(String setupId, WorkerSigningRequest request) {
-    final idHex = bytesToHex(request.id);
-    final key = '$setupId:$idHex';
-    final previous = _signingRequests[key];
-    if (previous != null &&
-        bytesEqual(previous.proposalBytes, request.proposalBytes) &&
-        previous.creator == request.creator &&
-        previous.expiry == request.expiry &&
-        previous.status == request.status &&
-        previous.progress.stage == request.progress.stage &&
-        previous.progress.threshold == request.progress.threshold &&
-        listEquals(
-          previous.progress.contributingParticipants,
-          request.progress.contributingParticipants,
-        )) {
-      return;
-    }
-    _signingRequests[key] = request;
-    _events.add(
-      RoastRuntimeSigningRequestEvent(
-        setupId,
-        request: _mapSigningRequest(request, idHex: idHex),
-      ),
-    );
-  }
 
   void _emitSnapshot(NoosphereWorkerSnapshot snapshot) {
     final coordinator = _selectedCoordinator(snapshot.setupId);
@@ -1393,7 +1342,8 @@ final class RoastRuntimeManager(
     bool publishDkgs = true,
   }) async {
     if (publishDkgs) _rememberDkgs(snapshot);
-    _rememberSigningRequests(snapshot);
+    // The worker publishes signer startup and replacement on its event
+    // stream. Applying the command reply here could overwrite a live update.
     final coordinator = _selectedCoordinator(snapshot.setupId);
     final matchingKeys = snapshot.keys
         .where(
@@ -1513,7 +1463,7 @@ final class RoastRuntimeManager(
     _workerSetups.clear();
     _signerCoordinators.clear();
     _dkgProposals.clear();
-    _signingRequests.clear();
+    _signingStates.clear();
     _refreshAgain.clear();
     for (final subscription in _roomSubscriptions.values) {
       await subscription.cancel();

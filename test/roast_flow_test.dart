@@ -2230,7 +2230,10 @@ class _FakeRoastRuntime implements RoastRuntime {
   void emit(RoastRuntimeEvent event) => _events.add(event);
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(setup) async {
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  }) async {
     startCalls++;
     if (startError case final error?) throw error;
     for (final request in snapshotSigningRequests) {

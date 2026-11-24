@@ -597,7 +597,10 @@ final class _SnapshotRuntime(
   Stream<RoastRuntimeEvent> get events => _events.stream;
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  }) async {
     starts++;
     await startGate;
     return RoastRuntimeSnapshot(

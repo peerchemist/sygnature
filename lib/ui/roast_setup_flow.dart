@@ -655,7 +655,9 @@ class const RoastSetupPanel({
       ];
     }
     if (setup.status == RoastSetupStatus.error ||
-        setup.status == RoastSetupStatus.interrupted) {
+        setup.status == RoastSetupStatus.interrupted ||
+        (setup.role == RoastSetupRole.member &&
+            setup.status == RoastSetupStatus.active)) {
       return [
         FilledButton.icon(
           key: const Key('reconnect-roast-setup'),

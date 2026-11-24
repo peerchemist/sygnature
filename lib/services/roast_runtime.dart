@@ -403,7 +403,11 @@ final class RoastEnrollmentFailure({
 abstract interface class RoastRuntime {
   Stream<RoastRuntimeEvent> get events;
 
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup);
+  /// Starts the setup, or restarts the signer for a fresh authenticated session.
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  });
 
   /// Awaits [beforeInvitations] after the room exists and before issuing the
   /// first participant-bound invitation.

@@ -2185,6 +2185,44 @@ void main() {
     second.dispose();
   });
 
+  test('member reconnect restores a pending message request once', () async {
+    final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
+    var notifications = 0;
+    final controller = _controller(
+      runtime: runtime,
+      active: true,
+      onRoastSigningRequest: () => notifications++,
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+    await _flushEvents();
+    expect(controller.roastSigningRequests, isEmpty);
+    expect(runtime.reconnects, 0);
+
+    final request = _messageSigningRequest('ab' * 16);
+    runtime.pendingOnReconnect = request;
+    await controller.reconnectRoastSetup('setup');
+    await _flushEvents();
+    expect(controller.roastSigningRequests.single.request.idHex, request.idHex);
+    expect(notifications, 1);
+
+    await controller.reconnectRoastSetup('setup');
+    await _flushEvents();
+    expect(runtime.reconnects, 2);
+    expect(controller.roastSigningRequests.single.request.idHex, request.idHex);
+    expect(notifications, 1);
+    expect(
+      controller
+          .activitiesFor(controller.accounts.single)
+          .where(
+            (activity) =>
+                activity.type == WalletActivityType.signatureRequestReceived &&
+                activity.reference == request.idHex,
+          ),
+      hasLength(1),
+    );
+  });
+
   test('reserves UTXOs selected by an incoming signing request', () async {
     final runtime = _FakeRoastRuntime()..snapshotGroupKey = 'expected-key';
     final electrumx = _FakeElectrumxService();
@@ -3702,6 +3740,8 @@ class _FakeRoastRuntime implements RoastRuntime {
   Duration? transactionRequestTimeout;
   Duration? messageRequestTimeout;
   Completer<void>? signatureRequestGate;
+  int reconnects = 0;
+  RoastSigningRequest? pendingOnReconnect;
 
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
@@ -3709,18 +3749,30 @@ class _FakeRoastRuntime implements RoastRuntime {
   void emit(RoastRuntimeEvent event) => _events.add(event);
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async =>
-      startSnapshot ??
-      RoastRuntimeSnapshot(
-        connected: true,
-        signerRunning: true,
-        onlineParticipantIds: [setup.role == RoastSetupRole.host ? '02' : '01'],
-        coordinatorId: 'coordinator',
-        coordinatorRelayUrls: const [],
-        coordinatorIpAddrs: const [],
-        groupKeyHex: snapshotGroupKey,
-        pendingDkgProposalHex: null,
-      );
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  }) async {
+    if (reconnect) {
+      reconnects++;
+      if (pendingOnReconnect case final request?) {
+        emit(RoastRuntimeSigningRequestEvent(setup.id, request: request));
+      }
+    }
+    return startSnapshot ??
+        RoastRuntimeSnapshot(
+          connected: true,
+          signerRunning: true,
+          onlineParticipantIds: [
+            setup.role == RoastSetupRole.host ? '02' : '01',
+          ],
+          coordinatorId: 'coordinator',
+          coordinatorRelayUrls: const [],
+          coordinatorIpAddrs: const [],
+          groupKeyHex: snapshotGroupKey,
+          pendingDkgProposalHex: null,
+        );
+  }
 
   @override
   Future<RoastRoomCreation> createRoom(
@@ -3880,7 +3932,10 @@ final class _CoordinatorRoastRuntime extends _FakeRoastRuntime
   }
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async {
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  }) async {
     startedCoordinatorIds.add(setup.coordinatorId);
     final error = startFailure;
     if (error != null) throw error;
@@ -4054,17 +4109,19 @@ final class _SigningRoastRuntime(
   Stream<RoastRuntimeEvent> get events => _events.stream;
 
   @override
-  Future<RoastRuntimeSnapshot> startSetup(RoastSetup setup) async =>
-      RoastRuntimeSnapshot(
-        connected: true,
-        signerRunning: true,
-        onlineParticipantIds: const [],
-        coordinatorId: 'coordinator',
-        coordinatorRelayUrls: const [],
-        coordinatorIpAddrs: const [],
-        groupKeyHex: signingKey.pubkey.hex,
-        pendingDkgProposalHex: null,
-      );
+  Future<RoastRuntimeSnapshot> startSetup(
+    RoastSetup setup, {
+    bool reconnect = false,
+  }) async => RoastRuntimeSnapshot(
+    connected: true,
+    signerRunning: true,
+    onlineParticipantIds: const [],
+    coordinatorId: 'coordinator',
+    coordinatorRelayUrls: const [],
+    coordinatorIpAddrs: const [],
+    groupKeyHex: signingKey.pubkey.hex,
+    pendingDkgProposalHex: null,
+  );
 
   @override
   Future<RoastRoomCreation> createRoom(
