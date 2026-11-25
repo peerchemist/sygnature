@@ -281,14 +281,17 @@ class const RoastSetupPanel({
                 ),
               ],
               const SizedBox(height: 18),
-              if (!enrollmentPending) ...[
-                _SwarmHealth(
-                  online: onlineSigners,
-                  total: setup.participantCount,
-                  requiredSigners: setup.threshold,
-                ),
-                const SizedBox(height: 14),
-              ],
+              _SwarmHealth(
+                online: onlineSigners,
+                total: setup.participantCount,
+                requiredSigners: setup.threshold,
+                waitingDetail: !enrollmentPending
+                    ? null
+                    : enrolledSigners < setup.participantCount
+                    ? 'Waiting for signers to join.'
+                    : 'Starting the local signer.',
+              ),
+              const SizedBox(height: 14),
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -1184,46 +1187,49 @@ class const _SwarmHealth({
   required final int online,
   required final int total,
   required final int requiredSigners,
+  final String? waitingDetail,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final waiting = waitingDetail != null;
     final healthy = online == total;
     final hasQuorum = online >= requiredSigners;
-    final color = healthy
-        ? AppColors.of(context).success
-        : hasQuorum
-        ? AppColors.of(context).warningDark
-        : AppColors.of(context).danger;
-    final surface = healthy
-        ? AppColors.of(context).successSurface
-        : hasQuorum
-        ? AppColors.of(context).warning
-        : AppColors.of(context).dangerSurface;
-    final label = healthy
-        ? 'Healthy'
-        : hasQuorum
-        ? 'Degraded'
-        : 'Unavailable';
+    final (label, color, surface) = switch ((waiting, healthy, hasQuorum)) {
+      (true, _, _) => ('Not ready', colors.inkMuted, colors.canvas),
+      (false, true, _) => ('Healthy', colors.success, colors.successSurface),
+      (false, false, true) => ('Degraded', colors.warningDark, colors.warning),
+      (false, false, false) => (
+        'Unavailable',
+        colors.danger,
+        colors.dangerSurface,
+      ),
+    };
     final missingForQuorum = (requiredSigners - online).clamp(
       0,
       requiredSigners,
     );
     final offline = (total - online).clamp(0, total);
-    final detail = healthy
-        ? 'All $total signers are online.'
-        : hasQuorum
-        ? '$offline ${offline == 1 ? 'signer is' : 'signers are'} offline. Quorum is still available.'
-        : '$missingForQuorum more ${missingForQuorum == 1 ? 'signer is' : 'signers are'} needed for quorum.';
+    final detail =
+        waitingDetail ??
+        (healthy
+            ? 'All $total signers are online.'
+            : hasQuorum
+            ? '$offline ${offline == 1 ? 'signer is' : 'signers are'} offline. Quorum is still available.'
+            : '$missingForQuorum more ${missingForQuorum == 1 ? 'signer is' : 'signers are'} needed for quorum.');
     final progress = total == 0
         ? 0.0
         : (online / total).clamp(0.0, 1.0).toDouble();
 
     return Semantics(
-      label:
-          'ROAST swarm health: $label. $online of $total signers online. '
-          '$requiredSigners required.',
+      label: waiting
+          ? 'ROAST swarm is not ready. $detail $requiredSigners required to sign.'
+          : 'ROAST swarm health: $label. $online of $total signers online. '
+                '$requiredSigners required.',
       child: Container(
-        key: ValueKey('roast-swarm-health-${label.toLowerCase()}'),
+        key: ValueKey(
+          'roast-swarm-health-${waiting ? 'not-ready' : label.toLowerCase()}',
+        ),
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1235,45 +1241,47 @@ class const _SwarmHealth({
           children: [
             SizedBox.square(
               dimension: 80,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox.square(
-                    dimension: 72,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 8,
-                      strokeCap: StrokeCap.round,
-                      color: color,
-                      backgroundColor: color.withValues(alpha: 0.14),
+              child: waiting
+                  ? Icon(Icons.hourglass_empty_rounded, color: color, size: 32)
+                  : Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox.square(
+                          dimension: 72,
+                          child: CircularProgressIndicator(
+                            value: progress,
+                            strokeWidth: 8,
+                            strokeCap: StrokeCap.round,
+                            color: color,
+                            backgroundColor: color.withValues(alpha: 0.14),
+                          ),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '$online/$total',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 19,
+                                height: 1,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'ONLINE',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '$online/$total',
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 19,
-                          height: 1,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'ONLINE',
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 8,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -1281,9 +1289,9 @@ class const _SwarmHealth({
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'SWARM HEALTH',
+                    waiting ? 'SWARM STATUS' : 'SWARM HEALTH',
                     style: TextStyle(
-                      color: AppColors.of(context).inkMuted,
+                      color: colors.inkMuted,
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.9,
@@ -1315,7 +1323,7 @@ class const _SwarmHealth({
                   Text(
                     detail,
                     style: TextStyle(
-                      color: AppColors.of(context).ink,
+                      color: colors.ink,
                       fontSize: 11,
                       height: 1.35,
                     ),
@@ -1323,10 +1331,7 @@ class const _SwarmHealth({
                   const SizedBox(height: 2),
                   Text(
                     '$requiredSigners required to sign',
-                    style: TextStyle(
-                      color: AppColors.of(context).inkMuted,
-                      fontSize: 10,
-                    ),
+                    style: TextStyle(color: colors.inkMuted, fontSize: 10),
                   ),
                 ],
               ),
