@@ -51,11 +51,13 @@ final class RoastRuntimeManager(
   final Future<PublicFeedStore>? publicFeedStore,
   Future<void> Function() initializeNative = NoosphereFlutter.initialize,
   Future<NoosphereWorker> Function() startWorker = NoosphereWorker.start,
+  Duration signingSyncInterval = const Duration(minutes: 1),
 }) implements RoastRuntime, RoastCoordinatorRuntime {
   final RoastPersistenceFactory _persistenceFactory = persistenceFactory;
   final WalletSeedProvider _getWalletSeed = getWalletSeed;
   final Future<void> Function() _initializeNative = initializeNative;
   final Future<NoosphereWorker> Function() _startWorker = startWorker;
+  final Duration _signingSyncInterval = signingSyncInterval;
   final StreamController<RoastRuntimeEvent> _events =
       StreamController<RoastRuntimeEvent>.broadcast();
   final Map<String, WorkerDkgStatus> _dkgProposals = {};
@@ -77,6 +79,7 @@ final class RoastRuntimeManager(
   final Set<String> _synchronizingDkgSetups = {};
   final Map<String, Uint8List> _approvedDkgDetailsBySetup = {};
   final Map<String, Timer> _keyReadinessTimers = {};
+  final Map<String, Timer> _signingSyncTimers = {};
   final Map<String, int> _roomServerRestartAttempts = {};
   final Map<String, Future<void>> _refreshes = {};
   final Set<String> _refreshAgain = {};
@@ -123,6 +126,7 @@ final class RoastRuntimeManager(
       timer.cancel();
     }
     _keyReadinessTimers.clear();
+    _cancelSigningSyncTimers();
     _worker = worker;
     _workerEvents = worker.events.listen(
       _onWorkerEvent,
@@ -331,6 +335,9 @@ final class RoastRuntimeManager(
     }
     snapshot = await _reconcileDkgSecrets(worker, setup, snapshot);
     _signerSetups.add(setup.id);
+    if (snapshot.connected && snapshot.signerRunning) {
+      _startSigningSync(setup.id);
+    }
     AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
     return _snapshot(snapshot, setup, publishDkgs: publishDkgs);
   }
@@ -756,6 +763,7 @@ final class RoastRuntimeManager(
     }
     _roomSignerTimers.remove(setupId)?.cancel();
     _keyReadinessTimers.remove(setupId)?.cancel();
+    _signingSyncTimers.remove(setupId)?.cancel();
     _setups.remove(setupId);
     _emittedGroupKeys.remove(setupId);
     _signerCoordinators.remove(setupId);
@@ -994,6 +1002,7 @@ final class RoastRuntimeManager(
         AppLogger.warn(
           '${_noosphereScope(event.setupId)} Worker session replaced',
         );
+        _startSigningSync(event.setupId);
         _runBackground(_refresh(event.setupId));
       case WorkerSigningRequestEvent():
         AppLogger.info(
@@ -1086,6 +1095,47 @@ final class RoastRuntimeManager(
         );
       }
     }
+  }
+
+  void _startSigningSync(String setupId) {
+    _signingSyncTimers.remove(setupId)?.cancel();
+    final timer = Timer.periodic(
+      _signingSyncInterval,
+      (timer) => _runBackground(_syncSigningRequests(setupId, timer)),
+    );
+    _signingSyncTimers[setupId] = timer;
+    _runBackground(_syncSigningRequests(setupId, timer));
+  }
+
+  Future<void> _syncSigningRequests(String setupId, Timer timer) async {
+    if (_backupPaused) return;
+    final worker = _worker;
+    if (worker == null || worker.isClosed) {
+      timer.cancel();
+      return;
+    }
+    try {
+      // Noosphere publishes recovered requests and cancellations on the
+      // existing worker event stream after reconciling the session.
+      if (!await worker.syncSigningRequests(setupId)) {
+        // The coordinator does not support catch-up. Try again on reconnect.
+        timer.cancel();
+      }
+    } on Object catch (error, stackTrace) {
+      if (!timer.isActive) return;
+      AppLogger.warn(
+        '${_roastScope(setupId)} Unable to catch up on signing requests',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  void _cancelSigningSyncTimers() {
+    for (final timer in _signingSyncTimers.values) {
+      timer.cancel();
+    }
+    _signingSyncTimers.clear();
   }
 
   Future<void> _refresh(String setupId) {
@@ -1313,6 +1363,9 @@ final class RoastRuntimeManager(
       );
 
   void _emitSnapshot(NoosphereWorkerSnapshot snapshot) {
+    if (!snapshot.connected || !snapshot.signerRunning) {
+      _signingSyncTimers.remove(snapshot.setupId)?.cancel();
+    }
     final coordinator = _selectedCoordinator(snapshot.setupId);
     _events.add(
       RoastRuntimeSnapshotEvent(
@@ -1443,6 +1496,7 @@ final class RoastRuntimeManager(
   @override
   Future<void> close() async {
     AppLogger.info('[NOOSPHERE] Closing runtime');
+    _cancelSigningSyncTimers();
     await _workerEvents?.cancel();
     _workerEvents = null;
     await _worker?.close();
