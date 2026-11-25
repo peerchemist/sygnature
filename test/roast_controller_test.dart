@@ -1413,6 +1413,20 @@ void main() {
     'rejects enrollment failures and retries ambiguous outcomes once',
     () async {
       final cases = <({RoastEnrollmentFailure failure, String message})>[
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.coordinatorConnection,
+            cause: TimeoutException('connect timed out'),
+          ),
+          message: 'timed out before enrollment',
+        ),
+        (
+          failure: RoastEnrollmentFailure(
+            kind: RoastEnrollmentFailureKind.coordinatorConnection,
+            cause: StateError('connection failed'),
+          ),
+          message: 'Could not open an Iroh connection to the coordinator',
+        ),
         for (final rejection in const [
           (code: 6, message: 'has expired'),
           (code: 7, message: 'already been used'),
@@ -1483,10 +1497,11 @@ void main() {
           throwsA(same(testCase.failure)),
         );
 
-        expect(
-          runtime.joinRoomCalls,
-          testCase.failure.outcomeMayBePersisted ? 2 : 1,
-        );
+        expect(runtime.joinRoomCalls, switch (testCase.failure.kind) {
+          RoastEnrollmentFailureKind.coordinatorConnection ||
+          RoastEnrollmentFailureKind.rejected => 1,
+          _ => 2,
+        });
         expect(
           controller.roastSetups.single.errorMessage,
           contains(testCase.message),

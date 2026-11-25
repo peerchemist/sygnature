@@ -384,6 +384,7 @@ final class RoastCoordinatorSwitchFailure({
 }
 
 enum RoastEnrollmentFailureKind {
+  coordinatorConnection,
   rejected,
   timeout,
   malformedResponse,
@@ -395,7 +396,11 @@ final class RoastEnrollmentFailure({
   required final Object cause,
   final int roomFailureCode = 0xffff,
 }) implements Exception {
-  bool get outcomeMayBePersisted => kind != RoastEnrollmentFailureKind.rejected;
+  bool get outcomeMayBePersisted => switch (kind) {
+    RoastEnrollmentFailureKind.coordinatorConnection ||
+    RoastEnrollmentFailureKind.rejected => false,
+    _ => true,
+  };
 
   @override
   String toString() =>

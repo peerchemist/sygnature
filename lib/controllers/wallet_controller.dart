@@ -12,6 +12,7 @@ import 'package:coinlib/coinlib.dart'
         hexToBytes,
         sha256Hash;
 import 'package:flutter/foundation.dart';
+import 'package:iroh_quic/iroh_quic.dart' show IrohBindException;
 import 'package:noosphere_protocol/config.dart' show GroupConfig;
 import 'package:noosphere_protocol/domain.dart'
     show
@@ -23,7 +24,11 @@ import 'package:noosphere_protocol/domain.dart'
         NewDkgDetails,
         thresholdBip86DerivationPath;
 import 'package:noosphere_flutter/noosphere_flutter.dart'
-    show NoosphereRoomInvite, NoosphereWorkerException, RoomSnapshot;
+    show
+        NoosphereRoomInvite,
+        NoosphereWorkerException,
+        PinnedEndpointMismatchException,
+        RoomSnapshot;
 
 import '../models/electrumx_utxo.dart';
 import '../models/group_transition.dart';
@@ -34,6 +39,7 @@ import '../models/wallet_activity.dart';
 import '../models/wallet_network.dart';
 import '../models/wallet_transaction.dart';
 import '../models/wallet_vault.dart';
+import '../services/app_diagnostics.dart';
 import '../services/app_logger.dart';
 import '../services/electrumx_service.dart';
 import '../services/peercoin_network_service.dart';

@@ -350,6 +350,24 @@ extension WalletRoastSetupController on WalletController {
         '${_roastLogScope(draft.id)} Join failed during ${phase.name}',
         error: error,
       );
+      final enrollmentFailure = error is RoastEnrollmentFailure ? error : null;
+      unawaited(
+        AppDiagnostics.record(
+          AppDiagnosticEvent.roastFailure,
+          error: enrollmentFailure?.cause ?? error,
+          details: {
+            'operation': 'joinRoom',
+            'phase': phase.name,
+            if (enrollmentFailure != null)
+              'reason': enrollmentFailure.kind.name,
+            if (enrollmentFailure case RoastEnrollmentFailure(
+              kind: RoastEnrollmentFailureKind.rejected,
+              :final roomFailureCode,
+            ))
+              'roomFailureCode': roomFailureCode,
+          },
+        ),
+      );
       await _updateSetup(
         draft.id,
         (setup) => setup.copyWith(
@@ -666,6 +684,24 @@ extension WalletRoastSetupController on WalletController {
   }
 
   static String _cleanRoastError(Object error) => switch (error) {
+    RoastEnrollmentFailure(
+      kind: RoastEnrollmentFailureKind.coordinatorConnection,
+      :final cause,
+    ) =>
+      switch (cause) {
+        TimeoutException() =>
+          'Connecting to the coordinator timed out before enrollment. '
+              'Check that the coordinator is online and try the same invitation again.',
+        PinnedEndpointMismatchException() =>
+          'The coordinator identity did not match the invitation. Verify the '
+              'invitation with the coordinator before trying again.',
+        IrohBindException() =>
+          'This device could not start its Iroh connection. Check the network '
+              'and try the same invitation again.',
+        _ =>
+          'Could not open an Iroh connection to the coordinator. Check that '
+              'both devices are online and try the same invitation again.',
+      },
     RoastEnrollmentFailure(
       kind: RoastEnrollmentFailureKind.rejected,
       :final roomFailureCode,

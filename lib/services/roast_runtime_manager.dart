@@ -101,6 +101,22 @@ final class RoastRuntimeManager(
   static String _shortId(String value) =>
       value.length <= 8 ? value : value.substring(0, 8);
 
+  // Noosphere 0.7.0 delivers worker failures as messages. Export only known
+  // categories, since a protocol error can include remote-controlled text.
+  static String? _signerConnectionReason(String message) => switch (message) {
+    'Operation timed out.' => 'timeout',
+    'Noosphere operation failed (IrohConnectException).' =>
+      'coordinatorUnreachable',
+    'Noosphere operation failed (IrohConnectionException).' ||
+    'Noosphere operation failed (IrohStreamException).' =>
+      'connectionInterrupted',
+    'Noosphere operation failed (PinnedEndpointMismatchException).' =>
+      'coordinatorIdentityMismatch',
+    'Iroh protocol error: UnknownIrohGroupException' => 'walletUnavailable',
+    _ when message.startsWith('Iroh protocol error: ') => 'protocolError',
+    _ => null,
+  };
+
   @override
   Stream<RoastRuntimeEvent> get events => _events.stream;
 
@@ -321,12 +337,30 @@ final class RoastRuntimeManager(
               client: clientOptions.withCoordinator(address),
             );
     } on Object catch (error) {
+      if (scheduleRoomRetry) {
+        final workerError = error is NoosphereWorkerException ? error : null;
+        final reason = workerError == null
+            ? null
+            : _signerConnectionReason(workerError.message);
+        unawaited(
+          AppDiagnostics.record(
+            AppDiagnosticEvent.roastFailure,
+            error: error,
+            details: {
+              'operation': 'connection',
+              'workerOperation': 'signerStartup',
+              'workerCode': ?workerError?.code,
+              'reason': ?reason,
+            },
+          ),
+        );
+      }
       if (scheduleRoomRetry &&
           setup.role == RoastSetupRole.member &&
           setup.usesRoomEnrollment) {
         AppLogger.info(
-          '${_roastScope(setup.id)} Signer is waiting for the host to freeze '
-          'the room (${error.runtimeType})',
+          '${_roastScope(setup.id)} Signer connection did not complete '
+          '(${error.runtimeType})',
         );
         _scheduleRoomSignerConnection(setup);
         return _pendingRoomSnapshot(setup);
@@ -952,6 +986,10 @@ final class RoastRuntimeManager(
           'worker' => RoastRuntimeOperation.worker,
           _ => RoastRuntimeOperation.unknown,
         };
+        final connectionReason =
+            event.operation == 'session' || event.operation == 'reconnect'
+            ? _signerConnectionReason(event.message)
+            : null;
         final message = switch (operation) {
           RoastRuntimeOperation.signatures =>
             'The ROAST signing operation failed.',
@@ -962,9 +1000,28 @@ final class RoastRuntimeManager(
                   event.operation == 'serverAddress' =>
             'The ROAST coordinator disconnected from the Iroh network. '
                 'Reconnect to restart it.',
+          RoastRuntimeOperation.connection
+              when event.operation == 'reconnect' =>
+            switch (connectionReason) {
+              'timeout' => 'Reconnecting to the coordinator timed out. Retrying automatically.',
+              'coordinatorUnreachable' =>
+                'Could not reach the coordinator over Iroh. Check that both '
+                    'devices are online. Retrying automatically.',
+              'coordinatorIdentityMismatch' =>
+                'The coordinator identity does not match the saved identity. '
+                    'Verify the coordinator with the host.',
+              'walletUnavailable' =>
+                'The coordinator responded, but this shared wallet is not '
+                    'available there. Check that enrollment is complete.',
+              'protocolError' =>
+                'The coordinator connection did not complete the ROAST login. '
+                    'Check that the coordinator is serving this wallet.',
+              _ =>
+                'Could not restore the signer session. Retrying automatically.',
+            },
           RoastRuntimeOperation.connection =>
-            'The ROAST signer lost its Iroh connection. '
-                'Reconnect to restore it.',
+            'The Iroh connection was interrupted during the signer session. '
+                'Trying to reconnect.',
           RoastRuntimeOperation.worker => 'The ROAST worker failed.',
           _ => 'The ROAST operation failed.',
         };
@@ -979,6 +1036,7 @@ final class RoastRuntimeManager(
               'operation': operation.name,
               'workerOperation': event.operation,
               'interrupted': event.interrupted,
+              'reason': ?connectionReason,
             },
           ),
         );

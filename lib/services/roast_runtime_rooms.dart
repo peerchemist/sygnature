@@ -165,9 +165,36 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       setup.localParticipantPrivateKeyHex,
     );
     invite.requirePrivateKey(privateKey);
+    final coordinatorId = EndpointId.fromBytes(invite.coordinatorEndpointId);
+    late final IrohRoomEnrollmentApi api;
+    try {
+      api = await IrohRoomEnrollmentApi.connect(
+        IrohClientTransportConfig(
+          bootstrapAddress: EndpointAddr(coordinatorId),
+          pinnedServerId: coordinatorId,
+          connectTimeout: _roomEnrollmentTimeout,
+          authTimeout: _roomEnrollmentTimeout,
+          rpcTimeout: _roomEnrollmentTimeout,
+        ),
+      );
+    } on Object catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        RoastEnrollmentFailure(
+          kind: RoastEnrollmentFailureKind.coordinatorConnection,
+          cause: error,
+        ),
+        stackTrace,
+      );
+    }
+
     late final RoomSnapshot room;
     try {
-      room = await _joinRoomInvite(invite, privateKey);
+      try {
+        room = await RoomEnrollmentClient(api)
+            .joinRoom(invite, (_) async => privateKey);
+      } finally {
+        await api.close();
+      }
     } on RoomEnrollmentProtocolException catch (error, stackTrace) {
       Error.throwWithStackTrace(
         RoastEnrollmentFailure(
@@ -246,8 +273,8 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     if (_backupPaused) return;
     if (_roomSignerTimers.containsKey(setup.id)) return;
     AppLogger.info(
-      '${RoastRuntimeManager._roastScope(setup.id)} Waiting for the frozen room; signer connection '
-      'will retry in the background',
+      '${RoastRuntimeManager._roastScope(setup.id)} Retrying the signer '
+      'connection in the background',
     );
     _runBackground(_connectRoomSigner(setup));
     _roomSignerTimers[setup.id] = Timer.periodic(
@@ -266,8 +293,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       );
       _emitSnapshotValues(setup.id, snapshot);
     } on Object {
-      // The ordinary ROAST group becomes available only after the host freezes
-      // the full room. Retry quietly while enrollment is still in progress.
+      // Retry while the room is being finalized or the coordinator is offline.
     } finally {
       _connectingRoomSigners.remove(setup.id);
     }
@@ -537,27 +563,5 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         coordinatorIpAddrs: snapshot.coordinatorIpAddrs,
       ),
     );
-  }
-
-  Future<RoomSnapshot> _joinRoomInvite(
-    RoomInvite invite,
-    ECPrivateKey privateKey,
-  ) async {
-    final coordinatorId = EndpointId.fromBytes(invite.coordinatorEndpointId);
-    final api = await IrohRoomEnrollmentApi.connect(
-      IrohClientTransportConfig(
-        bootstrapAddress: EndpointAddr(coordinatorId),
-        pinnedServerId: coordinatorId,
-        connectTimeout: _roomEnrollmentTimeout,
-        authTimeout: _roomEnrollmentTimeout,
-        rpcTimeout: _roomEnrollmentTimeout,
-      ),
-    );
-    try {
-      return await RoomEnrollmentClient(api)
-          .joinRoom(invite, (_) async => privateKey);
-    } finally {
-      await api.close();
-    }
   }
 }
