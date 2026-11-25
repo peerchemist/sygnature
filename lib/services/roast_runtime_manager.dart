@@ -230,16 +230,7 @@ final class RoastRuntimeManager(
         AppLogger.info(
           '${_roastScope(setup.id)} Room is waiting for enrolled participants',
         );
-        return RoastRuntimeSnapshot(
-          connected: false,
-          signerRunning: false,
-          onlineParticipantIds: const [],
-          coordinatorId: roomCoordinator.id,
-          coordinatorRelayUrls: roomCoordinator.relayUrls,
-          coordinatorIpAddrs: roomCoordinator.ipAddrs,
-          groupKeyHex: null,
-          pendingDkgProposalHex: null,
-        );
+        return _enrollingRoomSnapshot(roomCoordinator);
       }
     }
     final worker = await _ensureWorker();

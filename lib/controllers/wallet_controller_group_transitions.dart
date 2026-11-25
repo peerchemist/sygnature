@@ -246,11 +246,7 @@ extension WalletGroupTransitionController on WalletController {
           'The transition proposal was not persisted before invitations.',
         );
       }
-      final invitations = _roomInvitations(savedSetup, room);
-      await _updateSetup(
-        savedSetup.id,
-        (savedSetup) => savedSetup.copyWith(invitations: invitations),
-      );
+      final invitations = await _saveRoomInvitations(savedSetup, room);
       return RoastGroupTransitionCreation(
         transitionId: savedTransition.transitionId,
         successorSetupId: savedSetup.id,

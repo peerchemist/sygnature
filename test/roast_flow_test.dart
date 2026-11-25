@@ -814,6 +814,7 @@ void main() {
       );
     final runtime = _FakeRoastRuntime()
       ..startSnapshot = RoastRuntimeSnapshot(
+        roomEnrolling: true,
         connected: false,
         signerRunning: false,
         onlineParticipantIds: const [],
@@ -839,9 +840,16 @@ void main() {
     expect(find.byKey(const Key('coordinator-enrolling')), findsOneWidget);
     expect(find.text('Coordinator online'), findsOneWidget);
     expect(find.text('Waiting for 1 more signer to join.'), findsOneWidget);
+    expect(
+      find.byKey(const Key('roast-swarm-health-unavailable')),
+      findsNothing,
+    );
     expect(find.text('ROAST operation was interrupted'), findsNothing);
     expect(find.byKey(const Key('roast-enrollment-progress')), findsOneWidget);
     expect(find.text('1 of 2 signers have joined the room.'), findsOneWidget);
+    expect(find.text('JOINED'), findsOneWidget);
+    expect(find.text('WAITING TO JOIN'), findsOneWidget);
+    expect(find.text('OFFLINE'), findsNothing);
     await tester.tap(find.byTooltip('Dismiss signer enrollment'));
     await tester.pump();
     expect(find.byKey(const Key('roast-enrollment-progress')), findsNothing);
@@ -888,11 +896,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('1 of 1 invitees joined · 0 not shared'), findsOneWidget);
-    expect(find.text('JOINED'), findsOneWidget);
+    await tester.tap(find.text('Back to wallet'));
+    await tester.pumpAndSettle();
+    expect(find.text('JOINED'), findsNWidgets(2));
+    expect(
+      find.text('All signers joined. Starting the local signer.'),
+      findsOne,
+    );
+    expect(find.text('Signer stopped'), findsNothing);
+    expect(
+      find.byKey(const Key('roast-swarm-health-unavailable')),
+      findsNothing,
+    );
     expect(
       controller.enrolledRoastParticipantCount(controller.roastSetups.single),
       2,
     );
+
+    runtime.emit(
+      RoastRuntimeSnapshotEvent(
+        'setup',
+        connected: true,
+        signerRunning: true,
+        onlineParticipantIds: [remote.identifierHex],
+        coordinatorId: 'coordinator',
+        coordinatorRelayUrls: const [],
+        coordinatorIpAddrs: const [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('roast-swarm-health-healthy')), findsOneWidget);
+    expect(find.text('JOINED'), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -947,6 +981,9 @@ void main() {
     expect(find.text('INVITE READY'), findsOneWidget);
     expect(controller.roastSetups.single.errorMessage, isNull);
     expect(controller.roastSetups.single.invitations, hasLength(1));
+    expect(find.text('Coordinator online'), findsOneWidget);
+    expect(find.text('Signer stopped'), findsNothing);
+    expect(find.text('Waiting for 1 more signer to join.'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -2259,6 +2296,20 @@ class _FakeRoastRuntime implements RoastRuntime {
       ),
     );
     if (createRoomError case final error?) throw error;
+    if (room.invites.isNotEmpty) {
+      emit(
+        RoastRuntimeSnapshotEvent(
+          setup.id,
+          roomEnrolling: true,
+          connected: false,
+          signerRunning: false,
+          onlineParticipantIds: const [],
+          coordinatorId: room.coordinatorId,
+          coordinatorRelayUrls: room.coordinatorRelayUrls,
+          coordinatorIpAddrs: room.coordinatorIpAddrs,
+        ),
+      );
+    }
     return room;
   }
 

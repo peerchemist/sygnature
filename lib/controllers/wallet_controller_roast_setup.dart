@@ -213,13 +213,7 @@ extension WalletRoastSetupController on WalletController {
           ),
         ),
       );
-      setup = _setupById(setup.id);
-      final invitations = _roomInvitations(setup, room);
-      await _updateSetup(
-        setup.id,
-        (latest) => latest.copyWith(invitations: invitations),
-      );
-      return invitations;
+      return await _saveRoomInvitations(_setupById(setup.id), room);
     } catch (error, stackTrace) {
       AppLogger.error(
         '${_roastLogScope(setup.id)} Signer invitation creation failed',
@@ -228,6 +222,25 @@ extension WalletRoastSetupController on WalletController {
       );
       rethrow;
     }
+  }
+
+  Future<List<RoastIssuedInvitation>> _saveRoomInvitations(
+    RoastSetup setup,
+    RoastRoomCreation room,
+  ) async {
+    final invitations = _roomInvitations(setup, room);
+    await _updateSetup(
+      setup.id,
+      (latest) => latest.copyWith(
+        invitations: invitations,
+        status:
+            latest.status == RoastSetupStatus.connecting &&
+                invitations.isNotEmpty
+            ? RoastSetupStatus.ready
+            : latest.status,
+      ),
+    );
+    return invitations;
   }
 
   List<RoastIssuedInvitation> _roomInvitations(

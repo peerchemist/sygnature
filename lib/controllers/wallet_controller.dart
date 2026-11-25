@@ -99,6 +99,7 @@ final class _RoastSendOutcome({
 });
 
 final class _RoastPresence({
+  required final bool roomEnrolling,
   required final bool connected,
   required final bool signerRunning,
   required final List<String> onlineParticipantIds,

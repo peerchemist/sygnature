@@ -133,6 +133,11 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       '${RoastRuntimeManager._roastScope(setup.id)} Room created; issued ${issued.length} '
       'participant-bound invites',
     );
+    if (issued.isNotEmpty &&
+        identical(_roomServers[setup.id], server) &&
+        !server.isClosed) {
+      _emitSnapshotValues(setup.id, _enrollingRoomSnapshot(coordinator));
+    }
     return RoastRoomCreation(
       invites: issued,
       coordinatorEndpointId: preparedRoom.coordinatorEndpointId,
@@ -222,6 +227,20 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         groupKeyHex: null,
         pendingDkgProposalHex: null,
       );
+
+  RoastRuntimeSnapshot _enrollingRoomSnapshot(
+    WorkerCoordinatorAddress coordinator,
+  ) => RoastRuntimeSnapshot(
+    roomEnrolling: true,
+    connected: false,
+    signerRunning: false,
+    onlineParticipantIds: const [],
+    coordinatorId: coordinator.id,
+    coordinatorRelayUrls: coordinator.relayUrls,
+    coordinatorIpAddrs: coordinator.ipAddrs,
+    groupKeyHex: null,
+    pendingDkgProposalHex: null,
+  );
 
   void _scheduleRoomSignerConnection(RoastSetup setup) {
     if (_backupPaused) return;
@@ -509,6 +528,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     _events.add(
       RoastRuntimeSnapshotEvent(
         setupId,
+        roomEnrolling: snapshot.roomEnrolling,
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
         onlineParticipantIds: snapshot.onlineParticipantIds,

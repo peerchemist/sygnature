@@ -15,11 +15,8 @@ extension WalletRoastCoordinatorController on WalletController {
       return RoastCoordinatorLocalState.connected;
     }
     final setup = _setupById(setupId);
-    if (presence != null &&
-        setup.status == RoastSetupStatus.ready &&
-        setup.role == RoastSetupRole.host &&
-        setup.usesRoomEnrollment &&
-        enrolledRoastParticipantCount(setup) < setup.participantCount) {
+    if (presence?.roomEnrolling == true &&
+        setup.status == RoastSetupStatus.ready) {
       return RoastCoordinatorLocalState.enrolling;
     }
     return RoastCoordinatorLocalState.stopped;
@@ -64,17 +61,20 @@ extension WalletRoastCoordinatorController on WalletController {
 
   bool _setRoastPresence(
     String setupId, {
+    bool roomEnrolling = false,
     required bool connected,
     required bool signerRunning,
     required List<String> onlineParticipantIds,
   }) {
     final previous = _roastPresence[setupId];
-    if (previous?.connected == connected &&
+    if (previous?.roomEnrolling == roomEnrolling &&
+        previous?.connected == connected &&
         previous?.signerRunning == signerRunning &&
         listEquals(previous?.onlineParticipantIds, onlineParticipantIds)) {
       return false;
     }
     _roastPresence[setupId] = _RoastPresence(
+      roomEnrolling: roomEnrolling,
       connected: connected,
       signerRunning: signerRunning,
       onlineParticipantIds: List.unmodifiable(onlineParticipantIds),
@@ -360,16 +360,10 @@ extension WalletRoastCoordinatorController on WalletController {
         (setup) => setup.copyWith(status: RoastSetupStatus.connecting),
       );
       final snapshot = await runtime.startSetup(setup, reconnect: reconnect);
-      final waitingForEnrollment =
-          setup.role == RoastSetupRole.host &&
-          setup.usesRoomEnrollment &&
-          setup.groupKeyHex == null &&
-          enrolledRoastParticipantCount(setup) < setup.participantCount &&
-          snapshot.coordinatorId != null &&
-          !snapshot.connected &&
-          !snapshot.signerRunning;
+      final waitingForEnrollment = snapshot.roomEnrolling;
       _setRoastPresence(
         setup.id,
+        roomEnrolling: waitingForEnrollment,
         connected: snapshot.connected,
         signerRunning: snapshot.signerRunning,
         onlineParticipantIds: snapshot.onlineParticipantIds,

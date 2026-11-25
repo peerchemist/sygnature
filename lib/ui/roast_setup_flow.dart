@@ -159,9 +159,25 @@ class const RoastSetupPanel({
     final onlineSigners = controller.onlineSignerCount(setup);
     final enrolledSigners = controller.enrolledRoastParticipantCount(setup);
     final coordinatorState = controller.roastCoordinatorState(setup.id);
+    final showEnrollment =
+        setup.role == RoastSetupRole.host && setup.invitations.isNotEmpty;
+    final enrollmentPending =
+        coordinatorState == RoastCoordinatorLocalState.enrolling ||
+        showEnrollment && enrolledSigners < setup.participantCount;
+    final now = DateTime.now().toUtc();
+    final joinedSignerKeys = enrollmentPending
+        ? {
+            setup.localParticipant.publicKeyHex,
+            for (final invitation in setup.invitations)
+              if (invitation.statusAt(now) ==
+                  RoastInvitationDisplayStatus.joined)
+                invitation.participantPublicKeyHex,
+          }
+        : null;
     final coordinatorIdentity =
         setup.status == RoastSetupStatus.ready &&
             setup.role == RoastSetupRole.host &&
+            coordinatorState == RoastCoordinatorLocalState.connected &&
             enrolledSigners >= setup.participantCount &&
             setup.coordinatorId != null
         ? '${setup.coordinatorId}\n${setup.localParticipant.publicKeyHex}'
@@ -257,8 +273,7 @@ class const RoastSetupPanel({
                   remainingSigners: setup.participantCount - enrolledSigners,
                 ),
               ],
-              if (setup.role == RoastSetupRole.host &&
-                  setup.invitations.isNotEmpty) ...[
+              if (showEnrollment) ...[
                 _RoastEnrollmentProgress(
                   key: ValueKey(setup.id),
                   joined: enrolledSigners,
@@ -266,12 +281,14 @@ class const RoastSetupPanel({
                 ),
               ],
               const SizedBox(height: 18),
-              _SwarmHealth(
-                online: onlineSigners,
-                total: setup.participantCount,
-                requiredSigners: setup.threshold,
-              ),
-              const SizedBox(height: 14),
+              if (!enrollmentPending) ...[
+                _SwarmHealth(
+                  online: onlineSigners,
+                  total: setup.participantCount,
+                  requiredSigners: setup.threshold,
+                ),
+                const SizedBox(height: 14),
+              ],
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -325,20 +342,18 @@ class const RoastSetupPanel({
                       ),
                     ),
                     const Divider(height: 1),
-                    for (
-                      var index = 0;
-                      index < setup.participants.length;
-                      index++
-                    ) ...[
+                    for (final (index, participant)
+                        in setup.participants.indexed) ...[
                       _RoastParticipantRow(
-                        participant: setup.participants[index],
+                        participant: participant,
                         online: controller.isRoastParticipantOnline(
                           setup,
-                          setup.participants[index],
+                          participant,
                         ),
-                        local:
-                            setup.participants[index].cardId ==
-                            setup.localCardId,
+                        local: participant.cardId == setup.localCardId,
+                        joined: joinedSignerKeys?.contains(
+                          participant.publicKeyHex,
+                        ),
                       ),
                       if (index < setup.participants.length - 1)
                         const Padding(
@@ -743,20 +758,14 @@ class const RoastSetupPanel({
           'Add signers and create their invitations',
         RoastSetupStatus.draft =>
           'Share your signer public key, then wait for your bound invite',
-        RoastSetupStatus.ready
-            when setup.role == RoastSetupRole.host &&
-                enrolledSigners >= setup.participantCount =>
-          'All $enrolledSigners signers joined · coordinator online',
         RoastSetupStatus.ready when setup.role == RoastSetupRole.host =>
-          'Room open · $enrolledSigners of '
-              '${setup.participantCount} signers joined',
+          '$enrolledSigners of ${setup.participantCount} signers joined',
         RoastSetupStatus.ready =>
           'Connected · waiting for the host to create the shared key',
         RoastSetupStatus.connecting when setup.needsInvitationCreation =>
           'Signer invitations are waiting to be created',
         RoastSetupStatus.connecting when setup.role == RoastSetupRole.host =>
-          'Room open · $enrolledSigners of '
-              '${setup.participantCount} signers joined',
+          'Starting coordinator…',
         RoastSetupStatus.connecting => 'Joining room through Iroh…',
         RoastSetupStatus.awaitingDkgApproval =>
           'Review and approve shared-key creation',
@@ -851,8 +860,10 @@ class _CoordinatorConnectionStatusState
       ),
       RoastCoordinatorLocalState.enrolling => (
         'Coordinator online',
-        'Waiting for ${widget.remainingSigners} more '
-            '${widget.remainingSigners == 1 ? 'signer' : 'signers'} to join.',
+        widget.remainingSigners == 0
+            ? 'All signers joined. Starting the local signer.'
+            : 'Waiting for ${widget.remainingSigners} more '
+                  '${widget.remainingSigners == 1 ? 'signer' : 'signers'} to join.',
         Icons.hub_outlined,
         AppColors.of(context).success,
       ),
@@ -1331,14 +1342,19 @@ class const _RoastParticipantRow({
   required final RoastParticipant participant,
   required final bool online,
   required final bool local,
+  required final bool? joined,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final color = online
-        ? AppColors.of(context).success
-        : AppColors.of(context).danger;
+    final colors = AppColors.of(context);
+    final (status, color) = switch (joined) {
+      true => ('Joined', colors.success),
+      false => ('Waiting to join', colors.inkMuted),
+      null when online => ('Online', colors.success),
+      null => ('Offline', colors.danger),
+    };
     return Semantics(
-      label: '${participant.name}, ${online ? 'online' : 'offline'}',
+      label: '${participant.name}, ${status.toLowerCase()}',
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         child: Row(
@@ -1427,7 +1443,7 @@ class const _RoastParticipantRow({
             ),
             const SizedBox(width: 8),
             Text(
-              online ? 'ONLINE' : 'OFFLINE',
+              status.toUpperCase(),
               style: TextStyle(
                 color: color,
                 fontSize: 9,

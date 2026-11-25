@@ -304,17 +304,26 @@ void main() {
       RoastCoordinatorLocalState.stopped,
     );
 
-    runtime.emit(
-      RoastRuntimeSnapshotEvent(
-        'setup',
-        connected: false,
-        signerRunning: false,
-        onlineParticipantIds: [],
-        coordinatorId: 'coordinator',
-        coordinatorRelayUrls: [],
-        coordinatorIpAddrs: [],
-      ),
+    RoastRuntimeSnapshotEvent snapshot({required bool roomEnrolling}) =>
+        RoastRuntimeSnapshotEvent(
+          'setup',
+          roomEnrolling: roomEnrolling,
+          connected: false,
+          signerRunning: false,
+          onlineParticipantIds: [],
+          coordinatorId: 'coordinator',
+          coordinatorRelayUrls: [],
+          coordinatorIpAddrs: [],
+        );
+    runtime.emit(snapshot(roomEnrolling: false));
+    await _flushEvents();
+    expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
+    expect(
+      controller.roastCoordinatorState('setup'),
+      RoastCoordinatorLocalState.stopped,
     );
+
+    runtime.emit(snapshot(roomEnrolling: true));
     await _flushEvents();
 
     expect(controller.roastSetups.single.status, RoastSetupStatus.ready);

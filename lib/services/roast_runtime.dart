@@ -63,6 +63,7 @@ sealed class RoastRuntimeEvent {
 
 final class RoastRuntimeSnapshotEvent(
   super.setupId, {
+  final bool roomEnrolling = false,
   required final bool connected,
   required final bool signerRunning,
   required final List<String> onlineParticipantIds,
@@ -307,6 +308,7 @@ final class RoastRuntimeMessageSigningResultEvent(
 }) extends RoastRuntimeEvent;
 
 class RoastRuntimeSnapshot({
+  final bool roomEnrolling = false,
   required final bool connected,
   required final bool signerRunning,
   required final List<String> onlineParticipantIds,
