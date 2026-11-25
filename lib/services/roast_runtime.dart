@@ -128,6 +128,7 @@ final class RoastRuntimeFailureEvent(
   required final String message,
   required final bool interrupted,
   required final RoastRuntimeOperation operation,
+  final bool signerRetrying = false,
   final String? requestIdHex,
 }) extends RoastRuntimeEvent;
 

@@ -167,6 +167,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     invite.requirePrivateKey(privateKey);
     final coordinatorId = EndpointId.fromBytes(invite.coordinatorEndpointId);
     late final IrohRoomEnrollmentApi api;
+    final elapsed = Stopwatch()..start();
     try {
       api = await IrohRoomEnrollmentApi.connect(
         IrohClientTransportConfig(
@@ -178,6 +179,14 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         ),
       );
     } on Object catch (error, stackTrace) {
+      unawaited(
+        AppDiagnostics.recordRoastConnection(
+          stage: 'enrollmentTransport',
+          elapsed: elapsed.elapsed,
+          succeeded: false,
+          error: error,
+        ),
+      );
       Error.throwWithStackTrace(
         RoastEnrollmentFailure(
           kind: RoastEnrollmentFailureKind.coordinatorConnection,
@@ -186,6 +195,13 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
         stackTrace,
       );
     }
+    unawaited(
+      AppDiagnostics.recordRoastConnection(
+        stage: 'enrollmentTransport',
+        elapsed: elapsed.elapsed,
+        succeeded: true,
+      ),
+    );
 
     late final RoomSnapshot room;
     try {
@@ -243,18 +259,6 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     return room;
   }
 
-  RoastRuntimeSnapshot _pendingRoomSnapshot(RoastSetup setup) =>
-      RoastRuntimeSnapshot(
-        connected: false,
-        signerRunning: false,
-        onlineParticipantIds: const [],
-        coordinatorId: setup.coordinatorId,
-        coordinatorRelayUrls: setup.coordinatorRelayUrls,
-        coordinatorIpAddrs: setup.coordinatorIpAddrs,
-        groupKeyHex: null,
-        pendingDkgProposalHex: null,
-      );
-
   RoastRuntimeSnapshot _enrollingRoomSnapshot(
     WorkerCoordinatorAddress coordinator,
   ) => RoastRuntimeSnapshot(
@@ -268,36 +272,6 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
     groupKeyHex: null,
     pendingDkgProposalHex: null,
   );
-
-  void _scheduleRoomSignerConnection(RoastSetup setup) {
-    if (_backupPaused) return;
-    if (_roomSignerTimers.containsKey(setup.id)) return;
-    AppLogger.info(
-      '${RoastRuntimeManager._roastScope(setup.id)} Retrying the signer '
-      'connection in the background',
-    );
-    _runBackground(_connectRoomSigner(setup));
-    _roomSignerTimers[setup.id] = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => _runBackground(_connectRoomSigner(setup)),
-    );
-  }
-
-  Future<void> _connectRoomSigner(RoastSetup setup) async {
-    if (!_connectingRoomSigners.add(setup.id)) return;
-    try {
-      final snapshot = await _startSetup(setup, scheduleRoomRetry: false);
-      _roomSignerTimers.remove(setup.id)?.cancel();
-      AppLogger.info(
-        '${RoastRuntimeManager._irohScope(setup.id)} Signer transport connected',
-      );
-      _emitSnapshotValues(setup.id, snapshot);
-    } on Object {
-      // Retry while the room is being finalized or the coordinator is offline.
-    } finally {
-      _connectingRoomSigners.remove(setup.id);
-    }
-  }
 
   Future<IrohServer> _ensureRoomServer(RoastSetup setup) async {
     final existing = _roomServers[setup.id];
@@ -326,6 +300,23 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       secretKey: secretKey,
       persistence: persistence.serverPersistence(setup.id),
       rooms: rooms,
+      onError: (error, stackTrace) {
+        AppLogger.warn(
+          '${RoastRuntimeManager._irohScope(setup.id)} An incoming '
+          'coordinator connection failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        if (error is IrohAcceptException) {
+          unawaited(
+            AppDiagnostics.record(
+              AppDiagnosticEvent.roastFailure,
+              error: error,
+              details: {'operation': 'incomingHandshake'},
+            ),
+          );
+        }
+      },
     );
     _roomServers[setup.id] = server;
     await _configureHostedFeed(setup.groupId, server.address);
@@ -434,7 +425,7 @@ extension _RoastRoomRuntime on RoastRuntimeManager {
       // Surface recovery even while the room is still enrolling. There is no
       // worker signer to refresh until the room freezes, so invite-stage
       // coordinators need an explicit pending snapshot here.
-      final snapshot = await _startSetup(setup, scheduleRoomRetry: true);
+      final snapshot = await _startSetup(setup);
       _emitSnapshotValues(setupId, snapshot);
     } catch (error, stackTrace) {
       AppLogger.error(

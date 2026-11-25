@@ -112,19 +112,24 @@ extension WalletRoastEventController on WalletController {
       case RoastRuntimeSnapshotEvent():
         final healthy = event.connected && event.signerRunning;
         final enrolling = event.roomEnrolling;
+        final signerRetrying =
+            event.signerRunning &&
+            (setup.role == RoastSetupRole.member || setup.usesRoomEnrollment);
         final previousPresence = _roastPresence[event.setupId];
+        final canRecover =
+            !enrolling && !_busy && !_roastOperations.contains(event.setupId);
         final connectionLost =
-            !enrolling &&
-            !_busy &&
-            !_roastOperations.contains(event.setupId) &&
+            canRecover &&
             previousPresence?.connected == true &&
             previousPresence?.signerRunning == true &&
             !healthy;
-        if (healthy || enrolling) {
+        final signerStopped =
+            canRecover &&
+            previousPresence?.signerRunning == true &&
+            !event.signerRunning;
+        if (healthy || enrolling || signerRetrying) {
           _cancelRoastReconnect(event.setupId);
-        } else if (connectionLost) {
-          // A running signer that lost its Iroh connection is retried
-          // automatically with backoff instead of waiting for a manual tap.
+        } else if (connectionLost || signerStopped) {
           _scheduleRoastReconnect(event.setupId);
         }
         final presenceChanged = _setRoastPresence(
@@ -149,7 +154,9 @@ extension WalletRoastEventController on WalletController {
                 ? RoastSetupStatus.interrupted
                 : setup.status,
             errorMessage: connectionLost
-                ? setup.role == RoastSetupRole.host
+                ? signerRetrying
+                      ? 'The signer lost its Iroh connection. Retrying automatically.'
+                      : setup.role == RoastSetupRole.host
                       ? 'This ROAST coordinator lost its Iroh connection. '
                             'Reconnect to restart the coordinator and signer.'
                       : 'The ROAST signer lost its Iroh connection. '
@@ -316,14 +323,20 @@ extension WalletRoastEventController on WalletController {
             details: event.message,
           );
         }
-        final presenceChanged =
-            event.interrupted && _roastPresence.remove(event.setupId) != null;
-        if (event.interrupted &&
+        final presenceChanged = event.signerRetrying
+            ? _setRoastPresence(
+                event.setupId,
+                connected: false,
+                signerRunning: true,
+                onlineParticipantIds: const [],
+              )
+            : event.interrupted && _roastPresence.remove(event.setupId) != null;
+        if (event.signerRetrying) {
+          _cancelRoastReconnect(event.setupId);
+        } else if (event.interrupted &&
             event.operation == RoastRuntimeOperation.connection &&
             !_busy &&
             !_roastOperations.contains(event.setupId)) {
-          // The coordinator or signer dropped its Iroh connection; retry
-          // automatically with backoff instead of waiting for a manual tap.
           _scheduleRoastReconnect(event.setupId);
         }
         await _updateSetup(

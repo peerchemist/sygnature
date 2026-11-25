@@ -689,6 +689,9 @@ class const RoastSetupPanel({
           label: Text(
             setup.role == RoastSetupRole.host
                 ? 'Reconnect coordinator'
+                : controller.roastCoordinatorState(setup.id) ==
+                      RoastCoordinatorLocalState.reconnecting
+                ? 'Retry now'
                 : 'Reconnect',
           ),
         ),
@@ -875,6 +878,12 @@ class _CoordinatorConnectionStatusState
         'The ROAST signer is connected to its saved coordinator.',
         Icons.link_rounded,
         AppColors.of(context).success,
+      ),
+      RoastCoordinatorLocalState.reconnecting => (
+        'Reconnecting automatically',
+        'The signer will connect when the coordinator is reachable.',
+        Icons.sync_rounded,
+        AppColors.of(context).inkMuted,
       ),
       RoastCoordinatorLocalState.stopped => (
         'Signer stopped',

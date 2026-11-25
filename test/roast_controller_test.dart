@@ -269,6 +269,64 @@ void main() {
     },
   );
 
+  test('leaves session recovery to a running signer', () async {
+    final runtime = _CoordinatorRoastRuntime();
+    final controller = _coordinatorController(
+      _CoordinatorRepository(),
+      runtime,
+      roastReconnectBackoff: const [Duration(milliseconds: 20)],
+    );
+    addTearDown(controller.dispose);
+    await controller.load();
+    await _flushEvents();
+    final setup = controller.roastSetups.single;
+    final starts = runtime.startedCoordinatorIds.length;
+    RoastRuntimeSnapshotEvent snapshot(
+      bool connected, {
+      bool signerRunning = true,
+    }) => RoastRuntimeSnapshotEvent(
+      setup.id,
+      connected: connected,
+      signerRunning: signerRunning,
+      onlineParticipantIds: const [],
+      coordinatorId: setup.coordinatorId,
+      coordinatorRelayUrls: setup.coordinatorRelayUrls,
+      coordinatorIpAddrs: setup.coordinatorIpAddrs,
+    );
+
+    runtime.emit(snapshot(false));
+    runtime.emit(
+      RoastRuntimeFailureEvent(
+        setup.id,
+        message: 'Retrying automatically.',
+        interrupted: true,
+        operation: RoastRuntimeOperation.connection,
+        signerRetrying: true,
+      ),
+    );
+    await _flushEvents();
+    expect(
+      controller.roastCoordinatorState(setup.id),
+      RoastCoordinatorLocalState.reconnecting,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(runtime.startedCoordinatorIds, hasLength(starts));
+
+    runtime.emit(snapshot(true));
+    await _flushEvents();
+    expect(
+      controller.roastCoordinatorState(setup.id),
+      RoastCoordinatorLocalState.connected,
+    );
+    expect(controller.roastSetups.single.errorMessage, isNull);
+
+    runtime.emit(snapshot(false));
+    runtime.emit(snapshot(false, signerRunning: false));
+    await _flushEvents();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(runtime.startedCoordinatorIds, hasLength(starts + 1));
+  });
+
   test('invite-stage coordinator returns to enrolling after restart', () async {
     final repository = _CoordinatorRepository();
     final runtime = _CoordinatorRoastRuntime();
@@ -1518,13 +1576,14 @@ void main() {
     },
   );
 
-  test('recovers a committed enrollment after its response is lost', () async {
+  test('retries signer startup after recovering enrollment', () async {
     final repository = MemoryWalletRepository();
     final runtime = _FakeRoastRuntime();
     final controller = WalletController(
       repository,
       roastRuntime: runtime,
       roastKeyService: _EnrollmentRoastKeyService(),
+      roastReconnectBackoff: const [Duration(milliseconds: 20)],
     );
     await controller.load();
     final setupId = await controller.createRoastSetupDraft(
@@ -1546,6 +1605,7 @@ void main() {
     );
     final enrolledAt = DateTime.now().toUtc();
     runtime
+      ..startError = StateError('Coordinator still finalizing room')
       ..joinRoomError = RoastEnrollmentFailure(
         kind: RoastEnrollmentFailureKind.connection,
         cause: StateError('response lost'),
@@ -1609,6 +1669,17 @@ void main() {
     ]);
     expect(controller.roastOperationInProgress(setupId), isFalse);
     expect(controller.roastSetups.single.isFinalized, isTrue);
+    expect(controller.roastSetups.single.status, RoastSetupStatus.interrupted);
+    expect(
+      controller.roastCoordinatorState(setupId),
+      RoastCoordinatorLocalState.reconnecting,
+    );
+
+    runtime.startError = null;
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await _flushEvents();
+    expect(runtime.joinRoomCalls, 2);
+    expect(controller.roastSetups.single.status, RoastSetupStatus.ready);
     expect(controller.roastSetups.single.errorMessage, isNull);
     controller.dispose();
   });
@@ -3751,6 +3822,7 @@ class _FakeRoastRuntime implements RoastRuntime {
   NewDkgDetails? lastApprovedDkgDetails;
   GroupTransitionKeyPlan? lastTransitionKeyPlan;
   RoastRuntimeSnapshot? startSnapshot;
+  Object? startError;
   void Function()? afterRoomPrepared;
   Object? joinRoomError;
   int? joinRoomFailuresRemaining;
@@ -3777,6 +3849,7 @@ class _FakeRoastRuntime implements RoastRuntime {
     RoastSetup setup, {
     bool reconnect = false,
   }) async {
+    if (startError case final error?) throw error;
     if (reconnect) {
       reconnects++;
       if (pendingOnReconnect case final request?) {

@@ -284,17 +284,37 @@ extension WalletRoastSetupController on WalletController {
       _setRoastJoinStage(setupId, RoastJoinStage.findingCoordinator);
       final runtime = _roastRuntime!;
       late final RoomSnapshot enrollment;
+      final enrollmentTime = Stopwatch()..start();
       try {
-        enrollment = await runtime.joinRoom(draft, invite);
-      } on RoastEnrollmentFailure catch (error) {
-        if (!error.outcomeMayBePersisted) rethrow;
-        AppLogger.info(
-          '${_roastLogScope(draft.id)} Enrollment response was interrupted; '
-          'recovering the committed result',
+        try {
+          enrollment = await runtime.joinRoom(draft, invite);
+        } on RoastEnrollmentFailure catch (error) {
+          if (!error.outcomeMayBePersisted) rethrow;
+          AppLogger.info(
+            '${_roastLogScope(draft.id)} Enrollment response was interrupted; '
+            'recovering the committed result',
+          );
+          _setRoastJoinStage(setupId, RoastJoinStage.recoveringEnrollment);
+          enrollment = await runtime.joinRoom(draft, invite);
+        }
+      } on Object catch (error) {
+        unawaited(
+          AppDiagnostics.recordRoastConnection(
+            stage: 'roomEnrollment',
+            elapsed: enrollmentTime.elapsed,
+            succeeded: false,
+            error: error,
+          ),
         );
-        _setRoastJoinStage(setupId, RoastJoinStage.recoveringEnrollment);
-        enrollment = await runtime.joinRoom(draft, invite);
+        rethrow;
       }
+      unawaited(
+        AppDiagnostics.recordRoastConnection(
+          stage: 'roomEnrollment',
+          elapsed: enrollmentTime.elapsed,
+          succeeded: true,
+        ),
+      );
       phase = _RoastJoinPhase.localSetup;
       _setRoastJoinStage(setupId, RoastJoinStage.savingWallet);
       final enrolled = _roastKeyService.applyRoomEnrollment(
@@ -334,13 +354,16 @@ extension WalletRoastSetupController on WalletController {
       );
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(enrolled.id);
+        _cancelRoastReconnect(enrolled.id);
+      } else if (!snapshot.signerRunning) {
+        _scheduleRoastReconnect(enrolled.id);
       }
       await _updateSetup(
         enrolled.id,
         (setup) => setup.copyWith(
-          status: snapshot.connected
+          status: snapshot.connected && snapshot.signerRunning
               ? RoastSetupStatus.ready
-              : RoastSetupStatus.connecting,
+              : RoastSetupStatus.interrupted,
           coordinatorId: snapshot.coordinatorId,
           clearError: true,
         ),
@@ -368,15 +391,22 @@ extension WalletRoastSetupController on WalletController {
           },
         ),
       );
+      final enrollmentSaved = phase == _RoastJoinPhase.signerStartup;
       await _updateSetup(
         draft.id,
         (setup) => setup.copyWith(
-          status: setup.isFinalized
+          status: enrollmentSaved
+              ? RoastSetupStatus.interrupted
+              : setup.isFinalized
               ? RoastSetupStatus.error
               : RoastSetupStatus.draft,
           errorMessage: _cleanRoastJoinError(error, phase),
         ),
       );
+      if (enrollmentSaved) {
+        _scheduleRoastReconnect(draft.id);
+        return;
+      }
       rethrow;
     } finally {
       _roastJoinStages.remove(setupId);
@@ -767,7 +797,7 @@ extension WalletRoastSetupController on WalletController {
           'shared wallet: ${_localSetupErrorDetail(error)}',
     _RoastJoinPhase.signerStartup =>
       'Room enrollment was saved, but the signer could not finish starting. '
-          'Use Reconnect after the coordinator is ready.',
+          'Retrying automatically.',
   };
 
   /// The enrollment already committed on the coordinator, so a localSetup

@@ -19,6 +19,11 @@ extension WalletRoastCoordinatorController on WalletController {
         setup.status == RoastSetupStatus.ready) {
       return RoastCoordinatorLocalState.enrolling;
     }
+    if (presence?.signerRunning == true ||
+        (setup.role == RoastSetupRole.member &&
+            _roastReconnectTimers.containsKey(setupId))) {
+      return RoastCoordinatorLocalState.reconnecting;
+    }
     return RoastCoordinatorLocalState.stopped;
   }
 
@@ -371,6 +376,8 @@ extension WalletRoastCoordinatorController on WalletController {
       if (snapshot.connected && snapshot.signerRunning) {
         _roastCoordinatorRecovery.remove(setup.id);
         _cancelRoastReconnect(setup.id);
+      } else if (!waitingForEnrollment && !snapshot.signerRunning) {
+        _scheduleRoastReconnect(setup.id);
       }
       final groupWasActive =
           setup.groupKeyHex == snapshot.groupKeyHex &&
@@ -491,6 +498,8 @@ extension WalletRoastCoordinatorController on WalletController {
       final setup = _setupById(setupId);
       await _startRoastRuntime(
         setup.copyWith(status: RoastSetupStatus.connecting),
+        reconnect:
+            setup.role == RoastSetupRole.host && !setup.usesRoomEnrollment,
       );
     } catch (error, stackTrace) {
       AppLogger.error(

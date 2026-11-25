@@ -70,6 +70,7 @@ enum RoastCoordinatorLocalState {
   switching,
   enrolling,
   connected,
+  reconnecting,
   stopped,
   recoveryRequired,
 }

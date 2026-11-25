@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:coinlib/coinlib.dart'
     show TaprootKeySignDetails, bytesEqual, bytesToHex, hexToBytes;
 import 'package:flutter/foundation.dart' show listEquals;
-import 'package:iroh_quic/iroh_quic.dart' show Endpoint;
+import 'package:iroh_quic/iroh_quic.dart' show Endpoint, IrohAcceptException;
 import 'package:noosphere_flutter/noosphere_flutter.dart';
 import 'package:noosphere_server/noosphere_server.dart'
     show
@@ -74,12 +74,11 @@ final class RoastRuntimeManager(
   final Map<String, IrohServer> _roomServers = {};
   final Map<String, StreamSubscription<RoomSnapshot>> _roomSubscriptions = {};
   final Set<String> _freezingRooms = {};
-  final Map<String, Timer> _roomSignerTimers = {};
-  final Set<String> _connectingRoomSigners = {};
   final Set<String> _synchronizingDkgSetups = {};
   final Map<String, Uint8List> _approvedDkgDetailsBySetup = {};
   final Map<String, Timer> _keyReadinessTimers = {};
   final Map<String, Timer> _signingSyncTimers = {};
+  final Map<String, Stopwatch> _signerRecoveryTimes = {};
   final Map<String, int> _roomServerRestartAttempts = {};
   final Map<String, Future<void>> _refreshes = {};
   final Set<String> _refreshAgain = {};
@@ -138,6 +137,7 @@ final class RoastRuntimeManager(
     _signerSetups.clear();
     _workerSetups.clear();
     _dkgProposals.clear();
+    _signerRecoveryTimes.clear();
     for (final timer in _keyReadinessTimers.values) {
       timer.cancel();
     }
@@ -177,11 +177,7 @@ final class RoastRuntimeManager(
       '${setup.participantCount} participants, threshold ${setup.threshold})',
     );
     try {
-      final snapshot = await _startSetup(
-        setup,
-        scheduleRoomRetry: true,
-        reconnect: reconnect,
-      );
+      final snapshot = await _startSetup(setup, reconnect: reconnect);
       AppLogger.info(
         '$scope Setup state: connected=${snapshot.connected}, '
         'signerRunning=${snapshot.signerRunning}, '
@@ -200,7 +196,6 @@ final class RoastRuntimeManager(
 
   Future<RoastRuntimeSnapshot> _startSetup(
     RoastSetup setup, {
-    required bool scheduleRoomRetry,
     bool publishDkgs = true,
     bool reconnect = false,
   }) {
@@ -211,7 +206,6 @@ final class RoastRuntimeManager(
     if (pending != null) return pending;
     final starting = _startSetupNow(
       setup,
-      scheduleRoomRetry: scheduleRoomRetry,
       publishDkgs: publishDkgs,
       reconnect: reconnect,
     );
@@ -224,7 +218,6 @@ final class RoastRuntimeManager(
 
   Future<RoastRuntimeSnapshot> _startSetupNow(
     RoastSetup setup, {
-    required bool scheduleRoomRetry,
     required bool publishDkgs,
     required bool reconnect,
   }) async {
@@ -322,8 +315,11 @@ final class RoastRuntimeManager(
       persistDkgSecret: persistence.dkgSecretStorage(setup.id).write,
     );
     late NoosphereWorkerSnapshot snapshot;
+    final startingSigner = reconnect || !_signerSetups.contains(setup.id);
+    final elapsed = Stopwatch()..start();
     try {
       if (reconnect && _workerSetups.contains(setup.id)) {
+        _signerRecoveryTimes.remove(setup.id);
         _signingState(setup.id).invalidateSnapshots();
         await worker.lockSigner(setup.id);
         _signerSetups.remove(setup.id);
@@ -337,35 +333,41 @@ final class RoastRuntimeManager(
               client: clientOptions.withCoordinator(address),
             );
     } on Object catch (error) {
-      if (scheduleRoomRetry) {
-        final workerError = error is NoosphereWorkerException ? error : null;
-        final reason = workerError == null
-            ? null
-            : _signerConnectionReason(workerError.message);
-        unawaited(
-          AppDiagnostics.record(
-            AppDiagnosticEvent.roastFailure,
-            error: error,
-            details: {
-              'operation': 'connection',
-              'workerOperation': 'signerStartup',
-              'workerCode': ?workerError?.code,
-              'reason': ?reason,
-            },
-          ),
-        );
-      }
-      if (scheduleRoomRetry &&
-          setup.role == RoastSetupRole.member &&
-          setup.usesRoomEnrollment) {
-        AppLogger.info(
-          '${_roastScope(setup.id)} Signer connection did not complete '
-          '(${error.runtimeType})',
-        );
-        _scheduleRoomSignerConnection(setup);
-        return _pendingRoomSnapshot(setup);
-      }
+      final workerError = error is NoosphereWorkerException ? error : null;
+      final reason = workerError == null
+          ? null
+          : _signerConnectionReason(workerError.message);
+      unawaited(
+        AppDiagnostics.recordRoastConnection(
+          stage: 'signerStartup',
+          elapsed: elapsed.elapsed,
+          succeeded: false,
+          error: error,
+          reason: reason,
+        ),
+      );
+      unawaited(
+        AppDiagnostics.record(
+          AppDiagnosticEvent.roastFailure,
+          error: error,
+          details: {
+            'operation': 'connection',
+            'workerOperation': 'signerStartup',
+            'workerCode': ?workerError?.code,
+            'reason': ?reason,
+          },
+        ),
+      );
       rethrow;
+    }
+    if (startingSigner) {
+      unawaited(
+        AppDiagnostics.recordRoastConnection(
+          stage: 'signerStartup',
+          elapsed: elapsed.elapsed,
+          succeeded: snapshot.connected && snapshot.signerRunning,
+        ),
+      );
     }
     snapshot = await _reconcileDkgSecrets(worker, setup, snapshot);
     final signerStarted = _signerSetups.add(setup.id);
@@ -786,7 +788,6 @@ final class RoastRuntimeManager(
   @override
   Future<void> stopSetup(String setupId) async {
     AppLogger.info('${_roastScope(setupId)} Stopping setup');
-    _roomSignerTimers.remove(setupId)?.cancel();
     _keyReadinessTimers.remove(setupId)?.cancel();
     _roomServerRestartAttempts.remove(setupId);
     // A background connection may still be creating roles. Let it settle
@@ -796,9 +797,9 @@ final class RoastRuntimeManager(
     } catch (_) {
       // Retained partial starts are recorded in _workerSetups for cleanup.
     }
-    _roomSignerTimers.remove(setupId)?.cancel();
     _keyReadinessTimers.remove(setupId)?.cancel();
     _signingSyncTimers.remove(setupId)?.cancel();
+    _signerRecoveryTimes.remove(setupId);
     _setups.remove(setupId);
     _emittedGroupKeys.remove(setupId);
     _signerCoordinators.remove(setupId);
@@ -809,8 +810,6 @@ final class RoastRuntimeManager(
     await _roomSubscriptions.remove(setupId)?.cancel();
     await _roomServers.remove(setupId)?.close();
     _freezingRooms.remove(setupId);
-    _roomSignerTimers.remove(setupId)?.cancel();
-    _connectingRoomSigners.remove(setupId);
     final worker = _worker;
     if (worker != null && !worker.isClosed && _workerSetups.contains(setupId)) {
       await worker.stopSetup(setupId);
@@ -847,10 +846,6 @@ final class RoastRuntimeManager(
     _backupPaused = true;
     final restart = <RoastSetup>[];
     try {
-      for (final timer in _roomSignerTimers.values) {
-        timer.cancel();
-      }
-      _roomSignerTimers.clear();
       for (final timer in _keyReadinessTimers.values) {
         timer.cancel();
       }
@@ -891,7 +886,7 @@ final class RoastRuntimeManager(
       for (final setup in restart) {
         if (_events.isClosed || setup.requiresBackupReconciliation) continue;
         try {
-          final resumed = await _startSetup(setup, scheduleRoomRetry: true);
+          final resumed = await _startSetup(setup);
           _emitSnapshotValues(setup.id, resumed);
         } catch (error) {
           // A reconnect failure must not mask an export error or discard a
@@ -976,6 +971,19 @@ final class RoastRuntimeManager(
         _runBackground(_refresh(event.setupId));
       case WorkerFailureEvent():
         _signingState(event.setupId).invalidateSnapshots();
+        if (event.operation == 'serve') _serverSetups.remove(event.setupId);
+        final setup = _setups[event.setupId]!;
+        final signerRetrying =
+            event.operation == 'reconnect' ||
+            event.operation == 'session' &&
+                (setup.role == RoastSetupRole.member ||
+                    setup.usesRoomEnrollment);
+        final recoveryTime = signerRetrying
+            ? _signerRecoveryTimes.putIfAbsent(
+                event.setupId,
+                () => Stopwatch()..start(),
+              )
+            : null;
         final operation = switch (event.operation) {
           'signatures' => RoastRuntimeOperation.signatures,
           'dkg' => RoastRuntimeOperation.dkg,
@@ -1022,6 +1030,8 @@ final class RoastRuntimeManager(
           RoastRuntimeOperation.connection =>
             'The Iroh connection was interrupted during the signer session. '
                 'Trying to reconnect.',
+          RoastRuntimeOperation.worker when event.interrupted =>
+            'The ROAST service stopped. Restart Sygnature to reconnect.',
           RoastRuntimeOperation.worker => 'The ROAST worker failed.',
           _ => 'The ROAST operation failed.',
         };
@@ -1037,6 +1047,7 @@ final class RoastRuntimeManager(
               'workerOperation': event.operation,
               'interrupted': event.interrupted,
               'reason': ?connectionReason,
+              'recoveryElapsedMilliseconds': ?recoveryTime?.elapsedMilliseconds,
             },
           ),
         );
@@ -1046,6 +1057,7 @@ final class RoastRuntimeManager(
             message: message,
             interrupted: event.interrupted,
             operation: operation,
+            signerRetrying: signerRetrying,
           ),
         );
         _runBackground(_refresh(event.setupId));
@@ -1056,6 +1068,16 @@ final class RoastRuntimeManager(
         );
         _runBackground(_refresh(event.setupId));
       case WorkerSessionReplacedEvent():
+        final recoveryTime = _signerRecoveryTimes.remove(event.setupId);
+        if (recoveryTime != null) {
+          unawaited(
+            AppDiagnostics.recordRoastConnection(
+              stage: 'signerRecovery',
+              elapsed: recoveryTime.elapsed,
+              succeeded: true,
+            ),
+          );
+        }
         final signingState = _signingState(event.setupId);
         signingState.invalidateSnapshots();
         // The worker delivers the new session's snapshot before this event.
@@ -1427,6 +1449,16 @@ final class RoastRuntimeManager(
     if (!snapshot.connected || !snapshot.signerRunning) {
       _signingSyncTimers.remove(snapshot.setupId)?.cancel();
     }
+    final setup = _setups[snapshot.setupId];
+    if (!snapshot.connected &&
+        snapshot.signerRunning &&
+        setup != null &&
+        (setup.role == RoastSetupRole.member || setup.usesRoomEnrollment)) {
+      _signerRecoveryTimes.putIfAbsent(
+        snapshot.setupId,
+        () => Stopwatch()..start(),
+      );
+    }
     final coordinator = _selectedCoordinator(snapshot.setupId);
     _events.add(
       RoastRuntimeSnapshotEvent(
@@ -1570,6 +1602,7 @@ final class RoastRuntimeManager(
     _signerCoordinators.clear();
     _dkgProposals.clear();
     _signingStates.clear();
+    _signerRecoveryTimes.clear();
     _refreshAgain.clear();
     for (final subscription in _roomSubscriptions.values) {
       await subscription.cancel();
@@ -1581,11 +1614,6 @@ final class RoastRuntimeManager(
       await server.close();
     }
     _freezingRooms.clear();
-    for (final timer in _roomSignerTimers.values) {
-      timer.cancel();
-    }
-    _roomSignerTimers.clear();
-    _connectingRoomSigners.clear();
     for (final timer in _keyReadinessTimers.values) {
       timer.cancel();
     }

@@ -56,6 +56,11 @@ void main() {
         'interrupted': true,
       },
     );
+    await AppDiagnostics.recordRoastConnection(
+      stage: 'signerRecovery',
+      elapsed: const Duration(milliseconds: 325),
+      succeeded: true,
+    );
 
     final bytes = await AppDiagnostics.exportReport(
       appVersion: '0.9.53+39',
@@ -67,12 +72,18 @@ void main() {
     final report = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
     final events = report['events'] as List;
 
-    expect(events, hasLength(2));
+    expect(events, hasLength(3));
     expect(events[0]['event'], 'roastCoordinatorDisconnected');
     expect(events[0]['errorType'], 'StateError');
     expect(events[0]['details'], {'setupId': 'setup-1', 'servedForSeconds': 3});
     expect(events[1]['event'], 'roastFailure');
     expect(events[1]['details']['workerOperation'], 'serve');
+    expect(events[2]['event'], 'roastConnectionAttempt');
+    expect(events[2]['details'], {
+      'stage': 'signerRecovery',
+      'succeeded': true,
+      'elapsedMilliseconds': 325,
+    });
     expect(utf8.decode(bytes), isNot(contains('serve loop ended')));
   });
 }

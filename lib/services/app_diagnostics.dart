@@ -20,6 +20,7 @@ enum AppDiagnosticEvent {
   publicFeedConnectionSucceeded,
   publicFeedConnectionFailed,
   roastFailure,
+  roastConnectionAttempt,
   roastCoordinatorDisconnected,
 }
 
@@ -53,6 +54,24 @@ abstract final class AppDiagnostics {
     _writes = _writes.then((_) => _append(file, line)).catchError((_) {});
     return _writes;
   }
+
+  /// Records connection timings without storing peer addresses or wallet data.
+  static Future<void> recordRoastConnection({
+    required String stage,
+    required Duration elapsed,
+    required bool succeeded,
+    Object? error,
+    String? reason,
+  }) => record(
+    AppDiagnosticEvent.roastConnectionAttempt,
+    error: error,
+    details: {
+      'stage': stage,
+      'succeeded': succeeded,
+      'elapsedMilliseconds': elapsed.inMilliseconds,
+      'reason': ?reason,
+    },
+  );
 
   static Future<Uint8List> exportReport({
     required String appVersion,
