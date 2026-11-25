@@ -334,8 +334,9 @@ final class RoastRuntimeManager(
       rethrow;
     }
     snapshot = await _reconcileDkgSecrets(worker, setup, snapshot);
-    _signerSetups.add(setup.id);
+    final signerStarted = _signerSetups.add(setup.id);
     if (snapshot.connected && snapshot.signerRunning) {
+      if (signerStarted) _signingStates[setup.id]?.replay();
       _startSigningSync(setup.id);
     }
     AppLogger.info('${_irohScope(setup.id)} Signer transport connected');
@@ -905,8 +906,7 @@ final class RoastRuntimeManager(
         if (!_synchronizingDkgSetups.contains(event.setupId)) {
           _rememberDkgs(event.snapshot);
         }
-        _signingState(event.setupId)
-            .applySnapshot(event.snapshot, replay: true);
+        _signingState(event.setupId).applySnapshot(event.snapshot);
         _emitSnapshot(event.snapshot);
         _runBackground(_rememberExpectedKeySafely(event.snapshot));
       case WorkerDkgEvent():
@@ -998,7 +998,10 @@ final class RoastRuntimeManager(
         );
         _runBackground(_refresh(event.setupId));
       case WorkerSessionReplacedEvent():
-        _signingState(event.setupId).invalidateSnapshots();
+        final signingState = _signingState(event.setupId);
+        signingState.invalidateSnapshots();
+        // The worker delivers the new session's snapshot before this event.
+        signingState.replay();
         AppLogger.warn(
           '${_noosphereScope(event.setupId)} Worker session replaced',
         );

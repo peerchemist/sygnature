@@ -122,6 +122,13 @@ void main() {
       expiry: Expiry(const Duration(minutes: 5)),
     );
     final requestId = bytesToHex(details.id.toBytes());
+    final updates = <RoastRuntimeSigningRequestEvent>[];
+    final updatesSubscription = runtime.events
+        .where((event) => event is RoastRuntimeSigningRequestEvent)
+        .cast<RoastRuntimeSigningRequestEvent>()
+        .where((event) => event.request.idHex == requestId)
+        .listen(updates.add);
+    addTearDown(updatesSubscription.cancel);
     final recovered = nextEvent<RoastRuntimeSigningRequestEvent>(
       runtime.events,
       (event) => event.request.idHex == requestId,
@@ -133,6 +140,13 @@ void main() {
           .signedMessageText,
       'Missed signing request',
     );
+
+    await runtime.events
+        .where((event) => event is RoastRuntimeSnapshotEvent)
+        .take(2)
+        .drain<void>()
+        .timeout(const Duration(seconds: 10));
+    expect(updates, hasLength(1));
 
     final cancelled = nextEvent<RoastRuntimeSigningRequestCancelledEvent>(
       runtime.events,

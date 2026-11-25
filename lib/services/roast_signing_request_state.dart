@@ -28,7 +28,6 @@ final class RoastSigningRequestState {
   bool applySnapshot(
     NoosphereWorkerSnapshot snapshot, {
     int? expectedRevision,
-    bool replay = false,
   }) {
     if (expectedRevision != null && expectedRevision != _revision) return false;
     invalidateSnapshots();
@@ -59,7 +58,7 @@ final class RoastSigningRequestState {
       );
     }
     for (final entry in current.entries) {
-      _rememberRequest(entry.key, entry.value, replay: replay);
+      _rememberRequest(entry.key, entry.value);
     }
     return true;
   }
@@ -87,15 +86,10 @@ final class RoastSigningRequestState {
     }
   }
 
-  void _rememberRequest(
-    String id,
-    WorkerSigningRequest request, {
-    bool replay = false,
-  }) {
+  void _rememberRequest(String id, WorkerSigningRequest request) {
     if (_cancelled.containsKey(id)) return;
     final previous = _requests[id];
-    if (!replay &&
-        previous != null &&
+    if (previous != null &&
         bytesEqual(previous.proposalBytes, request.proposalBytes) &&
         previous.creator == request.creator &&
         previous.expiry == request.expiry &&

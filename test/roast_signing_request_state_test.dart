@@ -54,7 +54,7 @@ void main() {
     expect(events, hasLength(1));
   });
 
-  test('a new login republishes a known request and recovers a missed one', () {
+  test('snapshots deduplicate requests until explicit replay', () {
     final missed = WorkerSigningRequest(
       id: Uint8List.fromList(List.filled(16, 2)),
       proposalBytes: Uint8List.fromList([2]),
@@ -68,12 +68,20 @@ void main() {
     expect(state[requestId], same(request));
     expect(events, hasLength(1));
 
-    state.applySnapshot(_snapshot(requests: [request, missed]), replay: true);
+    state.applySnapshot(_snapshot(requests: [request, missed]));
+    expect(events, hasLength(2));
+    expect(
+      (events.last as RoastRuntimeSigningRequestEvent).request.idHex,
+      '02' * 16,
+    );
+
+    events.clear();
+    state.replay();
     expect(
       events.whereType<RoastRuntimeSigningRequestEvent>().map(
         (event) => event.request.idHex,
       ),
-      [requestId, requestId, '02' * 16],
+      [requestId, '02' * 16],
     );
   });
 
@@ -87,8 +95,9 @@ void main() {
       state.applySnapshot(snapshot, expectedRevision: refreshRevision),
       isFalse,
     );
-    state.applySnapshot(snapshot, replay: true);
+    state.applySnapshot(snapshot);
     state.receive(request);
+    state.replay();
 
     expect(state[requestId], isNull);
     expect(events, [
