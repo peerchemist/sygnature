@@ -697,6 +697,19 @@ void main() {
     final dashboardHeader = find.byKey(const Key('wallet-dashboard-header'));
     expect(priorityRequests, findsOneWidget);
     expect(find.byKey(const Key('roast-dkg-request-card')), findsOneWidget);
+    final requestHeading = find.text(
+      'Distributed Key Generation request · ACTION REQUIRED',
+    );
+    expect(requestHeading, findsOneWidget);
+    final boldInitials = <String>[];
+    tester.widget<Text>(requestHeading).textSpan!.visitChildren((span) {
+      if (span case TextSpan(:final text?, :final style)
+          when style?.fontWeight == FontWeight.bold) {
+        boldInitials.add(text);
+      }
+      return true;
+    });
+    expect(boldInitials, ['D', 'K', 'G']);
     expect(find.text('Review group manifest'), findsOneWidget);
     expect(
       tester.getTopLeft(priorityRequests).dy,
@@ -732,7 +745,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Waiting for DKG approvals · 1 of 2 confirmed'), findsOne);
+    expect(
+      find.text(
+        'Waiting for Distributed Key Generation approvals · 1 of 2 confirmed',
+      ),
+      findsOneWidget,
+    );
 
     runtime.emit(
       RoastRuntimeDkgEvent(

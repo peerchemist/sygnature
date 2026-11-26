@@ -17,6 +17,7 @@ import '../services/wallet_transaction_service.dart';
 import 'app_theme.dart';
 import 'widgets/selector_builder.dart';
 import 'widgets/share_qr_dialog.dart';
+import 'widgets/spell_out_dkg.dart';
 
 part 'roast_setup_flow/coordinator_dialog.dart';
 part 'roast_setup_flow/group_transition_dialog.dart';
@@ -232,8 +233,8 @@ class const RoastSetupPanel({
                       ),
                       const SizedBox(height: 3),
                       coordinatorIdentity == null
-                          ? Text(
-                              _statusText(setup, enrolledSigners),
+                          ? Text.rich(
+                              spellOutDkg(_statusText(setup, enrolledSigners)),
                               style: statusStyle,
                             )
                           : Wrap(
@@ -436,8 +437,8 @@ class const RoastSetupPanel({
                             ),
                           ),
                           const SizedBox(height: 3),
-                          Text(
-                            errorMessage,
+                          Text.rich(
+                            spellOutDkg(errorMessage),
                             style: TextStyle(
                               color: AppColors.of(context).ink,
                               fontSize: 12,
@@ -982,12 +983,12 @@ class const RoastDkgRequestCard({
                 ),
                 SizedBox(width: 9),
                 Expanded(
-                  child: Text(
-                    'DKG REQUEST · ACTION REQUIRED',
+                  child: Text.rich(
+                    spellOutDkg('DKG request · ACTION REQUIRED'),
                     style: TextStyle(
                       color: AppColors.of(context).warningDark,
                       fontSize: 11,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w500,
                       letterSpacing: 0.7,
                     ),
                   ),

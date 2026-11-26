@@ -168,8 +168,10 @@ class const _ActivityRow({
                   ),
                   if (activity.details case final details?) ...[
                     const SizedBox(height: 3),
-                    Text(
-                      details,
+                    Text.rich(
+                      _isDkgActivity(activity.type)
+                          ? spellOutDkg(details)
+                          : TextSpan(text: details),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -179,8 +181,8 @@ class const _ActivityRow({
                     ),
                   ] else if (reference != null) ...[
                     const SizedBox(height: 3),
-                    Text(
-                      _activityReference(activity.type, reference),
+                    Text.rich(
+                      spellOutDkg(_activityReference(activity.type, reference)),
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.of(context).inkMuted,
@@ -381,6 +383,7 @@ Future<void> _showActivityDetails(
                       ? 'Message'
                       : 'Details',
                   value: details,
+                  expandDkg: _isDkgActivity(activity.type),
                 ),
               if (reference != null)
                 _ActivityDetail(
@@ -452,6 +455,7 @@ Future<void> _showActivityDetails(
 class const _ActivityDetail({
   required final String label,
   required final String value,
+  final bool expandDkg = false,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
@@ -459,18 +463,18 @@ class const _ActivityDetail({
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label.toUpperCase(),
+        Text.rich(
+          spellOutDkg(label.toUpperCase()),
           style: TextStyle(
             color: AppColors.of(context).inkMuted,
             fontSize: 10,
-            fontWeight: FontWeight.w700,
+            fontWeight: label == 'DKG' ? FontWeight.w500 : FontWeight.w700,
             letterSpacing: 0.8,
           ),
         ),
         const SizedBox(height: 4),
-        SelectableText(
-          value,
+        SelectableText.rich(
+          expandDkg ? spellOutDkg(value) : TextSpan(text: value),
           style: TextStyle(color: AppColors.of(context).ink, fontSize: 13),
         ),
       ],
@@ -595,10 +599,15 @@ String _activityReference(WalletActivityType type, String value) {
   return '${_activityReferenceLabel(type)} ${_shortTransactionId(value)}';
 }
 
-String _activityReferenceLabel(WalletActivityType type) => switch (type) {
+bool _isDkgActivity(WalletActivityType type) => switch (type) {
   WalletActivityType.dkgStarted ||
   WalletActivityType.dkgCompleted ||
-  WalletActivityType.dkgFailed => 'DKG',
+  WalletActivityType.dkgFailed => true,
+  _ => false,
+};
+
+String _activityReferenceLabel(WalletActivityType type) => switch (type) {
+  _ when _isDkgActivity(type) => 'DKG',
   WalletActivityType.transactionSignatureRequested => 'Transaction request',
   WalletActivityType.transactionSigned ||
   WalletActivityType.transactionBroadcast ||

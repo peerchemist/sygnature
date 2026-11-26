@@ -32,6 +32,7 @@ import 'widgets/brand_mark.dart';
 import 'widgets/middle_ellipsis_text.dart';
 import 'widgets/selector_builder.dart';
 import 'widgets/share_qr_dialog.dart';
+import 'widgets/spell_out_dkg.dart';
 
 part 'wallet_home/activity.dart';
 part 'wallet_home/send_dialog.dart';
@@ -942,9 +943,11 @@ class _PendingRoastNotice extends StatelessWidget {
       border: Border.all(color: AppColors.of(context).warning),
       borderRadius: BorderRadius.circular(4),
     ),
-    child: const Text(
-      'Balance and receive address appear after every participant approves '
-      'the DKG ceremony and the shared key is stored.',
+    child: Text.rich(
+      spellOutDkg(
+        'Balance and receive address appear after every participant approves '
+        'the DKG ceremony and the shared key is stored.',
+      ),
     ),
   );
 }
