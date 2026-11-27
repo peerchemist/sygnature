@@ -489,18 +489,18 @@ packages:
     dependency: transitive
     description:
       name: iroh_flutter
-      sha256: "37b0c8c037546367fe6f25a520cef0679553c440046d5fd9d59107ecbf9db558"
+      sha256: "22f2bfe220b7a41987d997a21d3fff33d1d48f59e46c3f1d2826501487f253bb"
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.0"
+    version: "1.5.0"
   iroh_quic:
     dependency: "direct main"
     description:
       name: iroh_quic
-      sha256: "746fb3d61cbf48a8fb1578711f90c9dfc4e295ef582a53ecc94ec297ec5884d9"
+      sha256: c79bcf630081fce735e2518e0b9ea6b9bdf5caa27fe878e003f01ab1867ecbd1
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.0"
+    version: "1.5.0"
   isolate_channel:
     dependency: transitive
     description:
@@ -665,38 +665,38 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/noosphere_client"
-      ref: "0.7.1"
-      resolved-ref: "672f5814b8bdbd0a98d0c55d85bad648953ccd74"
+      ref: "0.7.2"
+      resolved-ref: "33318433a4fb10ca632066b8f5c4eef235048749"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.7.1"
+    version: "0.7.2"
   noosphere_flutter:
     dependency: "direct main"
     description:
       path: "packages/noosphere_flutter"
-      ref: "0.7.1"
-      resolved-ref: "672f5814b8bdbd0a98d0c55d85bad648953ccd74"
+      ref: "0.7.2"
+      resolved-ref: "33318433a4fb10ca632066b8f5c4eef235048749"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.7.1"
+    version: "0.7.2"
   noosphere_protocol:
     dependency: "direct main"
     description:
       path: "packages/noosphere_protocol"
-      ref: "0.7.1"
-      resolved-ref: "672f5814b8bdbd0a98d0c55d85bad648953ccd74"
+      ref: "0.7.2"
+      resolved-ref: "33318433a4fb10ca632066b8f5c4eef235048749"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.7.1"
+    version: "0.7.2"
   noosphere_server:
     dependency: "direct main"
     description:
       path: "packages/noosphere_server"
-      ref: "0.7.1"
-      resolved-ref: "672f5814b8bdbd0a98d0c55d85bad648953ccd74"
+      ref: "0.7.2"
+      resolved-ref: "33318433a4fb10ca632066b8f5c4eef235048749"
       url: "https://github.com/peerchemist/noosphere.git"
     source: git
-    version: "0.7.1"
+    version: "0.7.2"
   objective_c:
     dependency: transitive
     description:
