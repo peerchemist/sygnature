@@ -549,6 +549,8 @@ class _WalletDashboard extends StatelessWidget {
       onDelete: () => _confirmDeleteWallet(context, controller, account),
       onArchive: () => _confirmArchiveWallet(context, controller, account),
       onRename: () => _showRenameWallet(context, controller, account),
+      reconnectItem: () =>
+          RoastSetupPanel.reconnectMenuItem(context, controller, account),
       onExtendRecoveryScan: account.keySource != WalletKeySource.watchOnly
           ? () => _showExtendAddressScanDialog(context, controller, account)
           : null,
@@ -960,6 +962,7 @@ class _DashboardHeader extends StatelessWidget {
     required this.onDelete,
     required this.onArchive,
     required this.onRename,
+    required this.reconnectItem,
     this.onExtendRecoveryScan,
     this.publicFeedLabel = 'Public operation feed',
     this.onOpenPublicFeed,
@@ -974,6 +977,7 @@ class _DashboardHeader extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onArchive;
   final VoidCallback onRename;
+  final PopupMenuItem<String>? Function() reconnectItem;
   final VoidCallback? onExtendRecoveryScan;
   final String publicFeedLabel;
   final VoidCallback? onOpenPublicFeed;
@@ -1097,6 +1101,7 @@ class _DashboardHeader extends StatelessWidget {
                     ],
                   ),
                 ),
+                ?reconnectItem(),
                 if (onOpenPublicFeed != null)
                   PopupMenuItem(
                     key: const Key('open-public-feed'),

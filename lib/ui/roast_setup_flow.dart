@@ -673,32 +673,55 @@ class const RoastSetupPanel({
           ),
       ];
     }
-    if (setup.status == RoastSetupStatus.error ||
-        setup.status == RoastSetupStatus.interrupted ||
-        (setup.role == RoastSetupRole.member &&
-            setup.status == RoastSetupStatus.active)) {
-      return [
-        FilledButton.icon(
-          key: const Key('reconnect-roast-setup'),
-          onPressed: busy
-              ? null
-              : () => _perform(
-                  context,
-                  () => controller.reconnectRoastSetup(setup.id),
-                ),
-          icon: const Icon(Icons.refresh_rounded),
-          label: Text(
-            setup.role == RoastSetupRole.host
-                ? 'Reconnect coordinator'
-                : controller.roastCoordinatorState(setup.id) ==
-                      RoastCoordinatorLocalState.reconnecting
-                ? 'Retry now'
-                : 'Reconnect',
-          ),
-        ),
-      ];
-    }
     return const [];
+  }
+
+  static PopupMenuItem<String>? reconnectMenuItem(
+    BuildContext context,
+    WalletController controller,
+    WalletAccount account,
+  ) {
+    final setup = controller.setupForAccount(account);
+    if (setup == null ||
+        !(setup.status == RoastSetupStatus.error ||
+            setup.status == RoastSetupStatus.interrupted ||
+            (setup.role == RoastSetupRole.member &&
+                setup.status == RoastSetupStatus.active)) ||
+        setup.requiresBackupReconciliation ||
+        controller.roastCoordinatorRecovery(setup.id) != null ||
+        controller.recoverableBroadcastForSetup(setup.id) != null ||
+        setup.needsInvitationCreation) {
+      return null;
+    }
+    bool isBusy() =>
+        controller.roastOperationInProgress(setup.id) ||
+        controller.roastMessageSigningInProgress(setup.id);
+    final label = setup.role == RoastSetupRole.host
+        ? 'Reconnect coordinator'
+        : controller.roastCoordinatorState(setup.id) ==
+              RoastCoordinatorLocalState.reconnecting
+        ? 'Retry now'
+        : 'Reconnect';
+    return PopupMenuItem(
+      key: const Key('reconnect-roast-setup'),
+      enabled: !isBusy(),
+      onTap: () {
+        final currentSetup = controller.setupForAccount(account);
+        if (currentSetup?.id != setup.id ||
+            currentSetup?.status != setup.status ||
+            isBusy()) {
+          return;
+        }
+        _perform(context, () => controller.reconnectRoastSetup(setup.id));
+      },
+      child: Row(
+        children: [
+          const Icon(Icons.refresh_rounded),
+          const SizedBox(width: 10),
+          Flexible(child: Text(label)),
+        ],
+      ),
+    );
   }
 
   Future<void> _scanAndJoin(BuildContext context, RoastSetup setup) async {
